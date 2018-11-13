@@ -1,21 +1,26 @@
-class Realm < ActiveRecord::Base
+class Realm < ApplicationRecord
+  audited
   include Authorizable
   extend FriendlyId
   friendly_id :name
   include Taxonomix
+  include BelongsToProxies
 
   TYPES = ["FreeIPA", "Active Directory"]
 
   validates_lengths_from_database
-  attr_accessible :name, :realm_type, :realm_proxy_id, :realm_proxy
-  audited :allow_mass_assignment => true, :except => [:hosts_count, :hostgroups_count]
   before_destroy EnsureNotUsedBy.new(:hosts, :hostgroups)
 
-  belongs_to :realm_proxy, :class_name => "SmartProxy"
+  belongs_to_proxy :realm_proxy,
+    :feature => 'Realm',
+    :label => N_('Realm proxy'),
+    :description => N_('Realm proxy to use within this realm'),
+    :api_description => N_('Proxy ID to use within this realm'),
+    :required => true
+
   has_many_hosts
   has_many :hostgroups
 
-  scoped_search :on => :hosts_count
   scoped_search :on => :name, :complete_value => true
   scoped_search :on => :realm_type, :complete_value => true, :rename => :type
 

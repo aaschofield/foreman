@@ -6,7 +6,7 @@ module CommonParametersHelper
   end
 
   def parameters_title
-    _("Parameters that would be associated with hosts in this %s") % (type)
+    _("Parameters that would be associated with hosts in this %s") % type
   end
 
   def parameter_value_field(value)
@@ -16,6 +16,36 @@ module CommonParametersHelper
   end
 
   def parameter_value_content(id, value, options)
+    content_tag(:span, options[:popover], :class => "input-group-addon") + lookup_key_field(id, value, options)
+  end
+
+  def omit_help
+    popover(nil, omit_help_body, :title => omit_help_title)
+  end
+
+  def omit_help_title
+    _("Omit parameter from classification")
+  end
+
+  def omit_help_body
+    _("Foreman will not send this parameter in classification output.")
+  end
+
+  def hidden_value_field(f, field, disabled, options = {})
+    hidden = options.delete(:hidden_value) || f.object.hidden_value?
+    html_class = "form-control no-stretch"
+    html_class += " masked-input" if hidden
+
+    input = f.text_area(field, options.merge(:disabled => disabled,
+                                             :class => html_class,
+                                             :rows => 1,
+                                             :id => dom_id(f.object) + '_value',
+                                             :placeholder => _("Value")))
+
+    input_group(input, input_group_btn(hidden_toggle(f.object.hidden_value?), fullscreen_button("$(this).closest('.input-group').find('input,textarea')")))
+  end
+
+  def lookup_key_field(id, value, options)
     lookup_key = options[:lookup_key]
 
     option_hash = { :rows => 1,
@@ -26,29 +56,23 @@ module CommonParametersHelper
                     :name => options[:name].to_s,
                     :disabled => options[:disabled] }
 
-    if lookup_key.present? && lookup_key.hidden_value?
-      field = password_field_tag(id, value, option_hash)
-    else
-      field = text_area_tag(id, value, option_hash)
-    end
+    option_hash[:class] += " masked-input" if lookup_key.present? && options[:lookup_key_hidden_value?]
 
-    content_tag(:span, options[:popover], :class => "input-group-addon") + field
+    case options[:lookup_key_type]
+    when "boolean"
+      select_tag(id, options_for_select(['true', 'false'], value), option_hash)
+    when "integer", "real"
+      number_field_tag(id, value, option_hash)
+    else
+      text_area_tag(id, value, option_hash)
+    end
   end
 
-  def use_puppet_default_help link_title = nil, title = _("Use Puppet default")
-    popover(link_title, _("Do not send this parameter via the ENC.<br>Puppet will use the value defined in the manifest."), :title => title)
-  end
-
-  def hidden_value_field(f, field, value, disabled, options = {})
-    hidden = options.delete(:hidden_value)
-    if hidden || f.object.hidden_value?
-      input = f.password_field(field, :disabled => disabled, :value => value, :class => 'form-control no-stretch')
-    else
-      input = f.text_area(field, options.merge(:disabled => disabled,
-                                               :class => "form-control no-stretch",
-                                               :rows => 1,
-                                               :placeholder => _("Value")))
-    end
-    input_group(input, input_group_btn(hidden_toggle(f.object.hidden_value?), fullscreen_button("$(this).closest('.input-group').find('input,textarea')")))
+  def authorized_resource_parameters(resource, type)
+    parameters_by_type = resource.send(type)
+    parameter_ids_to_view = parameters_by_type.authorized(:view_params).map(&:id)
+    resource_parameters = parameters_by_type.select { |p| parameter_ids_to_view.include?(p.id) }
+    resource_parameters += parameters_by_type.select(&:new_record?)
+    resource_parameters
   end
 end

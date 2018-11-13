@@ -1,9 +1,8 @@
-class HostClass < ActiveRecord::Base
+class HostClass < ApplicationRecord
+  audited :associated_with => :host
   include Authorizable
-  include PuppetclassTotalHosts::JoinTable
 
   validates_lengths_from_database
-  audited :associated_with => :host, :allow_mass_assignment => true
   belongs_to_host
   belongs_to :puppetclass
 
@@ -11,5 +10,9 @@ class HostClass < ActiveRecord::Base
 
   def name
     "#{host} - #{puppetclass}"
+  end
+
+  def check_permissions_after_save
+    true
   end
 end

@@ -1,4 +1,4 @@
-class ChangeBookmarkColumnToText < ActiveRecord::Migration
+class ChangeBookmarkColumnToText < ActiveRecord::Migration[4.2]
   def up
     change_column 'bookmarks', :query, :text
   end
@@ -7,4 +7,3 @@ class ChangeBookmarkColumnToText < ActiveRecord::Migration
     change_column 'bookmarks', :query, :string
   end
 end
-

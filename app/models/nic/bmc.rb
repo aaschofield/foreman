@@ -1,6 +1,6 @@
 module Nic
   class BMC < Managed
-    PROVIDERS = %w(IPMI)
+    PROVIDERS = %w(IPMI SSH)
     before_validation :ensure_physical
     before_validation { |nic| nic.provider.try(:upcase!) }
     validates :provider, :presence => true, :inclusion => { :in => PROVIDERS }
@@ -12,7 +12,7 @@ module Nic
     end
     alias_method :virtual?, :virtual
 
-    register_to_enc_transformation :type, ->(type) { type.constantize.humanized_name }
+    attr_exportable :provider, :username, :password
 
     def proxy
       proxy = bmc_proxy
@@ -20,11 +20,20 @@ module Nic
       ProxyAPI::BMC.new({ :host_ip  => ip,
                           :url      => proxy.url,
                           :user     => username,
-                          :password => password })
+                          :password => password_unredacted })
     end
 
     def self.humanized_name
       N_('BMC')
+    end
+
+    class Jail < Nic::Managed::Jail
+      allow :provider, :username, :password
+    end
+
+    alias_method :password_unredacted, :password
+    def password
+      Setting[:bmc_credentials_accessible] ? password_unredacted : nil
     end
 
     private
@@ -33,12 +42,6 @@ module Nic
       self.virtual = false
       true # don't stop validation chain
     end
-
-    def enc_attributes
-      @enc_attributes ||= (super + %w(username password provider))
-    end
-
-    private
 
     def bmc_proxy
       if subnet.present?

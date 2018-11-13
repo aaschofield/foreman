@@ -3,17 +3,15 @@ module ValidateOsFamily
 
   module ClassMethods
     def validate_inclusion_in_families(family_attr_name)
-      if attribute_names.include? family_attr_name.to_s
-        validates family_attr_name,
-          :inclusion => {
-            :in => Operatingsystem.families,
-            :message => N_("must be one of [ %s ]" % Operatingsystem.families.join(", "))
-          },
-          :allow_nil => true
-      end
+      validates family_attr_name,
+        :inclusion => {
+          :in => Operatingsystem.families,
+          :message => N_("must be one of [ %s ]" % Operatingsystem.families.join(", "))
+        },
+        :allow_nil => true
 
       define_method "#{family_attr_name}=" do |value|
-        write_attribute(family_attr_name, value.blank? ? nil : value)
+        self[family_attr_name] = value.presence
       end
     end
   end

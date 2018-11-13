@@ -1,14 +1,14 @@
 module Api
   module V2
     class OsDefaultTemplatesController < V2::BaseController
-      wrap_parameters OsDefaultTemplate, :include => (OsDefaultTemplate.attribute_names + ['config_template_id'])
-
       include Api::Version2
-      include Api::TaxonomyScope
+      include Foreman::Controller::Parameters::OsDefaultTemplate
 
-      before_filter :rename_config_template
-      before_filter :find_required_nested_object
-      before_filter :find_resource, :only => %w{show update destroy}
+      wrap_parameters OsDefaultTemplate, :include => (os_default_template_params_filter.accessible_attributes(parameter_filter_context) + ['config_template_id'])
+
+      before_action :rename_config_template
+      before_action :find_required_nested_object
+      before_action :find_resource, :only => %w{show update destroy}
 
       api :GET, '/operatingsystems/:operatingsystem_id/os_default_templates', N_('List default templates combinations for an operating system')
       api :GET, '/config_templates/:config_template_id/os_default_templates', N_('List operating systems where this template is set as a default')
@@ -42,7 +42,7 @@ module Api
       param_group :os_default_template, :as => :create
 
       def create
-        @os_default_template = nested_obj.os_default_templates.new(params[:os_default_template])
+        @os_default_template = nested_obj.os_default_templates.new(os_default_template_params)
         process_response @os_default_template.save
       end
 
@@ -52,7 +52,7 @@ module Api
       param_group :os_default_template
 
       def update
-        process_response @os_default_template.update_attributes(params[:os_default_template])
+        process_response @os_default_template.update(os_default_template_params)
       end
 
       api :DELETE, "/operatingsystems/:operatingsystem_id/os_default_templates/:id", N_("Delete a default template combination for an operating system")

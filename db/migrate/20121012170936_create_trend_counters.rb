@@ -1,10 +1,10 @@
-class CreateTrendCounters < ActiveRecord::Migration
+class CreateTrendCounters < ActiveRecord::Migration[4.2]
   def up
     create_table :trend_counters do |t|
       t.integer :trend_id
       t.integer :count
 
-      t.timestamps
+      t.timestamps null: true
     end
     add_index :trend_counters, :trend_id
   end

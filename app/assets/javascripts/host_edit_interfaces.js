@@ -1,4 +1,7 @@
-
+$(document).ready(function() {
+  $('#host_name').select();
+  $('#host_name').focus();
+})
 
 function remove_interface(interface_id) {
   $('#interface'+interface_id).remove();
@@ -24,11 +27,11 @@ function show_interface_modal(modal_content) {
 
   modal_window.find('.modal-body').html('');
   modal_window.find('.modal-body').append(modal_content.contents());
-  modal_window.find('.modal-title').html(__('Interface') + ' ' + String(identifier));
+  modal_window.find('.modal-title').text(__('Interface') + ' ' + String(identifier));
   modal_window.modal({'show': true});
 
   modal_window.find('a[rel="popover-modal"]').popover();
-  modal_window.find('select:not(.without_select2)').select2({ allowClear: true });
+  activate_select2(modal_window);
 }
 
 function save_interface_modal() {
@@ -155,9 +158,10 @@ function update_interface_row(row, interface_form) {
   type += '</div>'
   row.find('.type').html(type);
 
-  row.find('.identifier').html(interface_form.find('.interface_identifier').val());
-  row.find('.mac').html(interface_form.find('.interface_mac').val());
-  row.find('.ip').html(interface_form.find('.interface_ip').val());
+  row.find('.identifier').text(interface_form.find('.interface_identifier').val());
+  row.find('.mac').text(interface_form.find('.interface_mac').val());
+  row.find('.ip').text(interface_form.find('.interface_ip').val());
+  row.find('.ip6').text(interface_form.find('.interface_ip6').val());
 
   var flags = '', primary_class = '', provision_class = '';
   if (interface_form.find('.interface_primary').is(':checked'))
@@ -167,16 +171,16 @@ function update_interface_row(row, interface_form) {
     provision_class = 'active'
 
   if (primary_class == '' && provision_class == '')
-    row.find('.removeInterface').removeClass('disabled');
+    row.find('.removeInterface').removeAttr('disabled');
   else
-    row.find('.removeInterface').addClass('disabled');
+    row.find('.removeInterface').attr('disabled', 'disabled');
 
   flags += '<i class="glyphicon glyphicon glyphicon-tag primary-flag '+ primary_class +'" title="" data-original-title="'+ __('Primary') +'"></i>';
   flags += '<i class="glyphicon glyphicon glyphicon-hdd provision-flag '+ provision_class +'" title="" data-original-title="'+ __('Provisioning') +'"></i>';
 
   row.find('.flags').html(flags);
 
-  row.find('.fqdn').html(fqdn(
+  row.find('.fqdn').text(fqdn(
     interface_form.find('.interface_name').val(),
     interface_form.find('.interface_domain option:selected').text()
   ));
@@ -277,12 +281,12 @@ var providerSpecificNICInfo = null;
 function nic_info(form) {
   var info = "";
   var virtual_types = ['Nic::Bond', 'Nic::Bridge']
-  if (form.find('.virtual').is(':checked') || virtual_types.indexOf(form.find('.interface_type').val()) >= 0) {
+  if (form.find('.virtual').is(':checked') || virtual_types.indexOf(form.find('select.interface_type').val()) >= 0) {
 
     // common virtual
     var attached = form.find('.attached').val();
     if (attached != "")
-      info = Jed.sprintf(__("virtual attached to %s"), attached);
+      info = tfm.i18n.sprintf(__("virtual attached to %s"), attached);
     else
       info = __("virtual");
 
@@ -313,10 +317,28 @@ $(document).on('change', '.virtual', function () {
 function update_fqdn() {
   var host_name = $('#host_name').val();
   var domain_name = primary_nic_form().find('.interface_domain option:selected').text();
-
+  var pathname = window.location.pathname;
   var name = fqdn(host_name, domain_name)
-  if (name.length > 0)
-    name = "| " + name
-
-  $('#hostFQDN').text(name);
+  if (name.length > 0 && pathname === '/hosts/new') {
+    name = __("Create Host") + " | " + name
+    tfm.breadcrumbs.updateTitle(name);
+  }
 }
+
+$(document).on('change', '.interface_mac', function (event) {
+  if (event.target.id == $('#interfaceModal').find('.interface_mac').attr('id')) {
+    var interface = $('#interfaceModal').find('.interface_mac');
+    var mac = interface.val();
+    var baseurl = interface.attr('data-url');
+    $.ajax({
+      type: "GET",
+      url: baseurl + '?mac=' + mac,
+      success: function(response, status, xhr) {
+        if ($('#host_name').val() == '')
+          $('#host_name').val(response.name);
+        if ($('#interfaceModal').find('.interface_name').val() == '')
+          $('#interfaceModal').find('.interface_name').val(response.name);
+      }
+    });
+  }
+});

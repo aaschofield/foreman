@@ -15,8 +15,8 @@ class TimedCachedStore < ActiveSupport::Cache::MemoryStore
   end
 
   def write(name, value, options = nil)
-    if options and options[:expires_in]
-      time                  = Time.now
+    if options && options[:expires_in]
+      time                  = Time.now.utc
       ttl                   = time + options[:expires_in].to_i
       @data[ts_field(name)] = { :created_at => time, :expires_at => ttl }
     end
@@ -25,7 +25,7 @@ class TimedCachedStore < ActiveSupport::Cache::MemoryStore
 
   def delete_all_expired
     @data.keys.each do |key|
-      delete_if_expired($1) if key =~ /(\w+)_timestamp/
+      delete_if_expired(Regexp.last_match(1)) if key =~ /(\w+)_timestamp/
     end
   end
 
@@ -42,7 +42,7 @@ class TimedCachedStore < ActiveSupport::Cache::MemoryStore
 
   def expired?(name)
     ts = @data[ts_field(name)]
-    ts and (Time.now >= ts[:expires_at])
+    ts && (Time.now.utc >= ts[:expires_at])
   rescue
     false
   end

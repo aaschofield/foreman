@@ -2,16 +2,8 @@ object @host
 
 extends "api/v2/hosts/main"
 
-child :host_parameters => :parameters do
-  extends "api/v2/parameters/base"
-end
-
-node do |host|
-  { :all_parameters => partial("api/v2/parameters/base", :object => host.host_params_objects) }
-end
-
 child :interfaces => :interfaces do
-  extends "api/v2/interfaces/base"
+  extends "api/v2/interfaces/main"
 end
 
 child :puppetclasses do
@@ -26,8 +18,15 @@ child :config_groups do
   extends "api/v2/config_groups/main"
 end
 
-@host.facets_with_definitions.each do |_facet, definition|
+root_object.facets_with_definitions.each do |_facet, definition|
   node do
-    partial(definition.api_single_view, :object => @host) if definition.api_single_view
+    partial(definition.api_single_view, :object => root_object) if definition.api_single_view
+  end
+end
+
+node :permissions do |host|
+  authorizer = Authorizer.new(User.current)
+  Permission.where(:resource_type => "Host").all.each_with_object({}) do |permission, hash|
+    hash[permission.name] = authorizer.can?(permission.name, host, false)
   end
 end

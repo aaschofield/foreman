@@ -1,11 +1,11 @@
-<%= javascript "jquery.cookie", "host_checkbox" %>
+<%= javascript "host_checkbox" %>
 <% assign_selected_hosts_taxonomy_path = (@taxonomy_type == "Location") ? assign_selected_hosts_location_path : assign_selected_hosts_organization_path %>
 <%= form_for taxonomy, :url => assign_selected_hosts_taxonomy_path, :method => 'PUT' do |f| %>
   <%= base_errors_for taxonomy %>
   <%= wizard_header 3, _("Create %s") % taxonomy.class.name, _("Select Hosts"), _("Assign Selected Hosts") %>
   <div class="row">
     <div class="col-md-11">
-      <table class="table table-bordered table-striped" >
+      <table class="<%= table_css_classes %>" >
         <thead>
           <tr>
             <th class="ca"><%= check_box_tag "check_all", "", false, { :onclick => "toggleCheck()", :title => _("Select All") } %></th>
@@ -26,7 +26,7 @@
               </td>
               <td class="hidden-xs"><%= (icon(host.operatingsystem, :size => "18x18") + trunc_with_tooltip(" #{host.operatingsystem.to_label}",14)).html_safe if host.operatingsystem %></td>
               <td class="hidden-xs"><%= trunc_with_tooltip(host.try(:environment), 14) %></td>
-              <td class="hidden-tablet hidden-xs"><%= model_name host %></td>
+              <td class="hidden-tablet hidden-xs"><%= host.compute_resource_or_model %></td>
               <td class="hidden-tablet hidden-xs"><%= label_with_link host.hostgroup, 26 %></td>
             </tr>
           <% end %>

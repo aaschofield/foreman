@@ -1,10 +1,13 @@
 module Api
   module V2
     class ComputeProfilesController < V2::BaseController
-      before_filter :find_resource, :only => [:show, :update, :destroy]
+      include Foreman::Controller::Parameters::ComputeProfile
+
+      before_action :find_resource, :only => [:show, :update, :destroy]
 
       api :GET, "/compute_profiles", N_("List of compute profiles")
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(ComputeProfile)
 
       def index
         @compute_profiles = resource_scope_for_index
@@ -26,7 +29,7 @@ module Api
       param_group :compute_profile, :as => :create
 
       def create
-        @compute_profile = ComputeProfile.new(params[:compute_profile])
+        @compute_profile = ComputeProfile.new(compute_profile_params)
         process_response @compute_profile.save
       end
 
@@ -35,7 +38,7 @@ module Api
       param_group :compute_profile
 
       def update
-        process_response @compute_profile.update_attributes(params[:compute_profile])
+        process_response @compute_profile.update(compute_profile_params)
       end
 
       api :DELETE, "/compute_profiles/:id/", N_("Delete a compute profile")
@@ -47,5 +50,3 @@ module Api
     end
   end
 end
-
-

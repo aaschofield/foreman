@@ -1,17 +1,19 @@
 class ComputeResourcesController < ApplicationController
   include Foreman::Controller::AutoCompleteSearch
-  AJAX_REQUESTS = [:template_selected, :cluster_selected, :resource_pools]
-  before_filter :ajax_request, :only => AJAX_REQUESTS
-  before_filter :find_resource, :only => [:show, :edit, :associate, :update, :destroy, :ping] + AJAX_REQUESTS
+  include Foreman::Controller::Parameters::ComputeResource
 
-  #This can happen in development when removing a plugin
+  AJAX_REQUESTS = [:template_selected, :instance_type_selected, :cluster_selected, :resource_pools]
+  before_action :ajax_request, :only => AJAX_REQUESTS
+  before_action :find_resource, :only => [:show, :edit, :associate, :update, :destroy, :ping, :refresh_cache] + AJAX_REQUESTS
+
+  # This can happen in development when removing a plugin
   rescue_from ActiveRecord::SubclassNotFound do |e|
-    type = (e.to_s =~ /failed to locate the subclass: '((\w|::)+)'/) ? $1 : 'STI-Type'
-    render :text => (e.to_s+"<br><b>run ComputeResource.delete_all(:type=>'#{type}') to recover.</b>").html_safe, :status=> :internal_server_error
+    type = (e.to_s =~ /failed to locate the subclass: '((\w|::)+)'/) ? Regexp.last_match(1) : 'STI-Type'
+    render :plain => (e.to_s + "<br><b>run ComputeResource.where(:type=>'#{type}').delete_all to recover.</b>").html_safe, :status => :internal_server_error
   end
 
   def index
-    @compute_resources = resource_base.live_descendants.search_for(params[:search], :order => params[:order]).paginate :page => params[:page]
+    @compute_resources = resource_base_search_and_page.live_descendants
   end
 
   def new
@@ -22,45 +24,62 @@ class ComputeResourcesController < ApplicationController
   end
 
   def create
-    if params[:compute_resource].present? && params[:compute_resource][:provider].present?
-      @compute_resource = ComputeResource.new_provider params[:compute_resource]
+    if params[:compute_resource].present? && compute_resource_params[:provider].present?
+      @compute_resource = ComputeResource.new_provider compute_resource_params
       if @compute_resource.save
         process_success :success_redirect => @compute_resource
       else
         process_error
       end
     else
-      @compute_resource = ComputeResource.new params[:compute_resource]
+      @compute_resource = ComputeResource.new compute_resource_params
       @compute_resource.valid?
       process_error
     end
+  rescue Fog::Errors::Error => e
+    Foreman::Logging.exception("Error while creating a resource", e)
+    process_error(
+      error_msg: _('Error while trying to create resource: %s') % e.message
+    )
   end
 
   def edit
   end
 
   def associate
-    count = 0
-    if @compute_resource.respond_to?(:associated_host)
-      @compute_resource.vms(:eager_loading => true).each do |vm|
-        if Host.for_vm(@compute_resource, vm).empty?
-          host = @compute_resource.associated_host(vm)
-          if host.present?
-            host.associate!(@compute_resource, vm)
-            count += 1
-          end
-        end
+    if @compute_resource.supports_host_association?
+      associator = ComputeResourceHostAssociator.new(@compute_resource)
+      associator.associate_hosts
+      messages = []
+      if associator.hosts.empty?
+        messages << _('No VMs matched any host.')
+      else
+        messages << n_('%s VM was associated to a host.', '%s VMs were each associated to hosts.', associator.hosts.count) % associator.hosts.count
       end
+      if associator.fail_count > 0
+        messages << n_('%s VM failed while processing: check logs for more details.',
+                       '%s VMs failed while processing: check logs for more details.',
+                       associator.fail_count) % associator.fail_count
+        process_error(:error_msg => messages.join(' '))
+      else
+        process_success(:success_msg => messages.join(' '))
+      end
+    else
+      process_error(:error_msg => 'Associating VMs is not supported for this compute resource.')
     end
-    process_success(:success_msg => n_("%s VM associated to a host", "%s VMs associated to hosts", count) % count)
   end
 
   def update
-    if @compute_resource.update_attributes(params[:compute_resource])
+    if @compute_resource.update(compute_resource_params)
       process_success :success_redirect => compute_resources_path
     else
       process_error
     end
+  rescue Fog::Errors::Error => e
+    Foreman::Logging.exception("Error while updating resource", e)
+    process_error(
+      error_msg: _('Error while trying to update resource: %s') % e.message
+    )
   end
 
   def destroy
@@ -71,7 +90,21 @@ class ComputeResourcesController < ApplicationController
     end
   end
 
-  #ajax methods
+  def refresh_cache
+    if @compute_resource.respond_to?(:refresh_cache) && @compute_resource.refresh_cache
+      process_success(
+        :success_msg => _('Successfully refreshed the cache.'),
+        :success_redirect => @compute_resource
+      )
+    else
+      process_error(
+        :error_msg => _('Failed to refresh the cache.'),
+        :redirect => @compute_resource
+      )
+    end
+  end
+
+  # ajax methods
   def provider_selected
     @compute_resource = ComputeResource.new_provider :provider => params[:provider]
     render :partial => "compute_resources/form", :locals => { :compute_resource => @compute_resource }
@@ -85,13 +118,11 @@ class ComputeResourcesController < ApplicationController
 
   def test_connection
     # cr_id is posted from AJAX function. cr_id is nil if new
-    Rails.logger.info "CR_ID IS #{params[:cr_id]}"
-    if params[:cr_id].present? && params[:cr_id] != 'null'
+    if params[:cr_id].present?
       @compute_resource = ComputeResource.authorized(:edit_compute_resources).find(params[:cr_id])
-      params[:compute_resource].delete(:password) if params[:compute_resource][:password].blank?
-      @compute_resource.attributes = params[:compute_resource]
+      @compute_resource.attributes = compute_resource_params.reject { |k, v| k == :password && v.blank? }
     else
-      @compute_resource = ComputeResource.new_provider(params[:compute_resource])
+      @compute_resource = ComputeResource.new_provider(compute_resource_params)
     end
     @compute_resource.test_connection :force => true
     render :partial => "compute_resources/form", :locals => { :compute_resource => @compute_resource }
@@ -99,6 +130,13 @@ class ComputeResourcesController < ApplicationController
 
   def template_selected
     compute = @compute_resource.template(params[:template_id])
+    respond_to do |format|
+      format.json { render :json => compute }
+    end
+  end
+
+  def instance_type_selected
+    compute = @compute_resource.instance_type(params[:instance_type_id])
     respond_to do |format|
       format.json { render :json => compute }
     end
@@ -125,7 +163,7 @@ class ComputeResourcesController < ApplicationController
     case params[:action]
       when 'associate'
         'edit'
-      when 'ping', 'template_selected', 'cluster_selected', 'resource_pools'
+      when 'ping', 'template_selected', 'instance_type_selected', 'cluster_selected', 'resource_pools', 'refresh_cache'
         'view'
       else
         super

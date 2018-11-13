@@ -1,12 +1,11 @@
-class Token < ActiveRecord::Base
-  attr_accessible :value, :expires
+class Token < ApplicationRecord
   validates_lengths_from_database
   belongs_to_host :foreign_key => :host_id
 
-  validates :value, :host_id, :expires, :presence => true
+  validates :value, :host_id, :presence => true
 
   class Jail < ::Safemode::Jail
-    allow :host, :value, :expires, :nil?
+    allow :host, :value, :expires, :nil?, :present?
   end
 
   def to_s

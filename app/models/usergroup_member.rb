@@ -1,5 +1,25 @@
-class UsergroupMember < ActiveRecord::Base
+class UsergroupMember < ApplicationRecord
+  # the belongs to would apply default scope limiting the search by taxonomies but we need to delete
+  # all members, regardless of their taxonomies
+  #
+  # we can't use custom scope definition in belongs_to because it's polymorphic, unscope(:where) would reset
+  # the member_type condition so we need to override how we search for members
+  module OverrideMemberAssociation
+    def member
+      case member_type
+        when 'User'
+          User.unscoped { super }
+        when 'Usergroup'
+          Usergroup.unscoped { super }
+        else
+          raise ArgumentError, "Unknown member type #{member_type}"
+      end
+    end
+  end
+
   belongs_to :member, :polymorphic => true
+  prepend OverrideMemberAssociation
+
   belongs_to :usergroup
 
   before_validation :ensure_no_cycle
@@ -32,12 +52,26 @@ class UsergroupMember < ActiveRecord::Base
 
   def remove_old_cache_for_old_record
     klass = member_type_changed? ? self.member_type_was.constantize : self.member_type.constantize
-    users = member_id_changed? ? find_all_affected_users_for(klass.find(member_id_was)).flatten : find_all_affected_users
-    roles = usergroup_id_changed? ? find_all_user_roles_for(Usergroup.find(usergroup_id_was)).flatten : find_all_user_roles
+    users = if member_id_changed?
+              find_all_affected_users_for(klass.unscoped.find(member_id_was)).flatten
+            else
+              find_all_affected_users
+            end
+
+    roles = if usergroup_id_changed?
+              find_all_user_roles_for(Usergroup.unscoped.find(usergroup_id_was)).flatten
+            else
+              find_all_user_roles
+            end
 
     drop_role_cache(users, roles)
 
-    groups = usergroup_id_changed? ? find_all_usergroups_for(Usergroup.find(usergroup_id_was)).flatten : find_all_usergroups
+    groups = if usergroup_id_changed?
+               find_all_usergroups_for(Usergroup.unscoped.find(usergroup_id_was)).flatten
+             else
+               find_all_usergroups
+             end
+
     drop_group_cache(users, groups)
   end
 
@@ -64,7 +98,7 @@ class UsergroupMember < ActiveRecord::Base
   end
 
   def find_all_affected_users
-    find_all_affected_users_for(member).flatten.uniq
+    find_all_affected_users_for(member_type.constantize.unscoped.find(member_id)).flatten.uniq
   end
 
   def find_all_affected_users_for(member)
@@ -100,7 +134,7 @@ class UsergroupMember < ActiveRecord::Base
   end
 
   def find_all_user_roles_for(usergroup)
-    (UserRole.where(:owner => usergroup )+ usergroup.parents.map { |g| find_all_user_roles_for(g) }).flatten
+    (UserRole.where(:owner => usergroup) + usergroup.parents.map { |g| find_all_user_roles_for(g) }).flatten
   end
 
   def find_all_usergroups

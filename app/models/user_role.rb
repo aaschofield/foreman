@@ -15,7 +15,9 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-class UserRole < ActiveRecord::Base
+class UserRole < ApplicationRecord
+  include TopbarCacheExpiry
+
   belongs_to :owner, :polymorphic => true
   belongs_to :role
 
@@ -26,7 +28,10 @@ class UserRole < ActiveRecord::Base
                                        :message => N_("has this role already")},
                                        :unless => -> {owner.blank?}
 
-  delegate :expire_topbar_cache, :to => :owner
+  # if we trigger cache clean up by deleting the user, the owner relation target
+  # does not work since taxable_taxonomy record is already deleted, in this case
+  # we can ignore expiration since it was expired on User already
+  delegate :expire_topbar_cache, :to => :owner, :allow_nil => true
 
   def user_role?
     self.owner_type == 'User'
@@ -59,7 +64,7 @@ class UserRole < ActiveRecord::Base
   end
 
   def build_user_role_cache
-    [ self.cached_user_roles.build(:user_id => owner.id, :role_id => role.id) ]
+    [ self.cached_user_roles.build(:user_id => owner_id, :role_id => role_id) ]
   end
 
   def build_user_group_role_cache(owner)

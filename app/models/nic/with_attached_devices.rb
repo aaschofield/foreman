@@ -1,15 +1,14 @@
 module Nic::WithAttachedDevices
   extend ActiveSupport::Concern
+  include Exportable
 
   SEPARATOR = ','
   included do
-    alias_method_chain :enc_attributes, :attached_devices
     validates :attached_devices, :format => { :with => /\A[a-z0-9#{SEPARATOR}.:_-]+\Z/ }, :allow_blank => true
     validates :identifier, :presence => true, :if => :managed?
 
     before_validation :ensure_virtual
-
-    register_to_enc_transformation :type, ->(type) { type.constantize.humanized_name }
+    attr_exportable :attached_devices
   end
 
   def virtual
@@ -26,6 +25,10 @@ module Nic::WithAttachedDevices
     attached_devices.split(SEPARATOR)
   end
 
+  def children_mac_addresses
+    attached_devices_objects.map(&:mac)
+  end
+
   def add_device(identifier)
     self.attached_devices = attached_devices_identifiers.push(identifier).uniq.join(SEPARATOR)
   end
@@ -34,13 +37,13 @@ module Nic::WithAttachedDevices
     self.attached_devices = attached_devices_identifiers.tap { |a| a.delete(identifier) }.join(SEPARATOR)
   end
 
+  def attached_devices_objects
+    self.host.interfaces.select { |i| self.attached_devices_identifiers.include?(i.identifier) }
+  end
+
   private
 
   def ensure_virtual
     self.virtual = true
-  end
-
-  def enc_attributes_with_attached_devices
-    @enc_attributes = enc_attributes_without_attached_devices + ['attached_devices']
   end
 end

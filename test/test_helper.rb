@@ -1,389 +1,170 @@
 require 'rubygems'
-require 'spork'
 
-require 'simplecov'
-SimpleCov.start 'rails' do
-  add_group 'API', 'app/controllers/api'
-end
+ENV["RAILS_ENV"] = "test"
+require 'minitest/mock'
+require File.expand_path('../config/environment', __dir__)
+require 'rails/test_help'
+require 'mocha/minitest'
+require 'factory_bot_rails'
+require 'controllers/shared/basic_rest_response_test'
+require 'facet_test_helper'
+require 'active_support_test_case_helper'
+require 'fact_importer_test_helper'
+require 'rfauxfactory'
+require 'webmock/minitest'
+require 'webmock'
+require 'robottelo/reporter/attributes'
 
-Spork.prefork do
-  # Loading more in this block will cause your tests to run faster. However,
-  # if you change any configuration or code from libraries loaded here, you'll
-  # need to restart spork for it take effect.
+# Do not allow network connections and external processes
+WebMock.disable_net_connect!(allow_localhost: true)
 
-  # Remove previous test log to speed tests up
-  # Comment out these lines to enable test logging
-  test_log = File.expand_path('../../log/test.log', __FILE__)
-  FileUtils.rm(test_log) if File.exist?(test_log)
-
-  ENV["RAILS_ENV"] = "test"
-  require File.expand_path('../../config/environment', __FILE__)
-  require 'rails/test_help'
-  require "minitest/autorun"
-  require 'capybara/rails'
-  require 'factory_girl_rails'
-  require 'capybara/poltergeist'
-  require 'functional/shared/basic_rest_response_test'
-
-  Capybara.register_driver :poltergeist do |app|
-    opts = {
-      # To enable debugging uncomment `:inspector => true` and
-      # add `page.driver.debug` in code to open webkit inspector
-      # :inspector => true
-      :js_errors => true,
-      :timeout => 60,
-      #disable animations to speed up the tests
-      :extensions => ["#{Rails.root}/test/integration/support/disable_animations.js"],
-    }
-    Capybara::Poltergeist::Driver.new(app, opts)
-  end
-  Capybara.default_max_wait_time = 30
-
-  Capybara.javascript_driver = :poltergeist
-
-  # Use our custom test runner, and register a fake plugin to skip a specific test
-  Foreman::Plugin.register :skip_test do
-    tests_to_skip "CustomRunnerTest" => [ "custom runner is working" ]
-  end
-
-  # Turn of Apipie validation for tests
-  Apipie.configuration.validate = false
-
-  # To prevent Postgres' errors "permission denied: "RI_ConstraintTrigger"
-  if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-    ActiveRecord::Migration.execute "SET CONSTRAINTS ALL DEFERRED;"
-  end
-
-  class ActiveSupport::TestCase
-    # Setup all fixtures in test/fixtures/*.(yml|csv) for all tests in alphabetical order.
-    # Note: You'll currently still have to declare fixtures explicitly in integration tests
-    # -- they do not yet inherit this setting
-    fixtures :all
-    set_fixture_class({ :hosts => Host::Base })
-    set_fixture_class :nics => Nic::BMC
-
-    setup :begin_gc_deferment
-    setup :reset_setting_cache
-    setup :skip_if_plugin_asked_to
-
-    teardown :reconsider_gc_deferment
-    teardown :clear_current_user
-    teardown :reset_setting_cache
-
-    DEFERRED_GC_THRESHOLD = (ENV['DEFER_GC'] || 1.0).to_f
-
-    @@last_gc_run = Time.now
-
-    def begin_gc_deferment
-      GC.disable if DEFERRED_GC_THRESHOLD > 0
-    end
-
-    def reconsider_gc_deferment
-      if DEFERRED_GC_THRESHOLD > 0 && Time.now - @@last_gc_run >= DEFERRED_GC_THRESHOLD
-        GC.enable
-        GC.start
-        GC.disable
-
-        @@last_gc_run = Time.now
-      end
-    end
-
-    def skip_if_plugin_asked_to
-      skips = Foreman::Plugin.tests_to_skip[self.class.name].to_a
-      if skips.any?{|name| @NAME.end_with?(name)}
-        skip "Test was disabled by plugin"
-      end
-    end
-
-    def clear_current_user
-      User.current = nil
-    end
-
-    def reset_setting_cache
-      Setting.cache.clear
-    end
-
-    # for backwards compatibility to between Minitest syntax
-    alias_method :assert_not,       :refute
-    alias_method :assert_no_match,  :refute_match
-    alias_method :assert_not_nil,   :refute_nil
-    alias_method :assert_not_equal, :refute_equal
-    alias_method :assert_raise,       :assert_raises
-    alias_method :assert_include,     :assert_includes
-    alias_method :assert_not_include, :assert_not_includes
-    class <<self
-      alias_method :test, :it
-      alias_method :context, :describe
-    end
-
-    # Add more helper methods to be used by all tests here...
-    def logger
-      Rails.logger
-    end
-
-    def set_session_user(user = :admin)
-      SETTINGS[:login] ? {:user => users(user).id, :expires_at => 5.minutes.from_now} : {}
-    end
-
-    def as_user(user)
-      saved_user   = User.current
-      User.current = user.is_a?(User) ? user : users(user)
-      result = yield
-      User.current = saved_user
-      result
-    end
-
-    def as_admin(&block)
-      as_user :admin, &block
-    end
-
-    def in_taxonomy(taxonomy)
-      new_taxonomy = taxonomy.is_a?(Taxonomy) ? taxonomy : taxonomies(taxonomy)
-      saved_taxonomy = new_taxonomy.class.current
-      new_taxonomy.class.current = new_taxonomy
-      result = yield
-      new_taxonomy.class.current = saved_taxonomy
-      result
-    end
-
-    def disable_taxonomies
-      org_settings = SETTINGS[:organizations_enabled]
-      SETTINGS[:organizations_enabled] = false
-      loc_settings = SETTINGS[:locations_enabled]
-      SETTINGS[:locations_enabled] = false
-      result = yield
-    ensure
-      SETTINGS[:organizations_enabled] = org_settings
-      SETTINGS[:locations_enabled] = loc_settings
-      result
-    end
-
-    def setup_users
-      User.current = users :admin
-      user = User.find_by_login("one")
-      @request.session[:user] = user.id
-      @request.session[:expires_at] = 5.minutes.from_now.to_i
-      user.roles = [Role.find_by_name('Anonymous'), Role.find_by_name('Viewer')]
-      user.save!
-    end
-
-    # if a method receieves a block it will be yielded just before user save
-    def setup_user(operation, type = "", search = nil, user = :one)
-      @one = users(user)
-      as_admin do
-        permission = Permission.find_by_name("#{operation}_#{type}") || FactoryGirl.create(:permission, :name => "#{operation}_#{type}")
-        filter = FactoryGirl.build(:filter, :search => search)
-        filter.permissions = [ permission ]
-        role = Role.where(:name => "#{operation}_#{type}").first_or_create
-        role.filters = [ filter ]
-        role.save!
-        filter.role = role
-        filter.save!
-        @one.roles = [ role ]
-        yield(@one) if block_given?
-        @one.save!
-      end
-      User.current = @one
-    end
-
-    def unattended?
-      SETTINGS[:unattended].nil? or SETTINGS[:unattended]
-    end
-
-    def self.disable_orchestration
-      #This disables the DNS/DHCP orchestration
-      Host.any_instance.stubs(:boot_server).returns("boot_server")
-      Resolv::DNS.any_instance.stubs(:getname).returns("foo.fqdn")
-      Resolv::DNS.any_instance.stubs(:getaddress).returns("127.0.0.1")
-      Net::DNS::ARecord.any_instance.stubs(:conflicts).returns([])
-      Net::DNS::ARecord.any_instance.stubs(:conflicting?).returns(false)
-      Net::DNS::PTRRecord.any_instance.stubs(:conflicting?).returns(false)
-      Net::DNS::PTRRecord.any_instance.stubs(:conflicts).returns([])
-      Net::DHCP::Record.any_instance.stubs(:create).returns(true)
-      Net::DHCP::SparcRecord.any_instance.stubs(:create).returns(true)
-      Net::DHCP::Record.any_instance.stubs(:conflicting?).returns(false)
-      ProxyAPI::Puppet.any_instance.stubs(:environments).returns(["production"])
-      ProxyAPI::DHCP.any_instance.stubs(:unused_ip).returns('127.0.0.1')
-      ProxyAPI::TFTP.any_instance.stubs(:bootServer).returns('127.0.0.1')
-    end
-
-    def disable_orchestration
-      ActiveSupport::TestCase.disable_orchestration
-    end
-
-    def read_json_fixture(file)
-      json = File.expand_path(File.join('..', 'fixtures', file), __FILE__)
-      JSON.parse(File.read(json))
-    end
-
-    def assert_with_errors(condition, model)
-      assert condition, "#{model.inspect} errors: #{model.errors.full_messages.join(';')}"
-    end
-
-    def assert_valid(model)
-      assert_with_errors model.valid?, model
-    end
-
-    def refute_with_errors(condition, model, field = nil, match = nil)
-      refute condition, "#{model.inspect} errors: #{model.errors.full_messages.join(';')}"
-      if field
-        model_errors = model.errors.map { |a,m| model.errors.full_message(a, m) unless field == a }.compact
-        assert model_errors.blank?, "#{model} contains #{model_errors}, it should not contain any"
-        assert model.errors[field].find { |e| e.match(match) }.present?,
-                       "#{field} error matching #{match} not found: #{model.errors[field].inspect}" if match
-      end
-    end
-    alias_method :assert_not_with_errors, :refute_with_errors
-
-    # Checks a model isn't valid.  Optionally add error field name as the second argument
-    # to declare that you only want validation errors in those fields, so it will assert if
-    # there are errors elsewhere on the model so you know you're testing for the right thing.
-    def refute_valid(model, field = nil, match = nil)
-      refute_with_errors model.valid?, model, field, match
-    end
-    alias_method :assert_not_valid, :refute_valid
-
-    def with_env(values = {})
-      old_values = ENV.to_hash.slice(values.keys)
-      ENV.update values
-      result = yield
-      ENV.update old_values
-      result
-    end
-
-    def next_mac(mac)
-      mac.tr(':','').to_i(16).succ.to_s(16).rjust(12, '0').scan(/../).join(':')
-    end
-  end
-
-  # Transactional fixtures do not work with Selenium tests, because Capybara
-  # uses a separate server thread, which the transactions would be hidden
-  # from. We hence use DatabaseCleaner to truncate our test database.
-  DatabaseCleaner.strategy = :truncation
-
-  class ActionDispatch::IntegrationTest
-    # Make the Capybara DSL available in all integration tests
-    include Capybara::DSL
-
-    # Stop ActiveRecord from wrapping tests in transactions
-    self.use_transactional_fixtures = false
-
-    def assert_index_page(index_path,title_text,new_link_text = nil,has_search = true,has_pagination = true)
-      visit index_path
-      assert page.has_selector?('h1', :text => title_text), "#{title_text} was expected in the <h1> tag, but was not found"
-      (assert find_link(new_link_text).visible?, "#{new_link_text} is not visible") if new_link_text
-      (assert find_button('Search').visible?, "Search button is not visible") if has_search
-      (assert has_content?("Displaying"), "Pagination 'Display ...' does not appear") if has_pagination
-    end
-
-    def assert_new_button(index_path,new_link_text,new_path)
-      visit index_path
-      click_link new_link_text
-      assert_current_path new_path
-    end
-
-    def assert_submit_button(redirect_path,button_text = "Submit")
-      click_button button_text
-      assert_current_path redirect_path
-    end
-
-    def assert_delete_row(index_path, link_text, delete_text = "Delete", dropdown = false)
-      visit index_path
-      within(:xpath, "//tr[contains(.,'#{link_text}')]") do
-        find("i.caret").click if dropdown
-        click_link(delete_text)
-      end
-      popup = page.driver.browser.switch_to.alert
-      popup.accept
-      assert page.has_no_link?(link_text), "link '#{link_text}' was expected NOT to be on the page, but it was found."
-      assert page.has_content?('Successfully destroyed'), "flash message 'Successfully destroyed' was expected but it was not found on the page"
-    end
-
-    def assert_cannot_delete_row(index_path, link_text, delete_text = "Delete", dropdown = false, flash_message = true)
-      visit index_path
-      within(:xpath, "//tr[contains(.,'#{link_text}')]") do
-        find("i.caret").click if dropdown
-        click_link(delete_text)
-      end
-      popup = page.driver.browser.switch_to.alert
-      popup.accept
-      assert page.has_link?(link_text), "link '#{link_text}' was expected but it was not found on the page."
-      assert page.has_content?("is used by"), "flash message 'is used by' was expected but it was not found on the page."
-    end
-
-    def fix_mismatches
-      Location.all_import_missing_ids
-      Organization.all_import_missing_ids
-    end
-
-    def select2(value, attrs)
-      first("#s2id_#{attrs[:from]}").click
-      find(".select2-input").set(value)
-      within ".select2-results" do
-        find("span", text: value).click
-      end
-    end
-
-    def wait_for_ajax
-      Timeout.timeout(Capybara.default_max_wait_time) do
-        loop until page.evaluate_script('jQuery.active').zero?
-      end
-    end
-  end
-
-  class ActionView::TestCase
-    helper Rails.application.routes.url_helpers
-  end
-
-  ::Rails::Engine.subclasses.map(&:instance).each do |engine|
-    support_file = "#{engine.root}/test/support/foreman_test_helper_additions.rb"
-    require support_file if File.exist?(support_file)
+# Configure shoulda
+Shoulda::Matchers.configure do |config|
+  config.integrate do |with|
+    with.test_framework :minitest_4
+    with.library :rails
   end
 end
 
-Spork.each_run do
-  # This code will be run each time you run your specs.
-  class ActionController::TestCase
-    include ::BasicRestResponseTest
-    setup :setup_set_script_name, :set_api_user, :turn_of_login
+# Use our custom test runner, and register a fake plugin to skip a specific test
+Foreman::Plugin.register :skip_test do
+  tests_to_skip "CustomRunnerTest" => [ "custom runner is working" ]
+end
 
-    def turn_of_login
-      SETTINGS[:require_ssl] = false
-    end
+# Turn of Apipie validation for tests
+Apipie.configuration.validate = false
 
-    def setup_set_script_name
-      @request.env["SCRIPT_NAME"] = @controller.config.relative_url_root
-    end
+# To prevent Postgres' errors "permission denied: "RI_ConstraintTrigger"
+if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+  ActiveRecord::Migration.execute "SET CONSTRAINTS ALL DEFERRED;"
+end
 
-    def set_api_user
-      return unless self.class.to_s[/api/i]
-      set_basic_auth(users(:apiadmin), "secret")
-    end
+# List of valid record name field.
+def valid_name_list
+  [
+    RFauxFactory.gen_alpha(1),
+    RFauxFactory.gen_alpha(255),
+    *RFauxFactory.gen_strings(1..255, exclude: [:html]).values,
+    RFauxFactory.gen_html(rand((1..230)))
+  ]
+end
 
-    def set_basic_auth(user, password)
-      login = user.is_a?(User) ? user.login : user
-      @request.env['HTTP_AUTHORIZATION'] = ActionController::HttpAuthentication::Basic.encode_credentials(login, password)
-      @request.env['CONTENT_TYPE'] = 'application/json'
-      @request.env['HTTP_ACCEPT'] = 'application/json'
-    end
+# List of invalid record name field .
+def invalid_name_list
+  [
+    '',
+    ' ',
+    '  ',
+    "\t",
+    *RFauxFactory.gen_strings(256).values
+  ]
+end
+
+module TestCaseRailsLoggerExtensions
+  def before_setup
+    super
+  ensure
+    @_ext_current_buffer = StringIO.new
+    @_ext_old_logger = Rails.logger
+    @_ext_old_ar_logger = ActiveRecord::Base.logger
+    Rails.logger = Foreman::SilencedLogger.new(ActiveSupport::TaggedLogging.new(Logger.new(@_ext_current_buffer)))
+    ActiveRecord::Base.logger = Rails.logger if ENV['PRINT_TEST_LOGS_SQL']
   end
 
-  class ActionDispatch::IntegrationTest
-    setup :login_admin
-
-    teardown do
-      DatabaseCleaner.clean       # Truncate the database
-      Capybara.reset_sessions!    # Forget the (simulated) browser state
-      Capybara.use_default_driver # Revert Capybara.current_driver to Capybara.default_driver
+  def after_teardown
+    Rails.logger = @_ext_old_logger if @_ext_old_logger
+    ActiveRecord::Base.logger = @_ext_old_ar_logger if @_ext_old_ar_logger
+    if (ENV['PRINT_TEST_LOGS_ON_ERROR'] && error?) || (ENV['PRINT_TEST_LOGS_ON_FAILURE'] && !self.passed?)
+      @_ext_current_buffer.close_write
+      STDOUT << "\n\nRails logs for #{self.name} FAILURE:\n"
+      STDOUT << @_ext_current_buffer.string
     end
-
-    private
-
-    def login_admin
-      visit "/"
-      fill_in "login_login", :with => users(:admin).login
-      fill_in "login_password", :with => "secret"
-      click_button "Login"
-    end
+    super
+  ensure
+    @_ext_current_buffer&.close
+    @_ext_current_buffer = nil
   end
+end
+
+class ActiveSupport::TestCase
+  extend Robottelo::Reporter::TestAttributes
+  prepend TestCaseRailsLoggerExtensions
+
+  class << self
+    alias_method :test, :it
+  end
+end
+
+class ActionView::TestCase
+  helper Rails.application.routes.url_helpers
+end
+
+::Rails::Engine.subclasses.map(&:instance).each do |engine|
+  support_file = "#{engine.root}/test/support/foreman_test_helper_additions.rb"
+  require support_file if File.exist?(support_file)
+end
+
+class ActionController::TestCase
+  extend Robottelo::Reporter::TestAttributes
+  include ::BasicRestResponseTest
+  setup :setup_set_script_name, :set_api_user, :turn_off_login,
+    :disable_webpack, :set_admin
+
+  class << self
+    alias_method :test, :it
+  end
+
+  def set_admin
+    User.current = users(:admin)
+  end
+
+  def turn_off_login
+    SETTINGS[:require_ssl] = false
+  end
+
+  def setup_set_script_name
+    @request.env["SCRIPT_NAME"] = @controller.config.relative_url_root
+  end
+
+  def set_api_user
+    return unless self.class.to_s[/api/i]
+    set_basic_auth(users(:apiadmin), "secret")
+  end
+
+  def reset_api_credentials
+    @request.env.delete('HTTP_AUTHORIZATION')
+  end
+
+  def set_basic_auth(user, password)
+    login = user.is_a?(User) ? user.login : user
+    @request.env['HTTP_AUTHORIZATION'] = ActionController::HttpAuthentication::Basic.encode_credentials(login, password)
+    @request.env['CONTENT_TYPE'] = 'application/json'
+    @request.env['HTTP_ACCEPT'] = 'application/json'
+  end
+
+  # functional tests will fail if assets are not compiled because page
+  # rendering will try to include the webpack assets path which will throw an
+  # exception.
+  def disable_webpack
+    Webpack::Rails::Manifest.stubs(:asset_paths).returns([])
+  end
+end
+
+def clear_plugins
+  @klass = Foreman::Plugin
+  @plugins_backup = @klass.registered_plugins
+  @klass.clear
+end
+
+def restore_plugins
+  @klass.clear
+  @klass.instance_variable_set('@registered_plugins', @plugins_backup)
+end
+
+def with_auditing(klass)
+  auditing_was_enabled = klass.auditing_enabled
+  klass.enable_auditing
+  yield
+ensure
+  klass.disable_auditing unless auditing_was_enabled
 end

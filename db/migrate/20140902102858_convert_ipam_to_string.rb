@@ -1,16 +1,16 @@
-class ConvertIpamToString < ActiveRecord::Migration
-  class FakeSubnet < ActiveRecord::Base
+class ConvertIpamToString < ActiveRecord::Migration[4.2]
+  class FakeSubnet < ApplicationRecord
     self.table_name = 'subnets'
   end
 
   def up
-    add_column :subnets, :ipam_tmp, :string, :default => Subnet::IPAM_MODES[:dhcp], :null => false
+    add_column :subnets, :ipam_tmp, :string, :default => IPAM::MODES[:dhcp], :null => false, :limit => 255
     FakeSubnet.reset_column_information
     FakeSubnet.all.each do |subnet|
       if subnet.ipam
-        subnet.ipam_tmp = Subnet::IPAM_MODES[:dhcp]
+        subnet.ipam_tmp = IPAM::MODES[:dhcp]
       else
-        subnet.ipam_tmp = Subnet::IPAM_MODES[:none]
+        subnet.ipam_tmp = IPAM::MODES[:none]
       end
       subnet.save!
     end
@@ -22,7 +22,7 @@ class ConvertIpamToString < ActiveRecord::Migration
     add_column :subnets, :ipam_tmp, :boolean, :default => true, :null => false
     FakeSubnet.reset_column_information
     FakeSubnet.all.each do |subnet|
-      subnet.ipam_tmp = subnet.ipam != Subnet::IPAM_MODES[:none]
+      subnet.ipam_tmp = subnet.ipam != IPAM::MODES[:none]
       subnet.save!
     end
     remove_column :subnets, :ipam

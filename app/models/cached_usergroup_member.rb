@@ -1,6 +1,4 @@
-class CachedUsergroupMember < ActiveRecord::Base
-  attr_accessible :user_id, :usergroup_id, :user, :usergroup
-
+class CachedUsergroupMember < ApplicationRecord
   belongs_to :user
   belongs_to :usergroup
 end

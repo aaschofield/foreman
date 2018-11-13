@@ -1,6 +1,6 @@
 module HostStatus
-  class Status < ActiveRecord::Base
-    include Foreman::STI
+  class Status < ApplicationRecord
+    prepend Foreman::STI
 
     self.table_name = 'host_status'
 
@@ -12,7 +12,10 @@ module HostStatus
 
     before_validation :update_timestamp, :if => ->(status) { status.reported_at.blank? }
 
-    attr_accessible :host, :type
+    class Jail < ::Safemode::Jail
+      allow :host, :to_global, :to_label, :status, :name, :relevant?
+      allow_class_method :status_name, :humanized_name
+    end
 
     def to_global(options = {})
       HostStatus::Global::OK
@@ -54,10 +57,16 @@ module HostStatus
       true
     end
 
+    # a substatus is used by some other status in order to determine its own status
+    # this type of status does not affect the global status
+    def substatus?(options = {})
+      false
+    end
+
     private
 
     def update_timestamp
-      self.reported_at = Time.now
+      self.reported_at = Time.now.utc
     end
 
     def update_status

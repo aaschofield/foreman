@@ -1,13 +1,16 @@
 module Api
   module V2
     class ArchitecturesController < V2::BaseController
-      before_filter :find_optional_nested_object
-      before_filter :find_resource, :only => %w{show update destroy}
+      include Foreman::Controller::Parameters::Architecture
+
+      before_action :find_optional_nested_object
+      before_action :find_resource, :only => %w{show update destroy}
 
       api :GET, "/architectures/", N_("List all architectures")
       api :GET, "/operatingsystems/:operatingsystem_id/architectures", N_("List all architectures for operating system")
       param_group :search_and_pagination, ::Api::V2::BaseController
       param :operatingsystem_id, String, :desc => N_("ID of operating system")
+      add_scoped_search_description_for(Architecture)
 
       def index
         @architectures = resource_scope_for_index
@@ -30,7 +33,7 @@ module Api
       param_group :architecture, :as => :create
 
       def create
-        @architecture = Architecture.new(params[:architecture])
+        @architecture = Architecture.new(architecture_params)
         process_response @architecture.save
       end
 
@@ -39,7 +42,7 @@ module Api
       param_group :architecture
 
       def update
-        process_response @architecture.update_attributes(params[:architecture])
+        process_response @architecture.update(architecture_params)
       end
 
       api :DELETE, "/architectures/:id/", N_("Delete an architecture")

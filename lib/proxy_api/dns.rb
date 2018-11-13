@@ -1,7 +1,7 @@
 module ProxyAPI
   class DNS < ProxyAPI::Resource
     def initialize(args)
-      @url  = args[:url] + "/dns"
+      @url = args[:url] + "/dns"
       super args
     end
 
@@ -19,10 +19,10 @@ module ProxyAPI
     # [+key+] : String containing either a FQDN or a dotted quad plus .in-addr.arpa.
     # Returns    : Boolean status
     def delete(key)
-      parse(super("#{key}"))
+      parse(super(key.to_s))
     rescue RestClient::ResourceNotFound
       # entry doesn't exists anyway
-      return true
+      true
     rescue => e
       raise ProxyException.new(url, e, N_("Unable to delete DNS entry"))
     end

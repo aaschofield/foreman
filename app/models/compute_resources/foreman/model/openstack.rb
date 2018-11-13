@@ -1,18 +1,25 @@
 module Foreman::Model
   class Openstack < ComputeResource
-    attr_accessor :tenant
-    has_one :key_pair, :foreign_key => :compute_resource_id, :dependent => :destroy
-    after_create :setup_key_pair
-    after_destroy :destroy_key_pair
+    include KeyPairComputeResource
+    attr_accessor :tenant, :scheduler_hint_value
     delegate :flavors, :to => :client
-    delegate :tenants, :to => :client
     delegate :security_groups, :to => :client
-    attr_accessible :key_pair, :tenant
 
+    validates :url, :format => { :with => URI::DEFAULT_PARSER.make_regexp }, :presence => true
     validates :user, :password, :presence => true
+    validates :allow_external_network, inclusion: { in: [true, false] }
+    validates :domain, :format => { :with => /\A\S+\z/ }, :allow_blank => true
+
+    alias_method :available_flavors, :flavors
+
+    SEARCHABLE_ACTIONS = [:server_group_anti_affinity, :server_group_affinity, :raw]
 
     def provided_attributes
       super.merge({ :ip => :floating_ip_address })
+    end
+
+    def self.available?
+      Fog::Compute.providers.include?(:openstack)
     end
 
     def self.model_name
@@ -35,9 +42,26 @@ module Foreman::Model
       attrs[:tenant] = name
     end
 
+    def tenants
+      if url =~ /\/v3\/auth\/tokens/
+        user_id = identity_client.current_user_id
+        identity_client.list_user_projects(user_id).body["projects"].map { |p| Fog::Identity::OpenStack::V3::Project.new(p) }
+      else
+        client.tenants
+      end
+    end
+
+    def allow_external_network
+      Foreman::Cast.to_bool(attrs[:allow_external_network])
+    end
+
+    def allow_external_network=(enabled)
+      attrs[:allow_external_network] = Foreman::Cast.to_bool(enabled)
+    end
+
     def test_connection(options = {})
       super
-      errors[:user].empty? and errors[:password] and tenants
+      errors[:user].empty? && errors[:password] && tenants
     rescue => e
       errors[:base] << e.message
     end
@@ -52,7 +76,7 @@ module Foreman::Model
 
     def internal_networks
       return {} if network_client.nil?
-      network_client.networks.all.select { |net| !net.router_external }
+      allow_external_network ? network_client.networks.all : network_client.networks.all.select { |net| !net.router_external }
     end
 
     def image_size(image_id)
@@ -62,9 +86,15 @@ module Foreman::Model
     def boot_from_volume(args = {})
       vm_name = args[:name]
       args[:size_gb] = image_size(args[:image_ref]) if args[:size_gb].blank?
-      boot_vol = volume_client.volumes.create( { :display_name => "#{vm_name}-vol0", :volumeType => "Volume", :size => args[:size_gb], :imageRef => args[:image_ref] } )
+      volume_name = "#{vm_name}-vol0"
+      boot_vol = volume_client.volumes.create(
+        :name => volume_name, # Name attribute in OpenStack volumes API v2
+        :display_name => volume_name, # Name attribute in API v1
+        :volumeType => "Volume",
+        :size => args[:size_gb],
+        :imageRef => args[:image_ref])
       @boot_vol_id = boot_vol.id.tr('"', '')
-      boot_vol.wait_for { status == 'available'  }
+      boot_vol.wait_for { status == 'available' }
       args[:block_device_mapping_v2] = [ {
         :source_type => "volume",
         :destination_type => "volume",
@@ -74,12 +104,38 @@ module Foreman::Model
       } ]
     end
 
+    def possible_scheduler_hints
+      SEARCHABLE_ACTIONS.collect {|x| x.to_s.camelize }
+    end
+
+    def get_server_groups(policy)
+      server_groups = client.server_groups.select { |sg| sg.policies.include?(policy) }
+      errors.add(:scheduler_hint_value, _("No matching server groups found")) if server_groups.empty?
+      server_groups
+    end
+
+    def format_scheduler_hint_filter(args = {})
+      raise ::Foreman::Exception.new(N_('Hint data is missing')) if args[:scheduler_hint_data].nil?
+      name = args.delete(:scheduler_hint_filter).underscore.to_sym
+      data = args.delete(:scheduler_hint_data)
+      filter = {}
+      case name
+        when :server_group_anti_affinity, :server_group_affinity
+          filter[:group] = data[:scheduler_hint_value]
+        when :raw
+          filter = JSON.parse(data[:scheduler_hint_value])
+      end
+      args[:os_scheduler_hints] = filter
+    end
+
     def create_vm(args = {})
       boot_from_volume(args) if Foreman::Cast.to_bool(args[:boot_from_volume])
       network = args.delete(:network)
       # fix internal network format for fog.
       args[:nics].delete_if(&:blank?)
       args[:nics].map! {|nic| { 'net_id' => nic } }
+      args[:security_groups].delete_if(&:blank?) if args[:security_groups].present?
+      format_scheduler_hint_filter(args) if args[:scheduler_hint_filter].present?
       vm = super(args)
       if network.present?
         address = allocate_address(network)
@@ -92,6 +148,11 @@ module Foreman::Model
       destroy_vm vm.id if vm
       volume_client.volumes.delete(@boot_vol_id) if args[:boot_from_volume]
       raise message
+    end
+
+    def vm_ready(vm)
+      vm.wait_for { self.ready? || self.failed? }
+      raise Foreman::Exception.new(N_("Failed to deploy vm %{name}, fault: %{e}"), { :name => vm.name, :e => vm.fault['message'] }) if vm.failed?
     end
 
     def destroy_vm(uuid)
@@ -113,7 +174,7 @@ module Foreman::Model
     end
 
     def associated_host(vm)
-      associate_by("ip", [vm.floating_ip_address, vm.private_ip_address])
+      associate_by("ip", [vm.floating_ip_address, vm.private_ip_address].compact)
     end
 
     def flavor_name(flavor_ref)
@@ -129,18 +190,68 @@ module Foreman::Model
     end
 
     def zones
-      @zones ||= (client.list_zones.body["availabilityZoneInfo"].try(:map){|i| i["zoneName"]} || [])
+      @zones ||= (client.list_zones.body["availabilityZoneInfo"].try(:map) {|i| i["zoneName"]} || [])
+    end
+
+    def normalize_vm_attrs(vm_attrs)
+      normalized = slice_vm_attributes(vm_attrs, ['availability_zone', 'tenant_id', 'scheduler_hint_filter'])
+
+      normalized['flavor_id'] = vm_attrs['flavor_ref']
+      normalized['flavor_name'] = self.flavors.detect { |t| t.id == normalized['flavor_id'] }.try(:name)
+      normalized['tenant_name'] = self.tenants.detect { |t| t.id == normalized['tenant_id'] }.try(:name)
+
+      security_group = vm_attrs['security_groups']
+      normalized['security_group_name'] = security_group.empty? ? nil : security_group
+      normalized['security_group_id'] = self.security_groups.detect { |t| t.name == security_group }.try(:id)
+
+      floating_ip_network = vm_attrs['network']
+      normalized['floating_ip_network'] = floating_ip_network.empty? ? nil : floating_ip_network
+
+      normalized['boot_from_volume'] = to_bool(vm_attrs['boot_from_volume'])
+
+      boot_volume_size = memory_gb_to_bytes(vm_attrs['size_gb'])
+      if (boot_volume_size == 0)
+        normalized['boot_volume_size'] = nil
+      else
+        normalized['boot_volume_size'] = boot_volume_size.to_s
+      end
+
+      nics_ids = vm_attrs['nics'] || {}
+      nics_ids = nics_ids.select { |nic_id| nic_id != '' }
+      normalized['interfaces_attributes'] = nics_ids.map.with_index do |nic_id, idx|
+        [idx.to_s, {
+          'id' => nic_id,
+          'name' => self.internal_networks.detect { |n| n.id == nic_id }.try(:name)
+        }]
+      end.to_h
+
+      normalized['image_id'] = vm_attrs['image_ref']
+      normalized['image_name'] = self.images.find_by(:uuid => normalized['image_id']).try(:name)
+
+      normalized
     end
 
     private
 
     def fog_credentials
-      { :provider => :openstack,
+      { :provider           => :openstack,
         :openstack_api_key  => password,
         :openstack_username => user,
         :openstack_auth_url => url,
         :openstack_tenant   => tenant,
-        :openstack_identity_endpoint => url }
+        :openstack_identity_endpoint => url,
+        :openstack_user_domain       => domain,
+        :openstack_endpoint_type     => "publicURL"
+      }.tap do |h|
+        if tenant
+          h.merge!(:openstack_domain_name  => domain,
+                   :openstack_project_name => tenant)
+        end
+      end
+    end
+
+    def identity_client
+      @identity_client ||= ::Fog::Identity.new(fog_credentials.except!(:openstack_identity_endpoint))
     end
 
     def client
@@ -157,28 +268,8 @@ module Foreman::Model
       @volume_client ||= ::Fog::Volume.new(fog_credentials)
     end
 
-    def setup_key_pair
-      key = client.key_pairs.create :name => "foreman-#{id}#{Foreman.uuid}"
-      KeyPair.create! :name => key.name, :compute_resource_id => self.id, :secret => key.private_key
-    rescue => e
-      Foreman::Logging.exception("Failed to generate key pair", e)
-      destroy_key_pair
-      raise
-    end
-
-    def destroy_key_pair
-      return unless key_pair
-      logger.info "removing OpenStack key #{key_pair.name}"
-      key = client.key_pairs.get(key_pair.name)
-      key.destroy if key
-      key_pair.destroy
-      true
-    rescue => e
-      logger.warn "failed to delete key pair from OpenStack, you might need to cleanup manually : #{e}"
-    end
-
     def vm_instance_defaults
-      super.merge(:key_name => key_pair.name)
+      super.merge(:key_name => key_pair.try(:name), :metadata => {})
     end
 
     def assign_floating_ip(address, vm)

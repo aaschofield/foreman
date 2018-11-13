@@ -5,15 +5,16 @@
     <%= alert :class => 'alert-danger', :header => '', :text => _("Some of the interfaces are invalid. Please check the table below.") %>
   <% end %>
   <!-- interface list -->
-  <table class="table table-bordered table-striped" id="interfaceList">
+  <table class="<%= table_css_classes %>" id="interfaceList">
     <thead>
       <tr>
         <th class="hidden-xs" width="3%"></th>
         <th class="hidden-xs" width="6%"></th>
         <th class="ellipsis"><%= _('Identifier') %></th>
         <th class="hidden-xs"><%= _('Type') %></th>
-        <th class="hidden-xs"><%= _("MAC address") %></th>
-        <th class="hidden-xs"><%= _("IP address") %></th>
+        <th class="hidden-xs"><%= _("MAC Address") %></th>
+        <th class="hidden-xs"><%= _("IPv4 Address") %></th>
+        <th class="hidden-xs"><%= _("IPv6 Address") %></th>
         <th class="hidden-xs"><%= _("FQDN") %></th>
         <th><%= _('Actions') %></th>
       </tr>
@@ -26,6 +27,7 @@
         <td class="type hidden-xs"></td>
         <td class="mac hidden-xs"></td>
         <td class="ip hidden-xs"></td>
+        <td class="ip6 hidden-xs"></td>
         <td class="fqdn hidden-xs"></td>
         <td>
           <button type="button" class="btn btn-default showModal"><%= _('Edit') %></button>

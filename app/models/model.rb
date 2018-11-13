@@ -1,9 +1,9 @@
-class Model < ActiveRecord::Base
+class Model < ApplicationRecord
+  audited
   include Authorizable
   extend FriendlyId
   friendly_id :name
-
-  attr_accessible :name, :hardware_model, :vendor_class, :info
+  include Parameterizable::ByIdName
 
   before_destroy EnsureNotUsedBy.new(:hosts)
   has_many_hosts
@@ -16,7 +16,6 @@ class Model < ActiveRecord::Base
 
   scoped_search :on => :name, :complete_value => :true, :default_order => true
   scoped_search :on => :info
-  scoped_search :on => :hosts_count
   scoped_search :on => :vendor_class, :complete_value => :true
   scoped_search :on => :hardware_model, :complete_value => :true
 end

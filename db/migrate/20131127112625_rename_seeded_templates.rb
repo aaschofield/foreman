@@ -1,4 +1,4 @@
-class RenameSeededTemplates < ActiveRecord::Migration
+class RenameSeededTemplates < ActiveRecord::Migration[4.2]
   CONFIG_RENAMES = {
     "Grubby Default" => "Grubby default",
     "Jumpstart Default" => "Jumpstart default",
@@ -35,35 +35,35 @@ class RenameSeededTemplates < ActiveRecord::Migration
     "Ubuntu Mirror" => "Ubuntu mirror"
   }
 
-  class FakeConfigTemplate < ActiveRecord::Base
+  class FakeConfigTemplate < ApplicationRecord
     self.table_name = 'config_templates'
   end
 
-  class FakePtable < ActiveRecord::Base
+  class FakePtable < ApplicationRecord
     self.table_name = 'ptables'
   end
 
   def up
-    CONFIG_RENAMES.each do |old,new|
+    CONFIG_RENAMES.each do |old, new|
       FakeConfigTemplate.find_by_name(old).try(:update_attributes, :name => new)
     end
-    PTABLE_RENAMES.each do |old,new|
+    PTABLE_RENAMES.each do |old, new|
       FakePtable.find_by_name(old).try(:update_attributes, :name => new)
     end
-    MEDIA_RENAMES.each do |old,new|
+    MEDIA_RENAMES.each do |old, new|
       Medium.find_by_name(old).try(:update_attributes, :name => new)
     end
     TemplateKind.find_by_name('gPXE').try(:update_attributes, :name => 'iPXE')
   end
 
   def down
-    CONFIG_RENAMES.each do |old,new|
+    CONFIG_RENAMES.each do |old, new|
       FakeConfigTemplate.find_by_name(new).try(:update_attributes, :name => old)
     end
-    PTABLE_RENAMES.each do |old,new|
+    PTABLE_RENAMES.each do |old, new|
       FakePtable.find_by_name(new).try(:update_attributes, :name => old)
     end
-    MEDIA_RENAMES.each do |old,new|
+    MEDIA_RENAMES.each do |old, new|
       Medium.find_by_name(new).try(:update_attributes, :name => old)
     end
     TemplateKind.find_by_name('iPXE').try(:update_attributes, :name => 'gPXE')

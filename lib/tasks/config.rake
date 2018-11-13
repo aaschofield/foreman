@@ -67,7 +67,7 @@ BANNER
       parser.parse!(args)
 
       if @key && @key_values.any?
-        puts "Missing value for key '#{ @key }'"
+        puts "Missing value for key '#{@key}'"
         exit 2
       end
 
@@ -100,19 +100,15 @@ BANNER
       @keys.each do |key|
         value = @key_values[key]
         setting = Setting.find_by_name(key)
-        old_value = setting.value
         if value == :unset
-          value = nil
+          setting.value = nil
         elsif complex_type?(setting.settings_type)
           setting.value = typecast_value(setting.settings_type, value)
         else
-          setting.parse_string_value(value)
+          parse_and_set_string(setting, value)
         end
-        if setting.valid? && old_value != setting.value
-          setting.save! unless @dry
-          changed_settings << setting
-        end
-        puts format_value(setting.settings_type, setting.value)
+
+        validate_and_save(setting)
       end
     end
 
@@ -131,10 +127,13 @@ BANNER
     def typecast_value(type, value)
       if complex_type?(type)
         # we used JSON over custom format for input because it's easier to parse
-        JSON.parse(value).inspect
+        JSON.parse(value)
       else
         value
       end
+    rescue JSON::ParserError
+      STDERR.puts("ERROR: Could not parse value #{value} as JSON. Please check the value is a valid JSON #{type}.")
+      exit 2
     end
 
     def format_value(type, value)
@@ -143,6 +142,24 @@ BANNER
       else
         value
       end
+    end
+
+    def validate_and_save(setting)
+      if setting.valid?
+        setting.save! unless @dry
+        @changed_settings << setting
+      else
+        STDERR.puts("ERROR: Invalid value #{setting.value} for #{setting} - #{setting.errors.full_messages}")
+        exit 2
+      end
+      print "#{setting.name}: "
+      puts format_value(setting.settings_type, setting.value)
+    end
+
+    def parse_and_set_string(setting, string)
+      return if setting.parse_string_value(string)
+      STDERR.puts("ERROR: Invalid value #{string} for #{setting} - #{setting.errors.full_messages}")
+      exit 2
     end
   end
 
@@ -155,6 +172,13 @@ end
 # of not installing with installer, we want to ensure the settings to false
 # at the end of the seeding
 Rake::Task['db:seed'].enhance do
-  Setting['db_pending_migration'] = false
-  Setting['db_pending_seed'] = false
+  %w(db_pending_migration db_pending_seed).each do |setting_name|
+    if !Setting[setting_name].nil?
+      Setting[setting_name] = false
+    else
+      setting = Setting::General.default_settings.detect { |s| s[:name] == setting_name }
+      setting[:value] = false
+      Setting.create! setting.update(:category => "Setting::General")
+    end
+  end
 end

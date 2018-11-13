@@ -1,4 +1,4 @@
-class FakeBMCNic < ActiveRecord::Base
+class FakeBMCNic < ApplicationRecord
   self.table_name = 'nics'
   serialize :attrs, Hash
 
@@ -14,7 +14,7 @@ class FakeBMCNic < ActiveRecord::Base
     end
 
     define_method "#{method}=" do |value|
-      self.attrs         ||= { }
+      self.attrs ||= { }
       old_value = attrs[method]
       self.attrs[method] = value
       # attrs_will_change! makes the record dirty. Otherwise, rails has a bug that it won't save if no other field is changed.
@@ -27,11 +27,11 @@ class FakeBMCNic < ActiveRecord::Base
   end
 end
 
-class ExtractNicAttributes < ActiveRecord::Migration
+class ExtractNicAttributes < ActiveRecord::Migration[4.2]
   def up
-    add_column :nics, :provider, :string
-    add_column :nics, :username, :string
-    add_column :nics, :password, :string
+    add_column :nics, :provider, :string, :limit => 255
+    add_column :nics, :username, :string, :limit => 255
+    add_column :nics, :password, :string, :limit => 255
 
     say "Extracting serialized attributes"
     FakeBMCNic.all.each do |nic|

@@ -25,11 +25,10 @@ module Foreman::Controller::FilterParameters
   end
 
   def needs_filtering?(params)
-    if (self.class.filter_parameters_options)
-      (self.class.filter_parameters_options.map(&:to_s) & params.keys).size > 0
+    if self.class.filter_parameters_options
+      !(self.class.filter_parameters_options.map(&:to_s) & params.keys).empty?
     else
       false
     end
   end
 end
-

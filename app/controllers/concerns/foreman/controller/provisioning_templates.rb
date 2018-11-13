@@ -7,7 +7,7 @@ module Foreman::Controller::ProvisioningTemplates
     @locations        = @template.locations
     @organizations    = @template.organizations
     @template_kind_id = @template.template_kind_id
-    @operatingsystems = @template.operatingsystems
+    @operatingsystems = @template.operatingsystems if @template.respond_to?(:operatingsystems)
   end
 
   private
@@ -19,7 +19,7 @@ module Foreman::Controller::ProvisioningTemplates
     protocol = uri.scheme
 
     url_for(:only_path => false, :action => :hostgroup_template, :controller => '/unattended',
-            :id => template.name, :hostgroup => hostgroup.name, :protocol => protocol,
+            :id => template.name, :hostgroup => hostgroup.title, :protocol => protocol,
             :host => host, :port => port)
   end
 

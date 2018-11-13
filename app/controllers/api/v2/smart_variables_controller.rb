@@ -3,6 +3,8 @@ module Api
     class SmartVariablesController < V2::BaseController
       include Api::Version2
       include Api::V2::LookupKeysCommonController
+      include Foreman::Controller::Parameters::VariableLookupKey
+
       alias_method :resource_scope, :smart_variables_resource_scope
 
       api :GET, "/smart_variables", N_("List all smart variables")
@@ -12,13 +14,16 @@ module Api
       param :host_id, :identifier, :required => false
       param :hostgroup_id, :identifier, :required => false
       param :puppetclass_id, :identifier, :required => false
+      param :show_hidden, :bool, :desc => N_("Display hidden values")
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(VariableLookupKey)
 
       def index
       end
 
       api :GET, "/smart_variables/:id/", N_("Show a smart variable")
       param :id, :identifier, :required => true
+      param :show_hidden, :bool, :desc => N_("Display hidden values")
 
       def show
       end
@@ -27,7 +32,7 @@ module Api
         param :smart_variable, Hash, :required => true, :action_aware => true do
           param :variable, String, :required => true, :desc => N_("Name of variable")
           param :puppetclass_id, :number, :desc => N_("Puppet class ID")
-          param :default_value, String, :desc => N_("Default value of variable")
+          param :default_value, :any_type, :of => LookupKey::KEY_TYPES, :desc => N_("Default value of variable")
           param :hidden_value, :bool, :desc => N_("When enabled the parameter is hidden in the UI")
           param :override_value_order, String, :desc => N_("The order in which values are resolved")
           param :description, String, :desc => N_("Description of variable")
@@ -44,8 +49,8 @@ module Api
       param_group :smart_variable, :as => :create
 
       def create
-        @smart_variable   = VariableLookupKey.new(params[:smart_variable]) unless @puppetclass
-        @smart_variable ||= @puppetclass.lookup_keys.build(params[:smart_variable])
+        @smart_variable   = VariableLookupKey.new(variable_lookup_key_params) unless @puppetclass
+        @smart_variable ||= @puppetclass.lookup_keys.build(variable_lookup_key_params)
         process_response @smart_variable.save
       end
 
@@ -54,7 +59,7 @@ module Api
       param_group :smart_variable
 
       def update
-        @smart_variable.update_attributes!(params[:smart_variable])
+        @smart_variable.update!(variable_lookup_key_params)
         render 'api/v2/smart_variables/show'
       end
 

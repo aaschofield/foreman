@@ -17,7 +17,7 @@ namespace :locale do
     File.rename "#{filename}.rb", "#{filename}.tmp"
     File.open("#{filename}.rb", "w") do |output|
       IO.foreach("#{filename}.tmp") do |line|
-        if not line =~ /^\s*#/ and not line =~ ignored
+        if !(line =~ /^\s*#/) && !(line =~ ignored)
           output.puts '# TRANSLATORS: "Table name" or "Table name|Column name" for error messages'
           output.puts line
         end
@@ -33,9 +33,6 @@ namespace :locale do
   find_dependencies = [:find_model, :find_code]
   find_dependencies.shift if ENV['SKIP_MODEL']
   task :find => find_dependencies do
-    # do not commit PO string merge into git (we are using transifex.com)
-    `git checkout -- locale/*/*.po`
-
     # find malformed strings
     errors = File.open("locale/#{DOMAIN}.pot") {|f| f.grep /(%s.*%s|#\{)/}
     if errors.count > 0
@@ -46,7 +43,7 @@ namespace :locale do
   end
 
   desc 'Alias for gettext:po_to_json'
-  task :po_to_json => "gettext:po_to_json"
+  task :po_to_json => Dir['locale/*/foreman.po'].push("gettext:po_to_json")
 
   desc 'Alias for gettext:pack'
   task :pack => "gettext:pack"

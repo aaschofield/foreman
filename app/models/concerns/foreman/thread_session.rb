@@ -21,7 +21,7 @@ module Foreman
       extend ActiveSupport::Concern
 
       included do
-        around_filter :clear_thread
+        around_action :clear_thread
       end
 
       def clear_thread
@@ -34,6 +34,24 @@ module Foreman
         [:user, :organization, :location].each do |key|
           Thread.current[key] = nil
         end
+      end
+    end
+
+    # This allows getting and setting all current values in case it's needed,
+    # for example to pass to an enumerator that is executed by a separate thread
+    module Context
+      def self.get
+        {
+          :user => User.current,
+          :organization => Organization.current,
+          :location => Location.current
+        }
+      end
+
+      def self.set(user: nil, organization: nil, location: nil)
+        User.current = user
+        Organization.current = organization
+        Location.current = location
       end
     end
 
@@ -51,7 +69,17 @@ module Foreman
             raise(ArgumentError, "Unable to set current User, expected class '#{self}', got #{o.inspect}")
           end
 
-          Rails.logger.debug "Setting current user thread-local variable to " + (o.is_a?(User) ? o.login : 'nil')
+          if o.is_a?(User)
+            user = o.login
+            type = o.admin? ? 'admin' : 'regular'
+            if o.hidden?
+              Rails.logger.debug("Current user set to #{user} (#{type})")
+            else
+              Rails.logger.info("Current user set to #{user} (#{type})")
+            end
+          end
+          ::Logging.mdc['user_login'] = o&.login
+          ::Logging.mdc['user_admin'] = o&.admin? || false
           Thread.current[:user] = o
         end
 
@@ -94,7 +122,9 @@ module Foreman
             raise(ArgumentError, "Unable to set current organization, expected class '#{self}', got #{organization.inspect}")
           end
 
-          Rails.logger.debug "Setting current organization thread-local variable to #{organization || "none"}"
+          Rails.logger.debug "Current organization set to #{organization || 'none'}"
+          org_id = organization.try(:id)
+          ::Logging.mdc['org_id'] = org_id if org_id
           Thread.current[:organization] = organization
         end
 
@@ -129,7 +159,9 @@ module Foreman
             raise(ArgumentError, "Unable to set current location, expected class '#{self}'. got #{location.inspect}")
           end
 
-          Rails.logger.debug "Setting current location thread-local variable to #{location || "none"}"
+          Rails.logger.debug "Current location set to #{location || 'none'}"
+          loc_id = location.try(:id)
+          ::Logging.mdc['loc_id'] = loc_id if loc_id
           Thread.current[:location] = location
         end
 

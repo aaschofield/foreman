@@ -11,7 +11,6 @@
        end
     %>
   <% overridden = lookup_key.overridden?(obj) %>
-  <% disabled = can_edit_params? && !overridden %>
   <% error = lookup_value.errors %>
   <tr id="puppetclass_<%= puppetclass.id %>_params[<%= lookup_key.id %>]"
     class="fields <%= 'overridden' if overridden %>">
@@ -19,20 +18,23 @@
     <td class="ellipsis param_name">
       <%= lookup_key.key %>
     </td>
+    <td class="ellipsis">
+      <%= (lookup_key.is_a? PuppetclassLookupKey) ? _("Smart Parameter"): _("Smart Variables")%>
+    </td>
     <td <%= "class=has-error" if error.present? %>>
       <div class="input-group">
         <%= lookup_key_with_diagnostic(obj, lookup_key, lookup_value) %>
         <span class="input-group-btn">
-          <%= hidden_toggle(lookup_key.hidden_value?, 'font', 'font', true) %>
-          <%= fullscreen_button("$(this).parent().prev()") %>
+          <%= hidden_toggle(lookup_key.hidden_value?, 'font', 'font', true) if lookup_key.hidden_value? %>
+          <%= fullscreen_button("$(this).parent().prev()") unless lookup_key.key_type == "boolean" %>
           <%= override_toggle(overridden) %>
         </span>
       </div>
       <%= content_tag(:span, error.full_messages.to_sentence, :class => "help-block") if error.present? %>
     </td>
     <td class="ca">
-      <%= use_puppet_default_check_box(lookup_key, lookup_value, disabled) %>
-      <%= hidden_lookup_value_fields(lookup_key, lookup_value, disabled) %>
+      <%= omit_check_box(lookup_key, lookup_value, !overridden) %>
+      <%= hidden_lookup_value_fields(lookup_key, lookup_value, !overridden) %>
     </td>
   </tr>
 <% end %>

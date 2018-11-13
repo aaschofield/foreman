@@ -1,14 +1,15 @@
-require "proxy_api"
-require 'orchestration/queue'
+require_dependency "proxy_api"
+require_dependency 'orchestration/queue'
 
 module Orchestration
   extend ActiveSupport::Concern
+  include Orchestration::ProgressReport
 
   included do
     attr_reader :old
 
     # save handles both creation and update of hosts
-    before_save :on_save
+    around_save :around_save_orchestration
     after_commit :post_commit
     after_destroy :on_destroy
   end
@@ -22,6 +23,14 @@ module Orchestration
       @rebuild_methods = methods || {}
     end
 
+    def rebuild_methods_for(only = nil)
+      if only.present?
+        (@rebuild_methods || {}).select { |k, v| only.include?(v) }
+      else
+        @rebuild_methods || {}
+      end
+    end
+
     def register_rebuild(method, pretty_name)
       @rebuild_methods ||= {}
       fail "Method :#{method} is already registered, choose different name for your method" if @rebuild_methods[method]
@@ -31,8 +40,16 @@ module Orchestration
 
   protected
 
-  def on_save
+  def around_save_orchestration
     process :queue
+
+    begin
+      yield
+    rescue ActiveRecord::ActiveRecordError => e
+      Foreman::Logging.exception "Rolling back due to exception during save", e
+      fail_queue queue
+      raise e
+    end
   end
 
   def post_commit
@@ -71,15 +88,35 @@ module Orchestration
   end
 
   def queue
-    @queue ||= Orchestration::Queue.new
+    @queue ||= Orchestration::Queue.new(self.class.name + ' Main')
   end
 
   def post_queue
-    @post_queue ||= Orchestration::Queue.new
+    @post_queue ||= Orchestration::Queue.new(self.class.name + ' Post')
   end
 
   def record_conflicts
     @record_conflicts ||= []
+  end
+
+  def skip_orchestration!
+    @skip_orchestration = true
+  end
+
+  def enable_orchestration!
+    @skip_orchestration = false
+  end
+
+  def skip_orchestration?
+    return true if skip_orchestration_for_testing?
+    !!@skip_orchestration
+  end
+
+  def skip_orchestration_for_testing?
+    # The orchestration should be disabled in tests in order to avoid side effects.
+    # If a test needs to enable orchestration, it should be done explicitly by stubbing
+    # this method.
+    Rails.env.test?
   end
 
   private
@@ -89,7 +126,8 @@ module Orchestration
   # if any of them fail, it rollbacks all completed tasks
   # in order not to keep any left overs in our proxies.
   def process(queue_name)
-    return true if Rails.env == "test"
+    processed = 0
+    return true if skip_orchestration?
 
     # queue is empty - nothing to do.
     q = send(queue_name)
@@ -101,10 +139,11 @@ module Orchestration
       break unless q.failed.empty?
 
       task.status = "running"
-
       update_cache
+      logger.debug("Processing task '#{task.name}' from '#{q.name}'")
       begin
         task.status = execute({:action => task.action}) ? "completed" : "failed"
+        processed += 1
       rescue Net::Conflict => e
         task.status = "conflict"
         add_conflict(e)
@@ -117,10 +156,32 @@ module Orchestration
 
     update_cache
     # if we have no failures - we are done
-    return true if q.failed.empty? and q.pending.empty? and q.conflict.empty? and orchestration_errors?
+    return true if q.failed.empty? && q.pending.empty? && q.conflict.empty? && orchestration_errors?
 
     logger.warn "Rolling back due to a problem: #{q.failed + q.conflict}"
-    q.pending.each{ |task| task.status = "canceled" }
+    fail_queue(q)
+
+    rollback
+  ensure
+    unless q.nil?
+      if processed > 0
+        logger.info("Processed #{processed} tasks from queue '#{q.name}', completed #{q.completed.count}/#{q.all.count}") unless q.empty?
+        # rubocop:disable Rails/FindEach
+        q.all.each do |task|
+          msg = "Task '#{task.name}' *#{task.status}*"
+          if task.status?(:completed) || task.status?(:pending)
+            logger.debug msg
+          else
+            logger.error msg
+          end
+        end
+        # rubocop:enable Rails/FindEach
+      end
+    end
+  end
+
+  def fail_queue(q)
+    q.pending.each { |task| task.status = "canceled" }
 
     # handle errors
     # we try to undo all completed operations and trigger a DB rollback
@@ -134,8 +195,6 @@ module Orchestration
         failure _("Failed to perform rollback on %{task} - %{e}") % { :task => task.name, :e => e }, e
       end
     end
-
-    rollback
   end
 
   def add_conflict(e)
@@ -143,43 +202,28 @@ module Orchestration
   end
 
   def execute(opts = {})
-    obj, met = opts[:action]
+    obj, met, param = opts[:action]
     rollback = opts[:rollback] || false
     # at the moment, rollback are expected to replace set with del in the method name
     if rollback
       met = met.to_s
       case met
       when /set/
-        met.gsub!("set","del")
+        met.gsub!("set", "del")
       when /del/
-        met.gsub!("del","set")
+        met.gsub!("del", "set")
       else
         raise "Dont know how to rollback #{met}"
       end
       met = met.to_sym
     end
-    if obj.respond_to?(met,true)
+    if obj.respond_to?(met, true)
+      param.nil? || (return obj.send(met, param))
       return obj.send(met)
     else
       failure _("invalid method %s") % met
       raise ::Foreman::Exception.new(N_("invalid method %s"), met)
     end
-  end
-
-  # we keep the before update host object in order to compare changes
-  def setup_clone(&block)
-    return if new_record?
-    @old = setup_object_clone(self, &block)
-  end
-
-  def setup_object_clone(object)
-    clone = object.dup
-    yield(clone) if block_given?
-    # we can't assign using #attributes= because of mass-assign protected attributes (e.g. type)
-    for key in (object.changed_attributes.keys - ["updated_at"])
-      clone.send "#{key}=", object.changed_attributes[key]
-    end
-    clone
   end
 
   def orchestration_errors?
@@ -188,5 +232,9 @@ module Orchestration
 
   def update_cache
     Rails.cache.write(progress_report_id, (queue.all + post_queue.all).to_json, :expires_in => 5.minutes)
+  end
+
+  def attr_equivalent?(old, new)
+    (old.blank? && new.blank?) || (old == new)
   end
 end

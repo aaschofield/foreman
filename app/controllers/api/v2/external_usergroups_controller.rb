@@ -2,10 +2,11 @@ module Api
   module V2
     class ExternalUsergroupsController < V2::BaseController
       include Api::Version2
+      include Foreman::Controller::Parameters::ExternalUsergroup
 
-      before_filter :find_resource, :only => [:show, :update, :destroy, :refresh]
-      before_filter :find_required_nested_object, :only => [:index, :show, :create]
-      after_filter :refresh_external_usergroup, :only => [:create, :update, :destroy]
+      before_action :find_resource, :only => [:show, :update, :destroy, :refresh]
+      before_action :find_required_nested_object, :only => [:index, :show, :create]
+      after_action :refresh_external_usergroup, :only => [:create, :update, :destroy]
 
       api :GET, '/usergroups/:usergroup_id/external_usergroups', N_('List all external user groups for user group')
       api :GET, '/auth_source_ldaps/:auth_source_ldap_id/external_usergroups', N_('List all external user groups for LDAP authentication source')
@@ -26,7 +27,7 @@ module Api
       def_param_group :external_usergroup do
         param :external_usergroup, Hash, :required => true, :action_aware => true, :desc => N_('External user group information') do
           param :name, String, :required => true, :desc => N_('External user group name')
-          param :auth_source_id, Fixnum, :required => true, :desc => N_('ID of linked authentication source')
+          param :auth_source_id, :number, :required => true, :desc => N_('ID of linked authentication source')
         end
       end
 
@@ -35,7 +36,7 @@ module Api
       param_group :external_usergroup, :as => :create
 
       def create
-        @external_usergroup = @nested_obj.external_usergroups.new(params[:external_usergroup])
+        @external_usergroup = @nested_obj.external_usergroups.new(external_usergroup_params)
         process_response @external_usergroup.save
       end
 
@@ -45,7 +46,7 @@ module Api
       param_group :external_usergroup
 
       def update
-        process_response @external_usergroup.update_attributes(params[:external_usergroup])
+        process_response @external_usergroup.update(external_usergroup_params)
       end
 
       api :PUT, '/usergroups/:usergroup_id/external_usergroups/:id/refresh', N_('Refresh external user group')
@@ -85,4 +86,3 @@ module Api
     end
   end
 end
-

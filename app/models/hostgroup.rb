@@ -1,4 +1,5 @@
-class Hostgroup < ActiveRecord::Base
+class Hostgroup < ApplicationRecord
+  audited
   include Authorizable
   extend FriendlyId
   friendly_id :title
@@ -6,30 +7,14 @@ class Hostgroup < ActiveRecord::Base
   include HostCommon
 
   include NestedAncestryCommon
-
-  attr_accessible :name, :vm_defaults, :title, :root_pass,
-    # Model relations sorted in alphabetical order
-    :arch, :arch_id, :arch_name,
-    :architecture_id, :architecture_name,
-    :config_group_names, :config_group_ids,
-    :domain_id, :domain_name,
-    :environment_id, :environment_name,
-    :group_parameters_attributes,
-    :medium_id, :medium_name,
-    :subnet_id, :subnet_name,
-    :realm_id, :realm_name,
-    :operatingsystem_id, :operatingsystem_name,
-    :os, :os_id, :os_name,
-    :ptable_id, :ptable_name,
-    :puppet_ca_proxy_id, :puppet_ca_proxy_name,
-    :puppet_proxy_id, :puppet_proxy_name,
-    :puppetclass_ids, :puppetclass_names
+  include NestedAncestryCommon::Search
 
   validates :name, :presence => true, :uniqueness => {:scope => :ancestry, :case_sensitive => false}
-  validates :title, :presence => true, :uniqueness => true
+
+  validate :validate_subnet_types
+  validates_with SubnetsConsistencyValidator
 
   include ScopedSearchExtensions
-  include PuppetclassTotalHosts::Indirect
   include SelectiveClone
 
   validates_lengths_from_database :except => [:name]
@@ -40,26 +25,25 @@ class Hostgroup < ActiveRecord::Base
   has_many :group_parameters, :dependent => :destroy, :foreign_key => :reference_id, :inverse_of => :hostgroup
   accepts_nested_attributes_for :group_parameters, :allow_destroy => true
   include ParameterValidators
+  include PxeLoaderValidator
+  include PxeLoaderSuggestion
   alias_attribute :hostgroup_parameters, :group_parameters
-  has_many_hosts :after_add => :update_puppetclasses_total_hosts,
-                 :after_remove => :update_puppetclasses_total_hosts
+  has_many_hosts
   has_many :template_combinations, :dependent => :destroy
   has_many :provisioning_templates, :through => :template_combinations
 
-  include CounterCacheFix
-  counter_cache = "#{model_name.to_s.split(":").first.pluralize.downcase}_count".to_sym  # e.g. :hosts_count
-  belongs_to :domain, :counter_cache => counter_cache
+  belongs_to :domain
   belongs_to :subnet
+  belongs_to :subnet6, :class_name => "Subnet"
 
   before_save :remove_duplicated_nested_class
-  after_save :update_ancestry_puppetclasses, :if => :ancestry_changed?
 
   alias_attribute :arch, :architecture
   alias_attribute :os, :operatingsystem
   has_many :trends, :as => :trendable, :class_name => "ForemanTrend"
 
-  nested_attribute_for :compute_profile_id, :environment_id, :domain_id, :puppet_proxy_id, :puppet_ca_proxy_id,
-                       :operatingsystem_id, :architecture_id, :medium_id, :ptable_id, :subnet_id, :realm_id
+  nested_attribute_for :compute_profile_id, :environment_id, :domain_id, :puppet_proxy_id, :puppet_ca_proxy_id, :compute_resource_id,
+                       :operatingsystem_id, :architecture_id, :medium_id, :ptable_id, :subnet_id, :subnet6_id, :realm_id, :pxe_loader
 
   # with proc support, default_scope can no longer be chained
   # include all default scoping here
@@ -70,35 +54,34 @@ class Hostgroup < ActiveRecord::Base
   }
 
   scoped_search :on => :name, :complete_value => :true
-  scoped_search :in => :group_parameters,    :on => :value, :on_key=> :name, :complete_value => true, :only_explicit => true, :rename => :params
-  scoped_search :in => :hosts, :on => :name, :complete_value => :true, :rename => "host"
-  scoped_search :in => :puppetclasses, :on => :name, :complete_value => true, :rename => :class, :operators => ['= ', '~ ']
-  scoped_search :in => :environment, :on => :name, :complete_value => :true, :rename => :environment
-  scoped_search :on => :id, :complete_enabled => false, :only_explicit => true
+  scoped_search :relation => :group_parameters,    :on => :value, :on_key => :name, :complete_value => true, :only_explicit => true, :rename => :params
+  scoped_search :relation => :hosts, :on => :name, :complete_value => :true, :rename => "host", :only_explicit => true
+  scoped_search :relation => :puppetclasses, :on => :name, :complete_value => true, :rename => :class, :only_explicit => true, :operators => ['= ', '~ ']
+  scoped_search :relation => :environment, :on => :name, :complete_value => :true, :rename => :environment, :only_explicit => true
+  scoped_search :on => :id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
   # for legacy purposes, keep search on :label
   scoped_search :on => :title, :complete_value => true, :rename => :label
-  scoped_search :in => :config_groups, :on => :name, :complete_value => true, :rename => :config_group, :only_explicit => true, :operators => ['= ', '~ '], :ext_method => :search_by_config_group
-  scoped_search :on => :hosts_count
+  scoped_search :relation => :config_groups, :on => :name, :complete_value => true, :rename => :config_group, :only_explicit => true, :operators => ['= ', '~ '], :ext_method => :search_by_config_group
 
   def self.search_by_config_group(key, operator, value)
-    conditions  = sanitize_sql_for_conditions(["config_groups.name #{operator} ?", value_to_sql(operator, value)])
+    conditions = sanitize_sql_for_conditions(["config_groups.name #{operator} ?", value_to_sql(operator, value)])
     hostgroup_ids = Hostgroup.unscoped.with_taxonomy_scope.joins(:config_groups).where(conditions).map(&:subtree_ids).flatten.uniq
 
     opts = 'hostgroups.id < 0'
-    opts = "hostgroups.id IN(#{hostgroup_ids.join(',')})" unless hostgroup_ids.blank?
+    opts = "hostgroups.id IN(#{hostgroup_ids.join(',')})" if hostgroup_ids.present?
     {:conditions => opts}
   end
 
   if SETTINGS[:unattended]
-    scoped_search :in => :architecture,     :on => :name,        :complete_value => true,  :rename => :architecture
-    scoped_search :in => :operatingsystem,  :on => :name,        :complete_value => true,  :rename => :os
-    scoped_search :in => :operatingsystem,  :on => :description, :complete_value => true,  :rename => :os_description
-    scoped_search :in => :operatingsystem,  :on => :title,       :complete_value => true,  :rename => :os_title
-    scoped_search :in => :operatingsystem,  :on => :major,       :complete_value => true,  :rename => :os_major
-    scoped_search :in => :operatingsystem,  :on => :minor,       :complete_value => true,  :rename => :os_minor
-    scoped_search :in => :operatingsystem,  :on => :id,          :complete_enabled => false, :rename => :os_id, :only_explicit => true
-    scoped_search :in => :medium,           :on => :name,        :complete_value => true,  :rename => "medium"
-    scoped_search :in => :provisioning_templates, :on => :name,        :complete_value => true,  :rename => "template"
+    scoped_search :relation => :architecture,     :on => :name,        :complete_value => true,  :rename => :architecture, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :name,        :complete_value => true,  :rename => :os, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :description, :complete_value => true,  :rename => :os_description, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :title,       :complete_value => true,  :rename => :os_title, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :major,       :complete_value => true,  :rename => :os_major, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :minor,       :complete_value => true,  :rename => :os_minor, :only_explicit => true
+    scoped_search :relation => :operatingsystem,  :on => :id,          :complete_enabled => false, :rename => :os_id, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
+    scoped_search :relation => :medium,           :on => :name,        :complete_value => true, :rename => "medium", :only_explicit => true
+    scoped_search :relation => :provisioning_templates, :on => :name,  :complete_value => true, :rename => "template", :only_explicit => true
   end
 
   # returns reports for hosts in the User's filter set
@@ -115,19 +98,31 @@ class Hostgroup < ActiveRecord::Base
 
   class Jail < Safemode::Jail
     allow :name, :diskLayout, :puppetmaster, :operatingsystem, :architecture,
-      :environment, :ptable, :url_for_boot, :params, :puppetproxy, :param_true?,
-      :param_false?, :puppet_ca_server, :indent, :os, :arch, :domain, :subnet,
-      :realm, :root_pass
+      :environment, :ptable, :url_for_boot, :params, :puppetproxy,
+      :puppet_ca_server, :indent, :os, :arch, :domain, :subnet,
+      :subnet6, :realm, :root_pass, :description, :pxe_loader
   end
 
-  #TODO: add a method that returns the valid os for a hostgroup
+  # TODO: add a method that returns the valid os for a hostgroup
 
   def hostgroup
     self
   end
 
+  def self.title_name
+    "title".freeze
+  end
+
+  def disk_layout_source
+    @disk_layout_source ||= if ptable.present?
+                              Foreman::Renderer::Source::String.new(name: ptable.name,
+                                                                    content: ptable.layout.tr("\r", ''))
+                            end
+  end
+
   def diskLayout
-    ptable.layout.tr("\r", '')
+    raise Foreman::Renderer::Errors::RenderingError, 'Partition table not defined for hostgroup' unless disk_layout_source
+    disk_layout_source.content
   end
 
   def all_config_groups
@@ -150,11 +145,13 @@ class Hostgroup < ActiveRecord::Base
   end
 
   def inherited_lookup_value(key)
-    ancestors.reverse_each do |hg|
-      if (v = LookupValue.where(:lookup_key_id => key.id, :id => hg.lookup_values).first)
-        return v.value, hg.to_label
+    if key.path_elements.flatten.include?("hostgroup") && Setting["host_group_matchers_inheritance"]
+      ancestors.reverse_each do |hg|
+        if (v = LookupValue.find_by(:lookup_key_id => key.id, :id => hg.lookup_values))
+          return v.value, hg.to_label
+        end
       end
-    end if key.path_elements.flatten.include?("hostgroup") && Setting["host_group_matchers_inheritance"]
+    end
     [key.default_value, _("Default value")]
   end
 
@@ -165,7 +162,7 @@ class Hostgroup < ActiveRecord::Base
     # otherwise we might be overwriting the hash in the wrong order.
     groups = Hostgroup.sort_by_ancestry(Hostgroup.includes(:group_parameters).find(ids))
     groups.each do |hg|
-      hg.group_parameters.each {|p| hash[p.name] = include_source ? {:value => p.value, :source => p.associated_type, :safe_value => p.safe_value, :source_name => hg.title} : p.value }
+      hg.group_parameters.authorized(:view_params).each {|p| hash[p.name] = include_source ? {:value => p.value, :source => p.associated_type, :safe_value => p.safe_value, :source_name => hg.title} : p.value }
     end
     hash
   end
@@ -184,9 +181,9 @@ class Hostgroup < ActiveRecord::Base
   def params
     parameters = {}
     # read common parameters
-    CommonParameter.where(nil).each {|p| parameters.update Hash[p.name => p.value] }
+    CommonParameter.where(nil).find_each {|p| parameters.update Hash[p.name => p.value] }
     # read OS parameters
-    operatingsystem.os_parameters.each {|p| parameters.update Hash[p.name => p.value] } if operatingsystem
+    operatingsystem&.os_parameters&.each {|p| parameters.update Hash[p.name => p.value] }
     # read group parameters only if a host belongs to a group
     parameters.update self.parameters if hostgroup
     parameters
@@ -194,10 +191,18 @@ class Hostgroup < ActiveRecord::Base
 
   # no need to store anything in the db if the password is our default
   def root_pass
-    return read_attribute(:root_pass) if read_attribute(:root_pass).present?
+    return self[:root_pass] if self[:root_pass].present?
     npw = nested_root_pw
     return npw if npw.present?
     Setting[:root_pass]
+  end
+
+  def explicit_pxe_loader
+    self[:pxe_loader].presence
+  end
+
+  def pxe_loader
+    explicit_pxe_loader || nested(:pxe_loader).presence
   end
 
   include_in_clone :lookup_values, :hostgroup_classes, :locations, :organizations, :group_parameters
@@ -217,13 +222,32 @@ class Hostgroup < ActiveRecord::Base
     new
   end
 
-  def update_ancestry_puppetclasses
-    unscoped_find(ancestry_was.to_s.split('/').last.to_i).update_puppetclasses_total_hosts if ancestry_was.present?
-    unscoped_find(ancestry.to_s.split('/').last.to_i).update_puppetclasses_total_hosts if ancestry.present?
+  def hosts_count
+    HostCounter.new(:hostgroup)[self]
   end
 
   def children_hosts_count
-    subtree.sum(:hosts_count)
+    counter = HostCounter.new(:hostgroup)
+    subtree_ids.map {|child_id| counter.fetch(child_id, 0)}.sum
+  end
+
+  # rebuilds orchestration configuration for hostgroup's hosts
+  # takes all the methods from Orchestration modules that are registered for configuration rebuild
+  # arguments:
+  # => only : Array of rebuild methods to execute (Example: ['TFTP'])
+  # => children_hosts : Boolean that if true will operate on children hostgroup's hosts
+  # returns  : Hash with 'true' if rebuild was a success for a given key (Example: {'host.example.com': {"TFTP" => true, "DNS" => false}})
+  def recreate_hosts_config(only = nil, children_hosts = false)
+    result = {}
+
+    Host::Managed.authorized.where(:hostgroup => (children_hosts ? subtree_ids : self.id)).find_each do |host|
+      result[host.name] = host.recreate_config(only)
+    end
+    result
+  end
+
+  def render_template(template:, **params)
+    template.render(host: self, **params)
   end
 
   protected
@@ -235,9 +259,11 @@ class Hostgroup < ActiveRecord::Base
   private
 
   def nested_root_pw
-    Hostgroup.sort_by_ancestry(ancestors).reverse_each do |a|
-      return a.root_pass unless a.root_pass.blank?
-    end if ancestry.present?
+    if ancestry.present?
+      Hostgroup.sort_by_ancestry(ancestors).reverse_each do |a|
+        return a.root_pass if a.root_pass.present?
+      end
+    end
     nil
   end
 
@@ -248,10 +274,15 @@ class Hostgroup < ActiveRecord::Base
   # overwrite method in taxonomix, since hostgroup has ancestry
   def used_taxonomy_ids(type)
     return [] if new_record? && parent_id.blank?
-    Host::Base.where(:hostgroup_id => self.path_ids).uniq.pluck(type).compact
+    Host::Base.where(:hostgroup_id => self.path_ids).distinct.pluck(type).compact
   end
 
   def password_base64_encrypted?
     !root_pass_changed?
+  end
+
+  def validate_subnet_types
+    errors.add(:subnet, _("must be of type Subnet::Ipv4.")) if self.subnet.present? && self.subnet.type != 'Subnet::Ipv4'
+    errors.add(:subnet6, _("must be of type Subnet::Ipv6.")) if self.subnet6.present? && self.subnet6.type != 'Subnet::Ipv6'
   end
 end

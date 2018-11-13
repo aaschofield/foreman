@@ -1,3 +1,5 @@
+//= require parameter_override
+
 $(document).on('ContentLoad', function(){onHostEditLoad()});
 $(document).on('AddedClass', function(event, link){load_puppet_class_parameters(link)});
 
@@ -13,7 +15,7 @@ function update_nics(success_callback) {
     data: data,
     complete: function(){},
     error: function(jqXHR, status, error){
-      $('#network').html(Jed.sprintf(__("Error loading interfaces information: %s"), error));
+      $('#network').html(tfm.i18n.sprintf(__("Error loading interfaces information: %s"), error));
       $('#network_tab a').addClass('tab-error');
     },
     success: function(result){
@@ -24,6 +26,15 @@ function update_nics(success_callback) {
       success_callback();
     }
   })
+}
+
+var nic_update_handler = function() {
+  update_nics(updatePrimarySubnetIPs);
+};
+
+function updatePrimarySubnetIPs() {
+  interface_subnet_selected(primary_nic_form().find('select.interface_subnet'), 'ip');
+  interface_subnet_selected(primary_nic_form().find('select.interface_subnet6'), 'ip6');
 }
 
 function computeResourceSelected(item){
@@ -37,9 +48,7 @@ function computeResourceSelected(item){
     $("#compute_resource_tab").hide();
     $("#compute_profile").hide();
     update_capabilities($('#bare_metal_capabilities').val());
-    update_nics(function() {
-      interface_subnet_selected(primary_nic_form().find('select.interface_subnet'));
-    });
+    nic_update_handler();
   } else {
     //Real compute resource or any compute profile
     $("#model_name").hide();
@@ -49,28 +58,37 @@ function computeResourceSelected(item){
     var data = serializeForm().replace('method=patch', 'method=post');
     $('#compute_resource').html(spinner_placeholder(__('Loading virtual machine information ...')));
     $('#compute_resource_tab a').removeClass('tab-error');
-    $(item).indicator_show();
+    tfm.tools.showSpinner();
     var url = $(item).attr('data-url');
     $.ajax({
       type:'post',
       url: url,
       data: data,
       complete: function(){
-        $(item).indicator_hide()
-        update_nics(function() {
-          interface_subnet_selected(primary_nic_form().find('select.interface_subnet'));
-        });
+        tfm.tools.hideSpinner();
+        handle_nic_updates();
       },
       error: function(jqXHR, status, error){
-        $('#compute_resource').html(Jed.sprintf(__("Error loading virtual machine information: %s"), error));
+        $('#compute_resource').html(jqXHR.responseText);
         $('#compute_resource_tab a').addClass('tab-error');
       },
       success: function(result){
-        $('#compute_resource').html(result).find('select:not(without_select2)').select2();
+        $('#compute_resource').html(result);
+        activate_select2('#compute_resource');
         if ($('#compute_resource').find('.alert-danger').length > 0) $('#compute_resource_tab a').addClass('tab-error');
         update_capabilities($('#capabilities').val());
+        tfm.numFields.initAll();
       }
     })
+  }
+}
+
+function handle_nic_updates() {
+  var modal_window = $('#interfaceModal');
+  if (modal_window.is(":visible")) {
+    modal_window.modal('hide').on('hidden.bs.modal', nic_update_handler);
+  } else {
+    nic_update_handler();
   }
 }
 
@@ -108,15 +126,13 @@ function update_capabilities(capabilities){
 var stop_pooling;
 
 function submit_with_all_params(){
-  var url = window.location.pathname.replace(/\/edit$|\/new|\/\d+.*\/nest$/,'');
+  var url = $('form').attr('action');
   if (url.match('hostgroups')) {
     resource = 'hostgroup'
   } else {
     resource = 'host'
   }
-  resources = resource + 's';
   capitalized_resource = resource[0].toUpperCase + resource.slice(1);
-  if(/\/clone$/.test(window.location.pathname)){ url = foreman_url('/' + resources); }
   $('form input[type="submit"]').attr('disabled', true);
   stop_pooling = false;
   $("body").css("cursor", "progress");
@@ -219,19 +235,31 @@ function hostgroup_changed(element) {
   var host_id = $("form").data('id');
   var host_changed = $("form").data('type-changed');
   if (host_id) {
-    if (host_changed ){
-      update_form(element,{data:"&host[id]="+host_id});
-    } else if (host_changed == undefined) { // hostgroup changes parent
-      update_form(element);
-    } else { // edit host
-      set_inherited_value(element);
-      update_puppetclasses(element);
-      reload_host_params();
-    }
+    handleHostgroupChangeEdit(element, host_id, host_changed);
   } else { // a new host
-    reset_explicit_values(element);
+    handleHostgroupChangedNew(element);
+  }
+}
+
+function handleHostgroupChangeEdit(element, host_id, host_changed) {
+  if (host_changed){
+    update_form(element,{data:"&host[id]="+host_id})
+  } else if (host_changed == undefined) { // hostgroup changes parent
+    update_form(element)
+  } else { // edit host
     set_inherited_value(element);
-    update_form(element);
+    update_puppetclasses(element);
+    reload_host_params();
+  }
+}
+
+function handleHostgroupChangedNew(element) {
+  reset_explicit_values(element);
+  set_inherited_value(element);
+  // call for form update only if there is a hostgroup selected
+  if ($('#host_hostgroup_id').val() != "") {
+    $("#host_compute_resource_id").prop("disabled", true);
+    return update_form(element);
   }
 }
 
@@ -276,12 +304,12 @@ function update_form(element, options) {
   var url = $(element).data('url');
   var data = serializeForm().replace('method=patch', 'method=post');
   if (options.data) data = data+options.data;
-  $(element).indicator_show();
-  $.ajax({
+  tfm.tools.showSpinner();
+  return $.ajax({
     type: 'post',
     url: url,
     data: data,
-    complete: function(){ $(element).indicator_hide(); },
+    complete: function(){ tfm.tools.hideSpinner(); },
     success: function(response) {
       $('form').replaceWith(response);
       multiSelectOnLoad();
@@ -290,6 +318,10 @@ function update_form(element, options) {
         // to handle case if def process_taxonomy changed compute_resource_id to nil
         if (!host_compute_resource_id.val()) {
           host_compute_resource_id.change();
+        } else {
+          // in case the compute resource was selected, we still want to check for
+          // free ip if applicable
+          updatePrimarySubnetIPs();
         }
         update_capabilities(host_compute_resource_id.val() ? $('#capabilities').val() : $('#bare_metal_capabilities').val());
       }
@@ -301,29 +333,26 @@ function update_form(element, options) {
 
 //Serializes only those input elements from form that are set explicitly
 function serializeForm() {
-  return $('form').serialize()
+  return $('form input,select,textarea').not('.form_template *').serialize()
 }
 
-function subnet_contains(number, cidr, ip){
-  var int_ip     = _to_int(ip);
-  var int_number = _to_int(number);
-  var shift      = 32 - parseInt(cidr);
-  return (int_ip >> shift == int_number >> shift);
-}
-
-function _to_int(str){
-  var nibble = str.split(".");
-  var integer = 0;
-  for(var i=0;i<=3;i++){
-    integer = (integer * 256) + parseInt(nibble[i]);
+function subnet_contains(network, cidr, ip) {
+  if (!ip || 0 === ip.length || !ipaddr.isValid(ip)) {
+    return;
   }
-  return integer;
+
+  var addr = ipaddr.parse(ip);
+  var range = ipaddr.parse(network);
+
+  return addr.match(range, cidr);
 }
 
 function architecture_selected(element){
-  var attrs   = attribute_hash(['architecture_id', 'organization_id', 'location_id']);
   var url = $(element).attr('data-url');
-  $(element).indicator_show();
+  var type = $(element).attr('data-type');
+  var attrs = {};
+  attrs[type] = attribute_hash(tfm.hosts.getAttributesToPost("architecture"));
+  tfm.tools.showSpinner();
   $.ajax({
     data: attrs,
     type:'post',
@@ -338,9 +367,11 @@ function architecture_selected(element){
 }
 
 function os_selected(element){
-  var attrs = attribute_hash(['operatingsystem_id', 'organization_id', 'location_id']);
   var url = $(element).attr('data-url');
-  $(element).indicator_show();
+  var type = $(element).attr('data-type');
+  var attrs = {};
+  attrs[type] = attribute_hash(tfm.hosts.getAttributesToPost("os"));
+  tfm.tools.showSpinner();
   $.ajax({
     data: attrs,
     type:'post',
@@ -351,6 +382,7 @@ function os_selected(element){
     success: function(request) {
       $('#media_select').html(request);
       reload_host_params();
+      reload_puppetclass_params();
     }
   });
   update_provisioning_image();
@@ -360,10 +392,9 @@ function update_provisioning_image(){
   var arch_id = $('[name$="[architecture_id]"]').val();
   var os_id = $('[name$="[operatingsystem_id]"]').val();
   if((compute_id == undefined) || (compute_id == "") || (arch_id == "") || (os_id == "")) return;
-  var term = 'operatingsystem=' + os_id + ' architecture=' + arch_id;
   var image_options = $('#image_selection select').empty();
   $.ajax({
-      data:'search=' + encodeURIComponent(term),
+      data: {'operatingsystem_id': os_id, 'architecture_id': arch_id},
       type:'get',
       url: foreman_url('/compute_resources/'+compute_id+'/images'),
       dataType: 'json',
@@ -374,12 +405,12 @@ function update_provisioning_image(){
         if (image_options.find('option').length > 0) {
           if ($('#host_provision_method_image')[0].checked) {
             if ($('#provider').val() == 'Libvirt') {
-              libvirt_image_selected(image_options);
+              tfm.computeResource.libvirt.imageSelected(image_options);
             } else if ($('#provider').val() == 'Ovirt') {
               var template_select = $('#host_compute_attributes_template');
               if (template_select.length > 0) {
                 template_select.val(image_options.val());
-                ovirt_templateSelected(image_options);
+                tfm.computeResource.ovirt.templateSelected(image_options);
               }
             }
           }
@@ -391,10 +422,9 @@ function update_provisioning_image(){
 function medium_selected(element){
   var url = $(element).attr('data-url');
   var type = $(element).attr('data-type');
-  var obj = (type == "hosts" ? "host" : "hostgroup");
   var attrs = {};
-  attrs[obj] = attribute_hash(['medium_id', 'operatingsystem_id', 'architecture_id']);
-  attrs[obj]["use_image"] = $('*[id*=use_image]').attr('checked') == "checked";
+  attrs[type] = attribute_hash(tfm.hosts.getAttributesToPost("medium"));
+  attrs[type]["use_image"] = $('*[id*=use_image]').attr('checked') == "checked";
   $.ajax({
     data: attrs,
     type:'post',
@@ -408,54 +438,29 @@ function medium_selected(element){
 function use_image_selected(element){
   var url = $(element).attr('data-url');
   var type = $(element).attr('data-type');
-  var obj = (type == "hosts" ? "host" : "hostgroup");
   var attrs = {};
-  attrs[obj] = attribute_hash(['medium_id', 'operatingsystem_id', 'architecture_id', 'model_id']);
-  attrs[obj]['use_image'] = ($(element).attr('checked') == "checked");
+  attrs[type] = attribute_hash(tfm.hosts.getAttributesToPost("image"));
+  attrs[type]['use_image'] = ($(element).attr('checked') == "checked");
   $.ajax({
     data: attrs,
     type: 'post',
     url:  url,
     success: function(response) {
       var field = $('*[id*=image_file]');
-      if (attrs[obj]["use_image"]) {
+      if (attrs[type]["use_image"]) {
         if (field.val() == "") field.val(response["image_file"]);
       } else
         field.val("");
 
-      field.attr("disabled", !attrs[obj]["use_image"]);
+      field.attr("disabled", !attrs[type]["use_image"]);
     }
   });
-}
-
-function override_param(item){
-  var param = $(item).closest('tr').addClass('override-param');
-  var n = param.find('[id^=name_]').text();
-  var param_value = param.find('[id^=value_]');
-  var v = param_value.val();
-
-  $('#parameters').find('.btn-primary').click();
-  var new_param = $('#parameters').find('.fields').last();
-  new_param.find('[id$=_name]').val(n);
-  new_param.find('[id$=_value]').val(v == param_value.data('hidden-value') ? '' : v);
-}
-
-function override_class_param(item){
-  var remove = $(item).data('tag') == 'remove';
-  var row = $(item).closest('tr').toggleClass('overridden');
-  var value = row.find('textarea');
-  row.find('[type=checkbox]').prop('checked', false).toggle();
-  row.find('input, textarea').prop('disabled', remove);
-  row.find('.send_to_remove').prop('disabled', false);
-  row.find('.destroy').val(remove);
-  value.val(value.data('inherited-value'));
-  $(item).hide().siblings('.btn-override').show();
 }
 
 function reload_host_params(){
   var host_id = $("form").data('id');
   var url = $('#params-tab').data('url');
-  var data = $("[data-submit='progress_bar']").serialize().replace('method=patch', 'method=post');
+  var data = serializeForm().replace('method=patch', 'method=post');
   if (url.length > 0) {
     data = data + '&host_id=' + host_id;
     load_with_placeholder('inherited_parameters', url, data);
@@ -465,7 +470,7 @@ function reload_host_params(){
 function reload_puppetclass_params(){
   var host_id = $("form").data('id');
   var url2 = $('#params-tab').data('url2');
-  var data = $("[data-submit='progress_bar']").serialize().replace('method=patch', 'method=post');
+  var data = serializeForm().replace('method=patch', 'method=post');
   if (url2.match('hostgroups')) {
     data = data + '&hostgroup_id=' + host_id
   } else {
@@ -493,6 +498,8 @@ function load_with_placeholder(target, url, data){
 
 function onHostEditLoad(){
   update_interface_table();
+  tfm.hostgroups.checkForUnavailablePuppetclasses();
+
   $("#host-conflicts-modal").modal({show: "true", backdrop: "static"});
    $('#host-conflicts-modal').click(function(){
      $('#host-conflicts-modal').modal('hide');
@@ -504,6 +511,7 @@ function onHostEditLoad(){
   }
   $('#params-tab').on('shown', function(){mark_params_override()});
   if ($('#supports_update') && !$('#supports_update').data('supports-update')) disable_vm_form_fields();
+  pxeLoaderCompatibilityCheck();
 }
 
 $(document).on('submit',"[data-submit='progress_bar']", function() {
@@ -529,13 +537,13 @@ function image_provision_method_selected() {
   var image_options = $('#image_selection select');
   image_options.attr('disabled', false);
   if ($('#provider').val() == 'Libvirt') {
-    libvirt_image_selected(image_options);
+    tfm.computeResource.libvirt.imageSelected(image_options);
   } else if ($('#provider').val() == 'Ovirt') {
     var template_options = $('#host_compute_attributes_template');
     if (template_options.length > 0) {
       template_options.attr('disabled', true);
       template_options.val(image_options.val());
-      ovirt_templateSelected(image_options);
+      tfm.computeResource.ovirt.templateSelected(image_options);
     }
   }
 }
@@ -543,29 +551,81 @@ $(document).on('change', '#host_provision_method_image', image_provision_method_
 
 $(document).on('change', '.interface_domain', function () {
   clearError($(this).closest('fieldset').find('.interface_ip'));
+  clearError($(this).closest('fieldset').find('.interface_ip6'));
   interface_domain_selected(this);
+  reload_host_params();
+  reload_puppetclass_params();
 });
 
-function clearIpField(parent) {
-  var ip_field = $(parent).closest('fieldset').find('.interface_ip');
+function clearIpField(parent, childclass) {
+  var ip_field = $(parent).closest('fieldset').find(childclass);
   clearError(ip_field);
   ip_field.val('');
 }
 
-$(document).on('click', '.suggest_new_ip', function (e) {
-  clearIpField(this);
-  interface_subnet_selected($(this).closest('fieldset').find('select.interface_subnet'));
+function suggestNewClick(element, e, suffix) {
+  suffix = suffix || '';
+  clearIpField(element, '.interface_ip' + suffix);
+  interface_subnet_selected($(element).closest('fieldset').find('select.interface_subnet' + suffix), 'ip' + suffix, true);
   e.preventDefault();
+}
+
+$(document).on('click', '.suggest_new_ip', function (e) {
+  suggestNewClick(this, e);
+});
+
+$(document).on('click', '.suggest_new_ip6', function (e) {
+  suggestNewClick(this, e, '6');
 });
 
 $(document).on('change', '.interface_subnet', function () {
-  clearIpField(this);
-  interface_subnet_selected(this);
+  interface_subnet_selected(this, 'ip');
+});
+
+$(document).on('change', '.interface_subnet6', function () {
+  interface_subnet_selected(this, 'ip6');
+});
+
+$(document).on('change', '.interface_mac', function () {
+  var subnet_select = $(this).closest('fieldset').find('select.interface_subnet');
+  var subnet6_select = $(this).closest('fieldset').find('select.interface_subnet6');
+  clearIpField(subnet_select, '.interface_ip');
+  clearIpField(subnet6_select, '.interface_ip6');
+  interface_subnet_selected(subnet_select, 'ip');
+  interface_subnet_selected(subnet6_select, 'ip6');
 });
 
 $(document).on('change', '.interface_type', function () {
   interface_type_selected(this);
 });
+
+function interface_subnet_activate_if_not_empty(element) {
+  if (element.find('option').length > 0) {
+    element.prepend($("<option />").val(null).text(null).prop('selected', true));
+    element.attr('disabled', false);
+    element.change();
+  }
+  else {
+    element.append($("<option />").text(__('No subnets')));
+    element.attr('disabled', true);
+  }
+}
+
+function toggle_suggest_new_link(element, ip_field) {
+  var suggest_new_link = $(element).closest('fieldset').find('.suggest_new_' + ip_field);
+  var subnet_supports_suggest_new = $(element).find(':selected').attr('data-suggest_new');
+  if(subnet_supports_suggest_new === 'true') {
+    suggest_new_link.fadeIn();
+  } else {
+    suggest_new_link.fadeOut();
+  }
+}
+
+function interface_domain_selected_subnet_handler(field, suffix) {
+  interface_subnet_activate_if_not_empty(field);
+  toggle_suggest_new_link(field, suffix);
+  activate_select2(field);
+}
 
 function interface_domain_selected(element) {
   // mark the selected value to preserve it for form hiding
@@ -573,10 +633,12 @@ function interface_domain_selected(element) {
 
   var domain_id = element.value;
   var subnet_options = $(element).closest('fieldset').find('[id$=_subnet_id]').empty();
+  var subnet6_options = $(element).closest('fieldset').find('[id$=_subnet6_id]').empty();
 
   subnet_options.attr('disabled', true);
+  subnet6_options.attr('disabled', true);
 
-  $(element).indicator_show();
+  tfm.tools.showSpinner();
 
   var url = $(element).attr('data-url');
 
@@ -589,36 +651,42 @@ function interface_domain_selected(element) {
     url:url,
     dataType:'json',
     success:function (result) {
-      if (result.length > 1)
-        subnet_options.append($("<option />").val(null).text(__('Please select')));
-
       $.each(result, function () {
-        subnet_options.append($("<option />").val(this.subnet.id).text(this.subnet.to_label));
+        select = null;
+        if (this.subnet.type === 'Subnet::Ipv4') {
+          select = subnet_options
+        } else if(this.subnet.type === 'Subnet::Ipv6') {
+          select = subnet6_options
+        }
+        if (select) {
+          select.append($("<option />")
+            .val(this.subnet.id)
+            .attr('data-suggest_new', this.subnet.unused_ip.suggest_new)
+            .attr('data-vlan_id', this.subnet.vlanid)
+            .text(this.subnet.to_label));
+        }
       });
-      if (subnet_options.find('option').length > 0) {
-        subnet_options.attr('disabled', false);
-        subnet_options.change();
-      }
-      else {
-        subnet_options.append($("<option />").text(__('No subnets')));
-        subnet_options.attr('disabled', true);
-      }
+      interface_domain_selected_subnet_handler(subnet_options, 'ip')
+      interface_domain_selected_subnet_handler(subnet6_options, 'ip6')
       reloadOnAjaxComplete(element);
-      subnet_options.filter('select').select2({allowClear: true})
     }
   });
 }
 
-function interface_subnet_selected(element) {
+function interface_subnet_selected(element, ip_field, skip_mac) {
   // mark the selected value to preserve it for form hiding
   preserve_selected_options($(element));
 
   var subnet_id = $(element).val();
   if (subnet_id == '') return;
-  var interface_ip = $(element).closest('fieldset').find('input[id$=_ip]');
+  var interface_ip = $(element).closest('fieldset').find('input[id$=_' + ip_field + ']');
+
+  toggle_suggest_new_link(element, ip_field);
+
+  selectRelatedNetwork(element);
 
   interface_ip.attr('disabled', true);
-  $(element).indicator_show();
+  tfm.tools.showSpinner();
 
   // We do not query the proxy if the ip field is filled in and contains an
   // IP that is in the selected subnet
@@ -631,7 +699,7 @@ function interface_subnet_selected(element) {
 
     if (subnet_contains(network, cidr, interface_ip.val())) {
       interface_ip.attr('disabled', false);
-      $(element).indicator_hide();
+      tfm.tools.hideSpinner();
       return;
     }
   }
@@ -640,35 +708,67 @@ function interface_subnet_selected(element) {
   var org = $('#host_organization_id :selected').val();
   var loc = $('#host_location_id :selected').val();
 
-  var taken_ips = $(active_interface_forms()).find('.interface_ip').map(function() {
+  var taken_ips = $(active_interface_forms()).find('.interface_' + ip_field).map(function() {
     return $(this).val();
   }).get();
   taken_ips.push(interface_ip.val());
 
   var data = {
     subnet_id: subnet_id,
-    host_mac: interface_mac.val(),
+    host_mac: skip_mac ? "" : interface_mac.val(),
     organization_id: org,
     location_id: loc,
     taken_ips: taken_ips
   }
   $.ajax({
     data: data,
-    type:'post',
+    type: 'post',
     url: url,
-    dataType:'json',
-    success:function (result) {
+    dataType: 'json',
+    success: function (result) {
+      clearError(interface_ip);
       interface_ip.val(result['ip']);
       update_interface_table();
+      clearError(interface_mac);
+      if ('errors' in result) {
+        if ('mac' in result['errors']) {
+          setError(interface_mac, result['errors']['mac']);
+        }
+        if ('subnet' in result['errors']) {
+          setError(interface_ip, result['errors']['subnet']);
+        }
+      }
     },
     error: function(request, status, error) {
-      setError(interface_ip, Jed.sprintf(__("Error generating IP: %s"), error));
+      setError(interface_ip, tfm.i18n.sprintf(__("Error generating IP: %s"), error));
     },
-    complete:function () {
-      $(element).indicator_hide();
+    complete: function () {
+      tfm.tools.hideSpinner();
       interface_ip.attr('disabled', false);
     }
   });
+}
+
+function selectRelatedNetwork(element) {
+  var subnet_select = $(element);
+  var vlanId = subnet_select.find(':selected').attr('data-vlan_id');
+  var network_select = subnet_select.closest('fieldset').find('.vmware_network,.ovirt_network');
+
+  if (!vlanId || network_select.length == 0) {
+    return;
+  }
+
+  var selected = null;
+
+  network_select.find('option').each(function(index, option) {
+    if (selected === null && $(option).text().indexOf(vlanId) !== -1) {
+      selected = option.value;
+    }
+  });
+
+  if (selected !== null) {
+    network_select.val(selected).trigger('change');
+  }
 }
 
 function interface_type_selected(element) {
@@ -689,13 +789,18 @@ function interface_type_selected(element) {
   request.done(function() {
     password_caps_lock_hint();
     $("#interfaceModal").find('a[rel="popover-modal"]').popover();
-    $('select:not(.without_select2)').select2({ allowClear: true });
+    activate_select2('#interfaceModal');
   });
 }
 
 function disable_vm_form_fields() {
   $("#update_not_supported").show();
   $("[id^=host_compute_attributes]").each(function () {
+    $(this).attr("disabled", "disabled");
+  });
+  $("[id^=host_interfaces_attributes]").filter(function() {
+    return this.id.match(/^host_interfaces_attributes_[0-9]+_compute_attributes_.*/);
+  }).each(function () {
     $(this).attr("disabled", "disabled");
   });
 }
@@ -708,18 +813,32 @@ function selectedSubnetHasIPAM() {
   return subnets[subnet_id]['ipam'];
 };
 
-function setError(field, text) {
-  var form_group = field.parents(".form-group").first();
-  form_group.addClass("has-error");
-  var help_block = form_group.children(".help-inline").first();
-  var span = $( document.createElement('span') );
-  span.addClass("error-message").html(text);
-  help_block.prepend(span);
-};
+function randomizeName() {
+  $.ajax({
+    type: "GET",
+    url: "/hosts/random_name",
+    success: function(response, status, xhr) {
+      var element = $('#host_name');
+      element.val(response.name);
+      element.focus();
+      element.select();
+    }
+  });
+ }
 
-function clearError(field) {
-  var form_group = field.parents(".form-group").first();
-  form_group.removeClass("has-error");
-  var error_block = form_group.children(".help-inline").children(".error-message");
-  error_block.remove();
-};
+function pxeLoaderCompatibilityCheck() {
+  var pxeLoader = $('#host_pxe_loader').val();
+  var osTitle = $("#host_operatingsystem_id option:selected").text();
+  var compatible = tfm.hosts.checkPXELoaderCompatibility(osTitle, pxeLoader);
+  if (compatible === false) {
+    $('#host_pxe_loader').closest('.form-group').addClass('has-warning');
+    $('#host_pxe_loader').closest('.form-group').find('.help-inline').html('<span class="error-message">' +
+      __("Warning: This combination of loader and OS might not be able to boot.") + ' ' +
+      __("Manual configuration is needed.") + '</span>');
+  } else {
+    $('#host_pxe_loader').closest('.form-group').removeClass('has-warning');
+    $('#host_pxe_loader').closest('.form-group').find('.help-inline').html('');
+  }
+}
+
+$(document).on('change', '#host_pxe_loader', pxeLoaderCompatibilityCheck);

@@ -4,8 +4,10 @@ Expire Reports automatically
 
 Available conditions:
   * days        => number of days to keep reports (defaults to 7)
-  * status      => status of the report (defaults to 0 --> "reports with no errors")
+  * status      => status of the report (if not set defaults to any status)
   * report_type => report type (defaults to config_report), accepts either underscore / class name styles
+  * batch_size  => number of records deleted in single SQL transaction (defaults to 1k)
+  * sleep_time  => delay in seconds between batches (defaults to 0.2)
 
   Example:
     rake reports:expire days=7 RAILS_ENV="production" # expires all reports regardless of their status
@@ -30,13 +32,17 @@ namespace :reports do
     conditions = {}
     conditions[:timerange] = ENV['days'].to_i.days if ENV['days']
     conditions[:status] = ENV['status'].to_i if ENV['status']
+    batch_size = ENV['batch_size'].to_i if ENV['batch_size']
+    sleep_time = ENV['sleep_time'].to_f if ENV['sleep_time']
 
-    report_type.expire(conditions)
+    User.as_anonymous_admin do
+      report_type.expire(conditions, batch_size, sleep_time)
+    end
   end
 end
 # TRANSLATORS: do not translate
 desc <<-END_DESC
-Send an email summarising hosts Puppet reports (and lack of it).
+Send an email notifications such as summarising hosts Puppet reports (and lack of it), audits summaries, built hosts summary etc.
 
 Users can configure the frequency they desire to receive mail notifications under
 My account -> Mail Preferences -> Notifications, and this task will send emails to
@@ -71,7 +77,7 @@ namespace :reports do
 
     env = ENV['environment']
     unless env.empty?
-      unless (e=Environment.find_by_name(env))
+      unless (e = Environment.find_by_name(env))
         $stdout.puts "Unable to find puppet environment=#{env}"
         exit 1
       end
@@ -79,8 +85,8 @@ namespace :reports do
     end
 
     unless ENV['fact'].empty?
-      name,value = ENV['fact'].split(":")
-      if name.empty? or value.empty?
+      name, value = ENV['fact'].split(":")
+      if name.empty? || value.empty?
         $stdout.puts "invalid fact #{ENV['fact']}"
         exit 1
       end
@@ -92,13 +98,15 @@ namespace :reports do
     options
   end
 
-  def process_notifications interval
-    UserMailNotification.send(interval).each do |notification|
-      notification.deliver(mail_options)
+  def process_notifications(interval)
+    User.as_anonymous_admin do
+      UserMailNotification.public_send(interval).each do |notification|
+        notification.deliver(mail_options)
+      end
     end
   end
 
-  task :daily  => :environment do
+  task :daily => :environment do
     process_notifications :daily
   end
 

@@ -23,20 +23,20 @@ class WsProxy
     proxy.start_proxy
   end
 
-  def free_port? port
+  def free_port?(port)
     socket = Socket.new :INET, :STREAM
     socket.bind(Socket.pack_sockaddr_in(port, '127.0.0.1'))
-    return true
+    true
   rescue Errno::EADDRINUSE
-    return false
+    false
   ensure
-    socket.close unless socket.nil?
+    socket&.close
   end
 
   def start_proxy
     # randomly preselect free tcp port from the range
     port = 0
-    Timeout::timeout(5) do
+    Timeout.timeout(5) do
       until free_port?(port = rand(PORTS)); end
     end
     # execute websockify proxy
@@ -73,7 +73,7 @@ class WsProxy
       :timeout      => 120,
       :idle_timeout => 120,
       :host_port    => 5900,
-      :host         => "0.0.0.0",
+      :host         => "0.0.0.0"
     }
   end
 
@@ -83,7 +83,7 @@ class WsProxy
 
   def execute(cmd)
     logger.debug "Starting VNC Proxy: #{cmd}"
-    Open3::popen3(cmd) do |stdin, stdout, stderr|
+    Open3.popen3(cmd) do |stdin, stdout, stderr|
       stdout.each do |line|
         logger.debug "[#{line}"
       end

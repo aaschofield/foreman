@@ -1,16 +1,16 @@
-class CreateNics < ActiveRecord::Migration
+class CreateNics < ActiveRecord::Migration[4.2]
   def up
     create_table :nics do |t|
-      t.string :mac
-      t.string :ip
-      t.string :type
-      t.string :name
+      t.string :mac, :limit => 255
+      t.string :ip, :limit => 255
+      t.string :type, :limit => 255
+      t.string :name, :limit => 255
       t.references :host
       t.references :subnet
       t.references :domain
       t.text :attrs
 
-      t.timestamps
+      t.timestamps null: true
     end
 
     add_index :nics, [:type], :name => 'index_by_type'
@@ -39,12 +39,12 @@ class CreateNics < ActiveRecord::Migration
   def down
     add_column :hosts, :sp_mac, :string, :limit => 17, :default => ""
     add_column :hosts, :sp_ip, :string, :limit => 15, :default => ""
-    add_column :hosts, :sp_name, :string, :default => ""
+    add_column :hosts, :sp_name, :string, :limit => 255, :default => ""
     add_column :hosts, :sp_subnet_id, :integer
 
     Nic::BMC.all.each do |bmc|
       if bmc.host_id
-        bmc.host.update_attributes(:sp_mac => bmc.mac, :sp_ip => bmc.ip, :sp_name => bmc.name, :sp_subnet_id => bmc.subnet_id)
+        bmc.host.update(:sp_mac => bmc.mac, :sp_ip => bmc.ip, :sp_name => bmc.name, :sp_subnet_id => bmc.subnet_id)
       end
     end
     drop_table :nics

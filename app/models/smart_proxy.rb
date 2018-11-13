@@ -1,15 +1,14 @@
-class SmartProxy < ActiveRecord::Base
+class SmartProxy < ApplicationRecord
+  audited
   include Authorizable
   extend FriendlyId
   friendly_id :name
   include Taxonomix
   include Parameterizable::ByIdName
-  audited :allow_mass_assignment => true
 
-  attr_accessible :name, :url, :location_ids, :organization_ids
   validates_lengths_from_database
   before_destroy EnsureNotUsedBy.new(:hosts, :hostgroups, :subnets, :domains, [:puppet_ca_hosts, :hosts], [:puppet_ca_hostgroups, :hostgroups], :realms)
-  #TODO check if there is a way to look into the tftp_id too
+  # TODO check if there is a way to look into the tftp_id too
   # maybe with a predefined sql
   has_and_belongs_to_many :features
   has_many :subnets,                                          :foreign_key => 'dhcp_id'
@@ -28,7 +27,7 @@ class SmartProxy < ActiveRecord::Base
 
   scoped_search :on => :name, :complete_value => :true
   scoped_search :on => :url, :complete_value => :true
-  scoped_search :in => :features, :on => :name, :rename => :feature, :complete_value => :true
+  scoped_search :relation => :features, :on => :name, :rename => :feature, :complete_value => :true
 
   # with proc support, default_scope can no longer be chained
   # include all default scoping here
@@ -45,29 +44,30 @@ class SmartProxy < ActiveRecord::Base
   end
 
   def to_s
-    return hostname unless Setting[:legacy_puppet_hostname]
-    hostname.match(/^puppet\./) ? 'puppet' : hostname
+    hostname
   end
 
-  def self.smart_proxy_ids_for(hosts)
-    ids = []
-    ids << hosts.joins(:primary_interface => :subnet).pluck('DISTINCT subnets.dhcp_id')
-    ids << hosts.joins(:primary_interface => :subnet).pluck('DISTINCT subnets.tftp_id')
-    ids << hosts.joins(:primary_interface => :subnet).pluck('DISTINCT subnets.dns_id')
-    ids << hosts.joins(:primary_interface => :domain).pluck('DISTINCT domains.dns_id')
-    ids << hosts.joins(:realm).pluck('DISTINCT realm_proxy_id')
-    ids << hosts.pluck('DISTINCT puppet_proxy_id')
-    ids << hosts.pluck('DISTINCT puppet_ca_proxy_id')
-    ids << hosts.joins(:hostgroup).pluck('DISTINCT hostgroups.puppet_proxy_id')
-    ids << hosts.joins(:hostgroup).pluck('DISTINCT hostgroups.puppet_ca_proxy_id')
-    # returned both 7, "7". need to convert to integer or there are duplicates
-    ids.flatten.compact.map { |i| i.to_i }.uniq
+  def hosts_count
+    Host::Managed.search_for("smart_proxy = #{name}").count
   end
 
   def refresh
     statuses.values.each { |status| status.revoke_cache! }
     associate_features
     errors
+  end
+
+  def ping
+    begin
+      reply = ProxyAPI::Features.new(url: url).features
+      unless reply.is_a?(Array)
+        logger.debug("Invalid response from proxy #{name}: Expected Array of features, got #{reply}.")
+        errors.add(:base, _('An invalid response was received while requesting available features from this proxy'))
+      end
+    rescue => e
+      errors.add(:base, _('Unable to communicate with the proxy: %s') % e)
+    end
+    !errors.any?
   end
 
   def taxonomy_foreign_conditions
@@ -88,7 +88,6 @@ class SmartProxy < ActiveRecord::Base
 
   def statuses
     return @statuses if @statuses
-
     @statuses = {}
     features.each do |feature|
       name = feature.name.delete(' ')
@@ -104,24 +103,33 @@ class SmartProxy < ActiveRecord::Base
   private
 
   def sanitize_url
-    self.url.chomp!('/') unless url.empty?
+    self.url = url.chomp('/') unless url.empty?
   end
 
   def associate_features
-    return true if Rails.env == 'test'
-
     begin
       reply = ProxyAPI::Features.new(:url => url).features
-      if reply.is_a?(Array) and reply.any?
-        self.features = Feature.where(:name => reply.map{|f| Feature.name_map[f]})
+      unless reply.is_a?(Array)
+        logger.debug("Invalid response from proxy #{name}: Expected Array of features, got #{reply}.")
+        errors.add(:base, _('An invalid response was received while requesting available features from this proxy'))
+        throw :abort
+      end
+      valid_features = reply.map {|f| Feature.name_map[f]}.compact
+      if valid_features.any?
+        self.features = Feature.where(:name => valid_features)
       else
         self.features.clear
-        errors.add :base, _('No features found on this proxy, please make sure you enable at least one feature')
+        if reply.any?
+          errors.add :base, _('Features "%s" in this proxy are not recognized by Foreman. '\
+                              'If these features come from a Smart Proxy plugin, make sure Foreman has the plugin installed too.') % reply.to_sentence
+        else
+          errors.add :base, _('No features found on this proxy, please make sure you enable at least one feature')
+        end
       end
     rescue => e
       errors.add(:base, _('Unable to communicate with the proxy: %s') % e)
       errors.add(:base, _('Please check the proxy is configured and running on the host.'))
     end
-    features.any?
+    throw :abort if features.empty?
   end
 end

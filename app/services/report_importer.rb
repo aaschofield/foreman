@@ -1,6 +1,8 @@
 class ReportImporter
+  include Foreman::TelemetryHelper
+
   delegate :logger, :to => :Rails
-  attr_reader :report
+  attr_reader :report, :report_scanners
 
   # When writing your own Report importer, provide feature(s) of authorized Smart Proxies
   def self.authorized_smart_proxy_features
@@ -23,25 +25,37 @@ class ReportImporter
 
   # to be overriden in children
   def report_name_class
-    Foreman::Deprecation.deprecation_warning('1.13', "Report model has turned to be STI, please use child classes")
-    Report
+    raise NotImplementedError, "#{__method__} not implemented for this report importer"
   end
 
   def initialize(raw, proxy_id = nil)
-    raise ::Foreman::Exception.new(_('Invalid report')) unless raw.is_a?(Hash)
+    raise ::Foreman::Exception.new(_('Invalid report')) unless raw.is_a?(Hash) || raw.is_a?(ActionController::Parameters)
     @raw      = raw
     @proxy_id = proxy_id
   end
 
   def import
-    start_time = Time.now
-    logger.info "processing report for #{name}"
-    logger.debug { "Report: #{raw.inspect}" }
-    create_report_and_logs
-    if report.persisted?
-      logger.info("Imported report for #{name} in #{(Time.now - start_time).round(2)} seconds")
-      host.refresh_statuses
+    logger.debug { "Processing report: #{raw.inspect}" }
+    telemetry = {}
+    telemetry_duration_histogram(:report_importer_create, :ms, {type: self.class.name}, telemetry) do
+      create_report_and_logs
     end
+    if report.persisted?
+      telemetry_duration_histogram(:report_importer_refresh, :ms, {type: self.class.name}, telemetry) do
+        host.refresh_statuses(statuses_for_refresh)
+      end
+      create = telemetry[:report_importer_create].try(:round, 1)
+      refresh = telemetry[:report_importer_refresh].try(:round, 1)
+      logger.info("Imported report for #{name} in #{create} ms, status refreshed in #{refresh} ms")
+    end
+  end
+
+  def scan
+    logger.info "Scanning report with: #{report_scanners.join(', ')}"
+    report_scanners.each do |scanner|
+      break if scanner.scan(report, logs)
+    end
+    logger.debug { "Changes after scanning: #{report.changes.inspect}" }
   end
 
   private
@@ -89,6 +103,10 @@ class ReportImporter
     raise NotImplementedError
   end
 
+  def statuses_for_refresh
+    HostStatus.status_registry
+  end
+
   def notify_on_report_error(mail_error_state)
     if report.error?
       # found a report with errors
@@ -99,12 +117,15 @@ class ReportImporter
         return
       end
 
-      owners = host.owner.present? ? host.owner.recipients_for(:puppet_error_state) : []
+      owners = host.owner.present? ? host.owner.recipients_for(:config_error_state) : []
+      users = ConfigManagementError.all_hosts.flat_map(&:users)
+      users.select { |user| Host.authorized_as(user, :view_hosts).find(host.id).present? }
+      owners.concat users
       if owners.present?
-        logger.debug "sending alert to #{owners.map(&:login).join(',')}"
-        MailNotification[mail_error_state].deliver(report, :users => owners)
+        logger.debug { "sending alert to #{owners.map(&:login).join(',')}" }
+        MailNotification[mail_error_state].deliver(report, :users => owners.uniq)
       else
-        logger.debug "no owner or recipients for alert on #{name}"
+        logger.debug { "no owner or recipients for alert on #{name}" }
       end
     end
   end
@@ -123,10 +144,17 @@ class ReportImporter
     host.save(:validate => false)
 
     status = report_status
-
     # and save our report
     @report = report_name_class.new(:host => host, :reported_at => time, :status => status, :metrics => raw['metrics'])
+
+    # Run report scanner
+    scan
+
     @report.save
     @report
+  end
+
+  def report_scanners
+    Foreman::Plugin.report_scanner_registry.report_scanners
   end
 end

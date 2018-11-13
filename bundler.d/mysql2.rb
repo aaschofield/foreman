@@ -1,3 +1,4 @@
 group :mysql2 do
-  gem 'mysql2', '~> 0.3.10'
+  # Matches gem requirement specified in ActiveRecord connection adapter
+  gem 'mysql2', '>= 0.4.4', '< 0.6.0'
 end

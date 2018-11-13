@@ -1,7 +1,6 @@
-class FixCounters < ActiveRecord::Migration
-  # Fix all the cached counters that were corrupted by #5692 and related bugs
+class FixCounters < ActiveRecord::Migration[4.2]
+  # Fix all the cached counters that were corrupted by #5692 and related bugs - no longer needed
   def up
-    Rake::Task['fix_cached_counters'].invoke
   end
 
   def down

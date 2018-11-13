@@ -2,13 +2,15 @@ module Api
   module V2
     class SmartProxiesController < V2::BaseController
       include Api::Version2
-      include Api::TaxonomyScope
       include Api::ImportPuppetclassesCommonController
-      before_filter :find_resource, :only => %w{show update destroy refresh version}
+      include Foreman::Controller::Parameters::SmartProxy
+
+      before_action :find_resource, :only => %w{show update destroy refresh version logs}
 
       api :GET, "/smart_proxies/", N_("List all smart proxies")
       param_group :taxonomy_scope, ::Api::V2::BaseController
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(SmartProxy)
 
       def index
         @smart_proxies = resource_scope_for_index.includes(:features)
@@ -32,7 +34,7 @@ module Api
       param_group :smart_proxy, :as => :create
 
       def create
-        @smart_proxy = SmartProxy.new(params[:smart_proxy])
+        @smart_proxy = SmartProxy.new(smart_proxy_params)
         process_response @smart_proxy.save
       end
 
@@ -41,7 +43,7 @@ module Api
       param_group :smart_proxy
 
       def update
-        process_response @smart_proxy.update_attributes(params[:smart_proxy])
+        process_response @smart_proxy.update(smart_proxy_params)
       end
 
       api :DELETE, "/smart_proxies/:id/", N_("Delete a smart proxy")
@@ -59,12 +61,15 @@ module Api
       end
 
       def version
-        begin
-          version = @smart_proxy.version
-        rescue Foreman::Exception => exception
-          render :version, :locals => {:success => false, :message => exception.message} and return
-        end
-        render :version, :locals => {:success => true, :message => version[:message]}
+        render :version, :locals => {:success => true, :result => @smart_proxy.statuses[:version].version}
+      rescue Foreman::Exception => e
+        render_error :custom_error, :status => :unprocessable_entity, :locals => {:message => e.message}
+      end
+
+      def logs
+        render :logs, :locals => {:success => true, :result => @smart_proxy.statuses[:logs].logs}
+      rescue Foreman::Exception => e
+        render_error :custom_error, :status => :unprocessable_entity, :locals => {:message => e.message}
       end
 
       private
@@ -73,7 +78,7 @@ module Api
         case params[:action]
         when 'refresh'
           :edit
-        when 'version'
+        when 'version', 'logs'
           :view
         else
           super

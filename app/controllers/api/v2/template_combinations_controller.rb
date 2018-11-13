@@ -1,9 +1,11 @@
 module Api
   module V2
     class TemplateCombinationsController < V2::BaseController
-      before_filter :rename_config_template
-      before_filter :find_required_nested_object
-      before_filter :find_resource, :only => [:show, :update, :destroy]
+      include Foreman::Controller::Parameters::TemplateCombination
+
+      before_action :rename_config_template
+      before_action :find_optional_nested_object
+      before_action :find_resource, :only => [:show, :update, :destroy]
 
       def_param_group :template_combination_identifiers do
         param :config_template_id, String, :desc => N_("ID of config template")
@@ -37,7 +39,7 @@ module Api
       param_group :template_combination, :as => :create
 
       def create
-        @template_combination = nested_obj.template_combinations.build(params[:template_combination])
+        @template_combination = nested_obj.template_combinations.build(template_combination_params)
         process_response @template_combination.save
       end
 
@@ -60,7 +62,7 @@ module Api
       param_group :template_combination
 
       def update
-        process_response @template_combination.update_attributes!(params[:template_combination])
+        process_response @template_combination.update!(template_combination_params)
       end
 
       api :DELETE, "/template_combinations/:id", N_("Delete a template combination")
@@ -77,7 +79,7 @@ module Api
       end
 
       def rename_config_template
-        if !params[:config_template_id].nil?
+        unless params[:config_template_id].nil?
           params[:provisioning_template_id] = params.delete(:config_template_id)
           Foreman::Deprecation.api_deprecation_warning("Config templates were renamed to provisioning templates")
         end

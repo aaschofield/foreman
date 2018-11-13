@@ -1,8 +1,13 @@
 module Api
   module V2
     class PtablesController < V2::BaseController
-      before_filter :find_optional_nested_object
-      before_filter :find_resource, :only => %w{show update destroy clone}
+      include Foreman::Controller::Parameters::Ptable
+      include Foreman::Controller::TemplateImport
+
+      wrap_parameters :ptable, :include => ptable_params_filter.accessible_attributes(parameter_filter_context)
+
+      before_action :find_optional_nested_object
+      before_action :find_resource, :only => %w{show update destroy clone export}
 
       api :GET, "/ptables/", N_("List all partition tables")
       api :GET, "/operatingsystems/:operatingsystem_id/ptables", N_("List all partition tables for an operating system")
@@ -11,6 +16,7 @@ module Api
       param :operatingsystem_id, String, :desc => N_("ID of operating system")
       param_group :taxonomy_scope, ::Api::V2::BaseController
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(Ptable)
 
       def index
         @ptables = resource_scope_for_index
@@ -41,8 +47,21 @@ module Api
       param_group :ptable, :as => :create
 
       def create
-        @ptable = Ptable.new(params[:ptable])
+        @ptable = Ptable.new(ptable_params)
         process_response @ptable.save
+      end
+
+      api :POST, "/ptables/import", N_("Import a provisioning template")
+      param :ptable, Hash, :required => true, :action_aware => true do
+        param :name, String, :required => true, :desc => N_("template name")
+        param :template, String, :required => true, :desc => N_("template contents including metadata")
+        param_group :taxonomies, ::Api::V2::BaseController
+      end
+      param_group :template_import_options, ::Api::V2::BaseController
+
+      def import
+        @ptable = Ptable.import!(*import_attrs_for(:ptable))
+        process_response @ptable
       end
 
       api :GET, "/ptables/revision"
@@ -58,7 +77,7 @@ module Api
       param_group :ptable
 
       def update
-        process_response @ptable.update_attributes(params[:ptable])
+        process_response @ptable.update(ptable_params)
       end
 
       api :DELETE, "/ptables/:id/", N_("Delete a partition table")
@@ -85,6 +104,12 @@ module Api
         process_response @ptable.save
       end
 
+      api :GET, '/ptables/:id/export', N_('Export a partition template to ERB')
+      param :id, :identifier, :required => true
+      def export
+        send_data @ptable.to_erb, :type => 'text/plain', :disposition => 'attachment', :filename => @ptable.filename
+      end
+
       private
 
       def load_vars_from_ptable
@@ -101,8 +126,10 @@ module Api
 
       def action_permission
         case params[:action]
-          when 'clone'
+          when 'clone', 'import'
             'create'
+          when 'export'
+            'view'
           else
             super
         end

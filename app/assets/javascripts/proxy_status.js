@@ -1,17 +1,31 @@
+//= require proxy_status/puppet
+//= require proxy_status/logs
+
 $(document).on('ContentLoad', function() {
+  $('.nav-tabs a').on('shown.bs.tab', refreshCharts);
+  $('a[data-toggle="tab"]').on('click', function(e) {
+    history.pushState(null, null, document.location.pathname + $(this).attr('href'));
+  });
   showProxies();
   loadTFTP();
+  setTab();
 });
 
+$(window).on('hashchange', setTab); //so buttons that link to an anchor can open that tab
+
 function setItemStatus(item, response) {
-  if(response.success) {
+  if(response.success && response.message && response.message.warning) {
+    item.attr('title', response.message.warning.message);
+    item.addClass('text-warning');
+    item.html(tfm.tools.iconText('warning-triangle-o', "", "pficon"));
+  } else if(response.success) {
     item.attr('title', __('Active'));
     item.addClass('text-success');
-    item.html(icon_text('ok', "", "pficon"));
+    item.html(tfm.tools.iconText('ok', "", "pficon"));
   } else {
     item.attr('title', response.message);
     item.addClass('text-danger');
-    item.html(icon_text('error-circle-o', "", "pficon"));
+    item.html(tfm.tools.iconText('error-circle-o', "", "pficon"));
   }
   item.tooltip({html: true});
 }
@@ -23,7 +37,11 @@ function setProxyVersion(item, response) {
 
 function setPluginVersion(item, response) {
   var pluginName = item.data('plugin');
-  var pluginVersion = response.message.modules ? response.message.modules[pluginName] : response.message.version;
+  var pluginVersion;
+  if (response.success)
+    pluginVersion = response.message.modules ? response.message.modules[pluginName] : response.message.version;
+  else
+    pluginVersion = response.message;
   generateItem(item, response.success, pluginVersion);
 }
 
@@ -34,7 +52,7 @@ function generateItem(item, status, text) {
   } else {
     item.attr('title', text);
     item.addClass('text-danger');
-    item.html(icon_text('error-circle-o', "", "pficon"));
+    item.html(tfm.tools.iconText('error-circle-o', "", "pficon"));
   }
   item.tooltip({html: true});
 }
@@ -94,4 +112,17 @@ function populateData(response, item) {
   item.find(".proxy-show-status").each(function() {
     setItemStatus($(this), response);
   });
+}
+
+// Make sure the correct tab is displayed when loading the page with an anchor,
+// even if the anchor is to a sub-tab.
+function setTab(){
+  var anchor = document.location.hash.split('?')[0];
+  if (anchor.length) {
+    var parent_tab = $(anchor).parents('.tab-pane');
+    if (parent_tab.exists()){
+      $('.nav-tabs a[href="#'+parent_tab[0].id+'"]').tab('show');
+    }
+    $('.nav-tabs a[href="'+anchor+'"]').tab('show');
+  }
 }

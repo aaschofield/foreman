@@ -1,12 +1,9 @@
-class ConfigGroup < ActiveRecord::Base
-  audited :allow_mass_assignment => true, :except => [:hosts_count, :hostgroups_count]
+class ConfigGroup < ApplicationRecord
+  audited
   include Authorizable
   include Parameterizable::ByIdName
-  include PuppetclassTotalHosts::Indirect
 
   validates_lengths_from_database
-
-  attr_accessible :class_environments, :name, :puppetclass_ids, :puppetclass_names
 
   has_many :config_group_classes
   has_many :puppetclasses, :through => :config_group_classes, :dependent => :destroy
@@ -17,9 +14,7 @@ class ConfigGroup < ActiveRecord::Base
   validates :name, :presence => true, :uniqueness => true
 
   scoped_search :on => :name, :complete_value => true
-  scoped_search :on => :hosts_count
-  scoped_search :on => :hostgroups_count
-  scoped_search :on => :config_group_classes_count
+  scoped_search :relation => :puppetclasses, :on => :name, :complete_value => true, :rename => :class, :only_explicit => true, :operators => ['= ', '~ ']
 
   default_scope -> { order('config_groups.name') }
 
@@ -34,5 +29,13 @@ class ConfigGroup < ActiveRecord::Base
   # for auditing
   def to_label
     name
+  end
+
+  def hosts_count
+    Host::Managed.authorized.search_for(%{config_group="#{name}"}).size
+  end
+
+  def hostgroups_count
+    Hostgroup.authorized.search_for(%{config_group="#{name}"}).size
   end
 end

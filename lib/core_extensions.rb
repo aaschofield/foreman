@@ -23,7 +23,7 @@ class ActiveRecord::Base
   def update_multiple_attribute(attributes)
     connection.update(
       "UPDATE #{self.class.quoted_table_name} SET " +
-      attributes.map{|key, value| " #{connection.quote_column_name(key.to_s)} = #{quote_value(value)} " }.join(', ') +
+      attributes.map {|key, value| " #{connection.quote_column_name(key.to_s)} = #{quote_value(value)} " }.join(', ') +
       "WHERE #{self.class.quoted_primary_key} = #{quote_value(id)}",
       "#{self.class.name} Attribute Update"
     )
@@ -31,10 +31,9 @@ class ActiveRecord::Base
 
   # ActiveRecord Callback class
   class EnsureNotUsedBy
-    attr_reader :klasses, :logger
+    attr_reader :klasses
     def initialize(*attribute)
       @klasses = attribute
-      @logger  = Rails.logger
     end
 
     def before_destroy(record)
@@ -53,11 +52,9 @@ class ActiveRecord::Base
           record.errors.add :base, error_message % { :record => record, :what => what }
         end
       end
-      if record.errors.empty?
-        true
-      else
-        logger.error "You may not destroy #{record.to_label} as it is in use!"
-        false
+      if record.errors.present?
+        Rails.logger.error "You may not destroy #{record.to_label} as it is in use!"
+        throw :abort
       end
     end
   end
@@ -70,7 +67,7 @@ class ActiveRecord::Base
       @base  = base.map { |record| [record.send(@source), record.send(@target)] }
       @nodes = @base.flatten.uniq
       @graph = Hash.new { |h, k| h[k] = [] }
-      @base.each { |s, t| @graph[s]<< t }
+      @base.each { |s, t| @graph[s] << t }
     end
 
     def tsort_each_node(&block)
@@ -91,7 +88,7 @@ class ActiveRecord::Base
 
     def add_new_edges
       edges = @graph[@record.send(@source) || 0]
-      edges<< @record.send(@target) unless edges.include?(@record.send(@target))
+      edges << @record.send(@target) unless edges.include?(@record.send(@target))
     end
 
     def detect_cycle
@@ -118,7 +115,13 @@ class ActiveRecord::Base
     # Foreman.in_rake? prevents the failure of db:migrate for postgresql
     # don't query settings table if in rake
     return 20 if Foreman.in_rake?
-    Setting.entries_per_page rescue 20
+    Setting[:entries_per_page] rescue 20
+  end
+
+  def self.audited(*args)
+    # do not audit data changes during db migrations
+    super
+    self.auditing_enabled = false if Foreman.in_setup_db_rake?
   end
 end
 
@@ -134,23 +137,36 @@ class String
   end
 
   def to_gb
-    begin
-      value, _, unit=self.match(/(\d+(\.\d+)?) ?(([KMGT]B?|B))$/i)[1..3]
-      case unit.to_sym
-      when nil, :B, :byte          then (value.to_f / Foreman::SIZE[:giga])
-      when :TB, :T, :terabyte      then (value.to_f * Foreman::SIZE[:kilo])
-      when :GB, :G, :gigabyte      then value.to_f
-      when :MB, :M, :megabyte      then (value.to_f / Foreman::SIZE[:kilo])
-      when :KB, :K, :kilobyte, :kB then (value.to_f / Foreman::SIZE[:mega])
-      else raise "Unknown unit: #{unit.inspect}!"
-      end
-    rescue
+    match_data = self.match(/^(\d+(\.\d+)?) ?(([KMGT]i?B?|B|Bytes))?$/i)
+    if match_data.present?
+      value, _, unit = match_data[1..3]
+    else
       raise "Unknown string: #{self.inspect}!"
+    end
+    unit ||= :byte # default to bytes if no unit given
+
+    case unit.downcase.to_sym
+    when :b, :byte, :bytes then (value.to_f / 1.gigabyte)
+    when :tb, :tib, :t, :terabyte then (value.to_f * 1.kilobyte)
+    when :gb, :gib, :g, :gigabyte then value.to_f
+    when :mb, :mib, :m, :megabyte then (value.to_f / 1.kilobyte)
+    when :kb, :kib, :k, :kilobyte then (value.to_f / 1.megabyte)
+    else raise "Unknown unit: #{unit.inspect}!"
     end
   end
 
   def to_utf8
     self.encode('utf-8', :invalid => :replace, :undef => :replace, :replace => '_')
+  end
+
+  def contains_erb?
+    self =~ /<%.*%>/
+  end
+end
+
+class Object
+  def contains_erb?
+    false
   end
 end
 

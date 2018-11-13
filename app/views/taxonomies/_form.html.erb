@@ -1,4 +1,4 @@
-<% javascript 'taxonomy_edit', 'host_edit' %>
+<% javascript 'taxonomy_edit', 'parameter_override' %>
 
 <%= form_for taxonomy do |f| %>
   <div class="form-group row">
@@ -53,7 +53,8 @@
     <div class="tab-content stacked-content col-md-9">
       <div class="tab-pane active" id="primary">
         <%= base_errors_for taxonomy %>
-        <%= select_f(f, :parent_id, taxonomy.class.where("id NOT IN (#{taxonomy.subtree_ids.join(',')})").order(:title), :id, :title, { :include_blank => true },
+        <% taxonomy_name = taxonomy.class.to_s.underscore %>
+        <%= select_f(f, :parent_id, taxonomy.class.completer_scope(nil).authorized("edit_#{taxonomy_name.pluralize}").where("id NOT IN (#{taxonomy.subtree_ids.join(',')})").order(:title), :id, :title, { :include_blank => true },
                      { :label => _('Parent'), :onchange => 'parent_taxonomy_changed(this);',
                        :help_inline => :indicator,
                        :'data-url' => (controller_name == 'organizations' ? parent_taxonomy_selected_organization_path(taxonomy.id) :
@@ -103,7 +104,7 @@
           <% if taxonomy.parent.present? %>
               <h4><%= _('Parent parameters') %></h4>
               <%= render "common_parameters/inherited_parameters", { :inherited_parameters => taxonomy.parent_params(true),
-                                                                     :parameters => taxonomy.send("#{taxonomy_type}_parameters".to_sym)} %>
+                                                                     :parameters => taxonomy.send("#{taxonomy_type}_parameters".to_sym) } %>
           <% end %>
           <% if taxonomy.is_a?(Location) %>
               <h4><%= _("Location parameters") %></h4>

@@ -1,5 +1,5 @@
 class FactsController < ApplicationController
-  before_filter :valid_request?
+  before_action :valid_request?
 
   def index
     render :json => FactName.no_timestamp_fact
@@ -8,10 +8,12 @@ class FactsController < ApplicationController
   def show
     @fact = FactName.find(params[:id])
     begin
-      data = {:name => @fact.name, :values => FactValue.count_each(@fact.name).to_a }
+      data = {:name => CGI.escapeHTML(@fact.name),
+              :values => FactValue.count_each(@fact.name).to_a.each {|v| v[:label] = CGI.escapeHTML(v[:label])}}
     rescue
       data = @fact
     end
+    data[:values].map!(&:values)
     render :json => data
   end
 

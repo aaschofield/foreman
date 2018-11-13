@@ -2,7 +2,9 @@ module Nic
   class Bond < Managed
     include Nic::WithAttachedDevices
 
-    MODES     = %w(balance-rr active-backup balance-xor broadcast 802.3ad balance-tlb balance-alb)
+    attr_exportable :mode, :bond_options
+
+    MODES = %w(balance-rr active-backup balance-xor broadcast 802.3ad balance-tlb balance-alb)
     validates :mode, :presence => true, :inclusion => { :in => MODES }
 
     def add_slave(identifier)
@@ -15,12 +17,6 @@ module Nic
 
     def self.humanized_name
       N_('Bond')
-    end
-
-    private
-
-    def enc_attributes
-      @enc_attributes ||= (super + %w(mode bond_options))
     end
   end
 

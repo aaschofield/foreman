@@ -1,6 +1,6 @@
-class AddTypeToParameter < ActiveRecord::Migration
+class AddTypeToParameter < ActiveRecord::Migration[4.2]
   def up
-    add_column :parameters, :type, :string
+    add_column :parameters, :type, :string, :limit => 255
   end
 
   def down

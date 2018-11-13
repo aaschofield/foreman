@@ -1,22 +1,23 @@
 @font-face {
   font-family: 'Overpass';
-  src: local("Overpass"),
-  font-url('overpass_regular-web.eot?#iefix') format("eot"),
-  font-url('overpass_regular-web.woff') format("woff"),
-  font-url('overpass_regular-web.ttf') format("truetype"),
-  font-url('overpass_regular-web.svg#webfontLTZe4IYH') format("svg");
+  src: local("Overpass"), font-url('overpass_regular-web.woff') format("woff");
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'Overpass';
-  src: local("Overpass Bold"),
-       local("OverpassBold"),
-       font-url('overpass_bold-web.eot?#iefix') format("eot"),
-       font-url('overpass_bold-web.woff') format("woff"),
-       font-url('overpass_bold-web.ttf') format("truetype"),
-       font-url('overpass_bold-web.svg#webfontzAU82Ltw') format("svg");
+  src:
+    local("Overpass Bold"),
+    local("OverpassBold"),
+    font-url('overpass_bold-web.woff') format("woff");
   font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'AllBullets';
+  src: local("AllBullets"), font-url('AllBullets.woff') format("woff");
+  font-weight: normal;
   font-style: normal;
 }

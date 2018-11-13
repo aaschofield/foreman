@@ -1,9 +1,11 @@
 class MediaController < ApplicationController
   include Foreman::Controller::AutoCompleteSearch
-  before_filter :find_resource, :only => [:edit, :update, :destroy]
+  include Foreman::Controller::Parameters::Medium
+
+  before_action :find_resource, :only => [:edit, :update, :destroy]
 
   def index
-    @media = resource_base.includes(:operatingsystems).search_for(params[:search], :order => params[:order]).paginate(:page => params[:page])
+    @media = resource_base_search_and_page.includes(:operatingsystems)
   end
 
   def new
@@ -11,7 +13,7 @@ class MediaController < ApplicationController
   end
 
   def create
-    @medium = Medium.new(params[:medium])
+    @medium = Medium.new(medium_params)
     if @medium.save
       process_success
     else
@@ -23,7 +25,7 @@ class MediaController < ApplicationController
   end
 
   def update
-    if @medium.update_attributes(params[:medium])
+    if @medium.update(medium_params)
       process_success
     else
       process_error

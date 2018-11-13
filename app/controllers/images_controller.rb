@@ -1,13 +1,15 @@
 class ImagesController < ApplicationController
-  before_filter :find_compute_resource
-  before_filter :find_resource, :only => [:edit, :update, :destroy]
+  include Foreman::Controller::Parameters::Image
+
+  before_action :find_compute_resource
+  before_action :find_resource, :only => [:edit, :update, :destroy]
 
   def index
     # Listing images in /hosts/new consumes this method as JSON
-    values = resource_base.where(:compute_resource_id => @compute_resource.id).search_for(params[:search], :order => params[:order]).includes(:operatingsystem)
+    @images = resource_base.where(:compute_resource_id => @compute_resource.id).includes(:operatingsystem)
     respond_to do |format|
-      format.html { @images = values.paginate :page => params[:page] }
-      format.json { render :json => values }
+      format.html { params[:partial] ? render(:partial => 'images/list') : render(:index) }
+      format.json { render :json => @images.where(:operatingsystem_id => params[:operatingsystem_id], :architecture_id => params[:architecture_id]).order(:name) }
     end
   end
 
@@ -16,7 +18,7 @@ class ImagesController < ApplicationController
   end
 
   def create
-    @image = Image.new(params[:image])
+    @image = Image.new(image_params)
     if @image.save
       process_success :success_redirect => compute_resource_path(@compute_resource)
     else
@@ -28,8 +30,7 @@ class ImagesController < ApplicationController
   end
 
   def update
-    params[:image].except!(:password) if params[:image][:password].blank?
-    if @image.update_attributes(params[:image])
+    if @image.update(image_params.reject { |k, v| k == :password && v.blank? })
       process_success :success_redirect => compute_resource_path(@compute_resource)
     else
       process_error
@@ -47,6 +48,6 @@ class ImagesController < ApplicationController
   private
 
   def find_compute_resource
-    @compute_resource = ComputeResource.authorized(:view_compute_resources).find(params[:compute_resource_id])
+    @compute_resource = ComputeResource.authorized(:view_compute_resources).find(params.delete(:compute_resource_id))
   end
 end

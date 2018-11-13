@@ -27,10 +27,7 @@ class AuthSourceLdap < AuthSource
   include Parameterizable::ByIdName
   include Encryptable
   encrypts :account_password
-
-  attr_accessible :account_password, :usergroup_sync, :base_dn, :groups_base,
-    :ldap_filter,:attr_login, :attr_firstname, :attr_lastname, :attr_mail,
-    :attr_photo, :host, :tls, :port, :server_type, :account
+  include Taxonomix
 
   validates :host, :presence => true, :length => {:maximum => 60}
   validates :attr_login, :attr_firstname, :attr_lastname, :attr_mail, :presence => true, :if => Proc.new { |auth| auth.onthefly_register? }
@@ -41,13 +38,22 @@ class AuthSourceLdap < AuthSource
   validate :validate_ldap_filter, :unless => Proc.new { |auth| auth.ldap_filter.blank? }
 
   before_validation :strip_ldap_attributes
+  before_validation :sanitize_use_netgroups
   after_initialize :set_defaults
+
+  scoped_search :on => :name, :complete_value => :true
+
+  default_scope lambda {
+    with_taxonomy_scope do
+      order("#{AuthSourceLdap.table_name}.name")
+    end
+  }
 
   DEFAULT_PORTS = {:ldap => 389, :ldaps => 636 }
   # Loads the LDAP info for a user and authenticates the user with their password
   # Returns : Array of Strings.
   #           Either the users's DN or the user's full details OR nil
-  def authenticate(login, password)
+  def authenticate(login = account, password = account_password)
     return if login.blank? || password.blank?
 
     logger.debug "LDAP auth with user #{login} against #{self}"
@@ -70,8 +76,8 @@ class AuthSourceLdap < AuthSource
     logger.debug "Retrieved LDAP Attributes for #{login}: #{attrs}"
 
     attrs
-  rescue Net::LDAP::LdapError => error
-    raise "LdapError: %s" % error
+  rescue Net::LDAP::Error, Net::LDAP::LdapError => error
+    raise ::Foreman::LdapException.new(error, N_("Error while connecting to '%{name}' LDAP server at '%{url}' during authentication" % {:url => self.host, :name => self.name}))
   end
 
   def auth_method_name
@@ -85,7 +91,8 @@ class AuthSourceLdap < AuthSource
       :server_type  => server_type.to_sym, :search_filter => ldap_filter,
       :anon_queries => account.blank?, :service_user => service_user(login),
       :service_pass => use_user_login_for_service? ? password : account_password,
-      :instrumentation_service => ActiveSupport::Notifications }
+      :instrumentation_service => ActiveSupport::Notifications,
+      :use_netgroups => use_netgroups }
   end
 
   def encryption_config
@@ -99,6 +106,10 @@ class AuthSourceLdap < AuthSource
     else
       @ldap_con ||= LdapFluff.new(self.to_config)
     end
+  rescue Net::LDAP::Error => e
+    message = _("Error during LDAP connection %{name} using login %{login}: %{error}") % {name: name, login: login, error: e}
+    Foreman::Logging.exception(message, e, :level => :warn)
+    errors.add(:base, message)
   end
 
   def update_usergroups(login)
@@ -113,7 +124,7 @@ class AuthSourceLdap < AuthSource
     end
 
     logger.debug "Updating user groups for user #{login}"
-    internal = User.find_by_login(login).external_usergroups.map(&:name)
+    internal = User.unscoped.find_by_login(login).external_usergroups.map(&:name)
     external = ldap_con.group_list(login) # this list may return all groups in lowercase
     (internal | external).each do |name|
       begin
@@ -128,6 +139,10 @@ class AuthSourceLdap < AuthSource
     end
   end
 
+  def valid_user?(name)
+    name.present? && ldap_con.valid_user?(name)
+  end
+
   def valid_group?(name)
     return false unless name.present?
     ldap_con.valid_group?(name)
@@ -140,12 +155,12 @@ class AuthSourceLdap < AuthSource
   def test_connection
     result = {}
     begin
-      Timeout::timeout(20) do
+      Timeout.timeout(20) do
         self.ldap_con.test
       end
       result[:success] = true
       result[:message] = _("Test connection to LDAP server was successful.")
-    rescue Timeout::Error, Net::LDAP::Error, StandardError => exception
+    rescue => exception
       raise ::Foreman::WrappedException.new exception, N_("Unable to connect to LDAP server")
     end
     result
@@ -155,8 +170,13 @@ class AuthSourceLdap < AuthSource
 
   def strip_ldap_attributes
     [:attr_login, :attr_firstname, :attr_lastname, :attr_mail].each do |attr|
-      write_attribute(attr, read_attribute(attr).strip) unless read_attribute(attr).nil?
+      self[attr] = self[attr].strip unless self[attr].nil?
     end
+  end
+
+  def sanitize_use_netgroups
+    self.use_netgroups = false if server_type.to_s == 'active_directory'
+    true
   end
 
   def set_defaults
@@ -169,7 +189,7 @@ class AuthSourceLdap < AuthSource
       :lastname  => attr_lastname,
       :mail      => attr_mail,
       :login     => attr_login,
-      :dn        => :dn,
+      :dn        => :dn
     }
   end
 
@@ -179,7 +199,7 @@ class AuthSourceLdap < AuthSource
 
   def attributes_values(entry)
     Hash[required_ldap_attributes.merge(optional_ldap_attributes).map do |name, value|
-      next if value.blank? || (entry[value].blank? && optional_ldap_attributes.keys.include?(name))
+      next if value.blank? || (entry[value].blank? && optional_ldap_attributes.key?(name))
       if name.eql? :avatar
         [:avatar_hash, store_avatar(entry[value].first)]
       else
@@ -190,23 +210,35 @@ class AuthSourceLdap < AuthSource
   end
 
   def avatar_path
-    "#{Rails.public_path}/assets/avatars"
+    "#{Rails.public_path}/images/avatars"
   end
 
   def store_avatar(avatar)
-    avatar = avatar.to_utf8
+    unless avatar.instance_of?(Net::BER::BerIdentifiedString)
+      avatar = avatar.to_utf8
+    end
     avatar_hash = Digest::SHA1.hexdigest(avatar)
     avatar_file = "#{avatar_path}/#{avatar_hash}.jpg"
     unless FileTest.exist? avatar_file
       FileUtils.mkdir_p(avatar_path)
-      File.open(avatar_file, 'wb') { |f| f.write(Base64.decode64(avatar)) }
+      # net/ldap converts base64 data automatically to binary, in such case
+      # we do not need to decode Base64 and we can just save the binary avatar.
+      File.open(avatar_file, 'wb') do |f|
+        if avatar.instance_of?(Net::BER::BerIdentifiedString)
+          f.write(avatar)
+        else
+          f.write(Base64.decode64(avatar))
+        end
+      end
     end
     avatar_hash
   end
 
   def validate_ldap_filter
     Net::LDAP::Filter.construct(ldap_filter)
-  rescue Net::LDAP::LdapError, Net::LDAP::FilterSyntaxInvalidError => e
+  # rubocop:disable Lint/ShadowedException, Lint/UnneededCopDisableDirective
+  rescue Net::LDAP::Error, Net::LDAP::LdapError, Net::LDAP::FilterSyntaxInvalidError => e
+    # rubocop:enable Lint/ShadowedException, Lint/UnneededCopDisableDirective
     message = _("invalid LDAP filter syntax")
     Foreman::Logging.exception(message, e)
     errors.add(:ldap_filter, message)

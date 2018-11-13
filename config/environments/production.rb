@@ -13,8 +13,7 @@ Foreman::Application.configure do |app|
   config.consider_all_requests_local       = false
   config.action_controller.perform_caching = true
 
-  # Eager load all classes under lib directory
-  config.eager_load_paths += ["#{config.root}/lib"]
+  # Eager load all classes pre-fork for performance
   config.eager_load = true
 
   # Enable Rack::Cache to put a simple HTTP cache in front of your application
@@ -23,7 +22,7 @@ Foreman::Application.configure do |app|
   # config.action_dispatch.rack_cache = true
 
   # Disable Rails's static asset server (Apache or nginx will already do this).
-  config.serve_static_assets = true
+  config.public_file_server.enabled = true
 
   # Compress JavaScripts and CSS.
   config.assets.js_compressor = :uglifier
@@ -47,9 +46,6 @@ Foreman::Application.configure do |app|
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
   # config.force_ssl = true
-
-  # Set to :debug to see everything in the log.
-  config.log_level = :info
 
   # Prepend all log lines with the following tags.
   # config.log_tags = [ :subdomain, :uuid ]
@@ -82,4 +78,9 @@ Foreman::Application.configure do |app|
 
   # Do not dump schema after migrations.
   config.active_record.dump_schema_after_migration = false
+
+  config.webpack.dev_server.enabled = false
+
+  # Log denied attributes into logger
+  config.action_controller.action_on_unpermitted_parameters = :log
 end

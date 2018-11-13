@@ -6,6 +6,10 @@ attribute :ignore_types => :select_all_types
 
 attributes :description, :created_at, :updated_at
 
+node :hosts_count do |taxonomy|
+  hosts_count[taxonomy]
+end
+
 child :users do
   extends "api/v2/users/base"
 end
@@ -55,7 +59,7 @@ child :hostgroups do
 end
 
 if @taxonomy.is_a?(Location)
-  child :organizations => :organizations  do
+  child :organizations => :organizations do
     extends "api/v2/taxonomies/base"
   end
 end
@@ -67,5 +71,5 @@ if @taxonomy.is_a?(Organization)
 end
 
 node do |taxonomy|
-  { :parameters => partial("api/v2/parameters/base", :object => taxonomy.parameters) }
+  { :parameters => partial("api/v2/parameters/index", :object => taxonomy.params_objects) }
 end

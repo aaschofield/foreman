@@ -54,6 +54,7 @@ module Foreman
       end
 
       def cast_boolean
+        return nil if value == ""
         val = Foreman::Cast.to_bool(value)
         return val if [true, false].include?(val)
         raise TypeError
@@ -81,14 +82,14 @@ module Foreman
           if value =~ /\A[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?\Z/
             value.to_f
           else
-            cast_value_integer value
+            cast_integer
           end
         end
       end
 
       def cast_array
         return value if value.is_a? Array
-        return value.to_a if not value.is_a? String and value.is_a? Enumerable
+        return value.to_a if !value.is_a?(String) && value.is_a?(Enumerable)
         val = load_yaml_or_json
         raise TypeError unless val.is_a? Array
         val

@@ -1,5 +1,5 @@
-class MigratePtablesToTemplates < ActiveRecord::Migration
-  class FakeOldPtable < ActiveRecord::Base
+class MigratePtablesToTemplates < ActiveRecord::Migration[4.2]
+  class FakeOldPtable < ApplicationRecord
     self.table_name = 'ptables'
 
     has_and_belongs_to_many :operatingsystems, :join_table => 'operatingsystems_ptables', :foreign_key => 'ptable_id'
@@ -7,7 +7,7 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
     has_many_hosts :foreign_key => 'ptable_id'
   end
 
-  class FakeNewPtable < ActiveRecord::Base
+  class FakeNewPtable < ApplicationRecord
     self.table_name = 'templates'
 
     has_and_belongs_to_many :operatingsystems, :join_table => 'operatingsystems_ptables', :foreign_key => 'ptable_id'
@@ -16,16 +16,16 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
   end
 
   def up
-    if foreign_keys('operatingsystems_ptables').find { |f| f.options[:name] == 'operatingsystems_ptables_ptable_id_fk' }.present?
+    if foreign_key_exists?('operatingsystems_ptables', :name => 'operatingsystems_ptables_ptable_id_fk')
       remove_foreign_key "operatingsystems_ptables", :name => "operatingsystems_ptables_ptable_id_fk"
     end
-    if foreign_keys('hostgroups').find { |f| f.options[:name] == 'hostgroups_ptable_id_fk' }.present?
+    if foreign_key_exists?('hostgroups', :name => 'hostgroups_ptable_id_fk')
       remove_foreign_key "hostgroups", :name => "hostgroups_ptable_id_fk"
     end
-    if foreign_keys('hosts').find { |f| f.options[:name] == 'hosts_ptable_id_fk' }.present?
-      remove_foreign_key "hosts",  :name => "hosts_ptable_id_fk"
+    if foreign_key_exists?('hosts', :name => 'hosts_ptable_id_fk')
+      remove_foreign_key "hosts", :name => "hosts_ptable_id_fk"
     end
-    add_column :templates, :os_family, :string
+    add_column :templates, :os_family, :string, :limit => 255
 
     FakeOldPtable.all.each do |old_ptable|
       say "migrating partition table #{old_ptable.name}"
@@ -35,16 +35,9 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
       new_ptable.os_family = old_ptable.os_family
       new_ptable.type = 'Ptable'
       new_ptable.operatingsystems = old_ptable.operatingsystems
-      new_ptable.hostgroups = old_ptable.hostgroups
       new_ptable.save!
 
-      Audit.where(:auditable_type => 'Ptable', :auditable_id => old_ptable.id).each do |audit|
-        audit.update_attribute :auditable_id, new_ptable.id
-      end
-
-      old_ptable.hosts.each do |host|
-        host.update_attribute :ptable_id, new_ptable.id
-      end
+      update_audits_hosts_and_hostgroups(old_ptable.id, new_ptable.id)
     end
 
     say 'deleting migrated partition tables'
@@ -59,7 +52,7 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
   def down
     remove_foreign_key "operatingsystems_ptables", :name => "operatingsystems_ptables_ptable_id_fk"
     remove_foreign_key "hostgroups", :name => "hostgroups_ptable_id_fk"
-    remove_foreign_key "hosts",  :name => "hosts_ptable_id_fk"
+    remove_foreign_key "hosts", :name => "hosts_ptable_id_fk"
     Ptable.all.each do |new_ptable|
       say "migrating partition table #{new_ptable.name} down"
       old_ptable = FakeOldPtable.new
@@ -67,16 +60,9 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
       old_ptable.layout = new_ptable.template
       old_ptable.os_family = new_ptable.os_family
       old_ptable.operatingsystems = new_ptable.operatingsystems
-      old_ptable.hostgroups = new_ptable.hostgroups
       old_ptable.save!
 
-      Audit.where(:auditable_type => 'Ptable', :auditable_id => new_ptable.id).each do |audit|
-        audit.update_attribute :auditable_id, old_ptable.id
-      end
-
-      new_ptable.hosts.each do |host|
-        host.update_attribute :ptable_id, old_ptable.id
-      end
+      update_audits_hosts_and_hostgroups(new_ptable.id, old_ptable.id)
     end
 
     say 'deleting migrated partition tables'
@@ -86,5 +72,14 @@ class MigratePtablesToTemplates < ActiveRecord::Migration
     add_foreign_key "operatingsystems_ptables", "ptables", :name => "operatingsystems_ptables_ptable_id_fk", :column => 'ptable_id'
     add_foreign_key "hostgroups", "ptables", :name => "hostgroups_ptable_id_fk", :column => 'ptable_id'
     add_foreign_key "hosts", "ptables", :name => "hosts_ptable_id_fk", :column => 'ptable_id'
+  end
+
+  private
+
+  def update_audits_hosts_and_hostgroups(old_id, new_id)
+    Audit.where(:auditable_type => 'Ptable', :auditable_id => old_id).update_all(:auditable_id => new_id)
+
+    Host::Managed.where(:ptable_id => old_id).update_all(:ptable_id => new_id)
+    Hostgroup.where(:ptable_id => old_id).update_all(:ptable_id => new_id)
   end
 end

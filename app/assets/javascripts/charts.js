@@ -10,7 +10,7 @@ $.fn.flot_pie = function(){
       series: {
         pie: options.pie || {
           show: true,
-          innerRadius: 0.75,
+          innerRadius: 0.87,
           radius: 1,
           label: {
             show: true,
@@ -20,7 +20,7 @@ $.fn.flot_pie = function(){
                     return '';
                 }else{
                     label_exists = true;
-                    return '<div class="percent">' + Math.round(100 * max.data / sum) + '%</div>' + max.label;
+                    return '<div class="percent">' + Math.round(100 * max.data / sum) + '%</div>' + _.escape(max.label);
                 }
             }
           },
@@ -39,7 +39,7 @@ $.fn.flot_pie = function(){
     });
     bind_hover_event(target, function(item){
       var percent = Math.round(item.series.percent);
-      return item.series.label + ' ('+percent+'%)';
+      return _.escape(item.series.label) + ' ('+percent+'%)';
     });
     $(target).bind("plotclick", function (event, pos, item) {
       search_on_click(event, item);
@@ -59,8 +59,8 @@ function resize_label(label){
 
 function trunc_with_tooltip(val){
   if (val.length > 10) {
-    var trunced_val = val.substring(0, 10) + "...";
-    val = '<small data-toggle="tooltip" title=' + val + '>' + trunced_val + '</small>';
+    var trunced_val = _.escape(val.substring(0, 10) + "...");
+    val = '<small data-toggle="tooltip" title="' + _.escape(val) + '">' + trunced_val + '</small>';
   }
   return val;
 }
@@ -74,7 +74,7 @@ function expanded_pie(target, data){
     series: {
       pie: {
         show: true,
-        innerRadius: 0.8*3/4,
+        innerRadius: 0.8*(3.5/4),
         radius: 0.8,
         label: {
           show: true,
@@ -105,10 +105,10 @@ function expanded_pie(target, data){
       clickable: true
     }
   });
-  
+
     bind_hover_event(target, function(item){
       var percent = Math.round(item.series.percent);
-      return item.series.label + ' ('+percent+'%)';
+      return _.escape(item.series.label) + ' ('+percent+'%)';
     });
   target.bind("plotclick", function (event, pos, item) {
     search_on_click(event, item);
@@ -204,7 +204,7 @@ function chart_legend_options(item){
         noColumns:4,
         container:"#legendContainer",
         labelFormatter: function(label, series) {
-          return '<a rel="twipsy" data-original-title="' + __('Details') + '" href="' + series.href + '">' + label + '</a>';
+          return '<a rel="twipsy" data-original-title="' + __('Details') + '" href="' + series.href + '">' + _.escape(label) + '</a>';
         }
       };
     case "hide":
@@ -240,7 +240,7 @@ function reset_zoom(item){
 
 function showTooltip(pos, item, formater) {
   var content = formater(item);
-  $('<div id="flot-tooltip">' + content + '</div>').css({
+  $('<div id="flot-tooltip">').text(content).css({
     top: pos.pageY - 40,
     left: pos.pageX -10,
     'border-color': item.series.color
@@ -272,7 +272,7 @@ function search_on_click(event, item) {
     var selector = '.label[style*="background-color:' + item.series.color +'"]';
     link = $(event.currentTarget).parents('.stats-well').find(selector).next('a').attr('href');
     if (link == undefined) // we are on the overview page - no stats-well parent
-      link = $(event.currentTarget).parents('#dashboard').find(selector).next('a').attr('href');
+      link = $(event.currentTarget).parents('.dashboard').find(selector).next('a').attr('href');
   } else {
     if (link.indexOf("~VAL1~") != -1 || link.indexOf("~VAL2~") != -1) {
       var strSplit = item.series.label.split(" ");
@@ -297,7 +297,7 @@ function get_pie_chart(div, url) {
     $('body').append('<div id="' + div + '" class="modal fade"><div class="modal-dialog"><div class="modal-content"></div></div></div>');
     $("#"+div+" .modal-content").append('<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button><h4 class="modal-title"></h4></div>')
         .append('<div class="container">')
-        .append('<div id="' + div + '-body" class="fact_chart modal-body">' + __('Loading') + ' ... </div>')
+        .append('<div id="' + div + '-body" class="modal-body"><div class="spinner spinner-lg modal-spinner"></div></div>')
         .append('<div class="legend" ></div>')
         .append('</div>')
         .append('<div class="modal-footer"></div>');
@@ -307,12 +307,13 @@ function get_pie_chart(div, url) {
       $.getJSON(url, function(data) {
         var target = $("#"+div+"-body");
         target.empty();
+        target.addClass('fact_chart');
         var hostsCount = 0;
         $.each(data.values,function() {
           hostsCount += this.data;
         });
         expanded_pie(target, data.values);
-        $('.modal-title').empty().append( __('Fact distribution chart') + ' - <b>' + data.name + ' </b><small> ('+ Jed.sprintf(n__("%s host", "%s hosts", hostsCount), hostsCount) +')</small>');
+        $('.modal-title').empty().append( __('Fact distribution chart') + ' - <b>' + _.escape(data.name) + ' </b><small> ('+ tfm.i18n.sprintf(n__("%s host", "%s hosts", hostsCount), hostsCount) +')</small>');
         target.attr('data-url', foreman_url("/hosts?search=facts." + data.name + "~~VAL1~"));
       });
     });
@@ -329,7 +330,7 @@ function expand_chart(ref){
   {
     var new_chart = chart.clone().empty().attr('id', modal_id + "_chart").removeClass('small');
     $('body').append('<div id="' + modal_id + '" class="modal fade"><div class="modal-dialog"><div class="modal-content"></div></div></div>');
-    $("#"+modal_id+" .modal-content").append('<div class="modal-header"><a href="#" class="close" data-dismiss="modal">&times;</a><h3> ' +chart.data('title')+ ' </h3></div>')
+    $("#"+modal_id+" .modal-content").append('<div class="modal-header"><a href="#" class="close" data-dismiss="modal">&times;</a><h3> ' +_.escape(chart.data('title'))+ ' </h3></div>')
         .append('<div class="modal-body"></div>');
     $("#"+modal_id+" .modal-body").append(new_chart);
     expanded_pie(new_chart, new_chart.data('series'));
@@ -389,15 +390,16 @@ function updateChart(item, status) {
 
 $(function() {
   $('[data-toggle="tooltip"]').tooltip();
-  $(".statistics-pie").flot_pie();
-  $(".statistics-bar").flot_bar();
-  $(".statistics-chart").flot_chart();
+  refreshCharts();
   $(document).on('click', '.reset-zoom', function () {reset_zoom(this);});
   $(document).on('click', '.legend .legendColorBox, .legend .legendLabel', function() { legend_selected(this);});
   $(document).on('click', '#legendContainer .legendColorBox, .legendContainer .legendLabel', function() { ext_legend_selected(this);});
 });
 
-$(window).resize(function() {
-  $(".statistics-bar").flot_bar();
-  $(".statistics-chart").flot_chart();
-});
+$(window).on('resize', refreshCharts);
+
+function refreshCharts(){
+  $(".statistics-bar:visible").flot_bar();
+  $(".statistics-pie:visible").flot_pie();
+  $(".statistics-chart:visible").flot_chart();
+}

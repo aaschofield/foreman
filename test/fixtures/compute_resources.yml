@@ -1,5 +1,4 @@
-# Read about fixtures at http://ar.rubyonrails.org/classes/Fixtures.html
-
+---
 one:
   name: bigcompute
   description: MyString
@@ -30,7 +29,7 @@ yourcompute:
 openstack:
   name: openstackcr
   description: computeresource
-  url: test:///default
+  url: test:///default/v2.0
   user: MyString
   password: 1234567
   uuid: yourcompute
@@ -61,6 +60,8 @@ gce:
   user: MyString
   password: MyString
   uuid: 78787878787
+  attrs:
+    :project: foo
   type: Foreman::Model::GCE
 
 ovirt:

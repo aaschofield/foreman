@@ -1,7 +1,7 @@
 <% title @vm.name %>
 
 <div class='col-md-12'>
-  <table class="table table-bordered table-striped">
+  <table class="<%= table_css_classes %>">
     <thead>
       <tr><th colspan="2"><%=_('Properties') %></th></tr>
     </thead>
@@ -26,8 +26,8 @@
       </tr>
       <tr>
         <td><%= _('Memory') %></td>
-        <td><%= number_to_human_size @vm.max_memory_size*Foreman::SIZE[:kilo] %>
-          <%= "(" + _("Allocated") + ": #{number_to_human_size @vm.memory_size*Foreman::SIZE[:kilo]})" %></td>
+        <td><%= number_to_human_size @vm.max_memory_size.kilobytes %>
+          <%= "(" + _("Allocated") + ": #{number_to_human_size @vm.memory_size.kilobytes})" %></td>
       </tr>
       <tr>
         <td><%= _('Display') %></td>

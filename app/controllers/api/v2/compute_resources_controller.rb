@@ -1,25 +1,20 @@
 module Api
   module V2
     class ComputeResourcesController < V2::BaseController
-      wrap_parameters ComputeResource, :include => (ComputeResource.attribute_names +
-                                                    ['tenant', 'image_id', 'managed_ip', 'provider',
-                                                     'template', 'templates', 'set_console_password',
-                                                     'project', 'key_path', 'email', 'zone',
-                                                     'display_type', 'ovirt_quota', 'public_key',
-                                                     'region', 'server', 'datacenter', 'pubkey_hash',
-                                                     'nics_attributes', 'volumes_attributes', 'memory'])
-
       include Api::Version2
-      include Api::TaxonomyScope
+      include Foreman::Controller::Parameters::ComputeResource
 
-      before_filter :find_resource, :only => [:show, :update, :destroy, :available_images, :associate,
+      wrap_parameters ComputeResource, :include => compute_resource_params_filter.accessible_attributes(parameter_filter_context)
+
+      before_action :find_resource, :only => [:show, :update, :destroy, :available_images, :associate,
                                               :available_clusters, :available_flavors, :available_folders,
                                               :available_networks, :available_resource_pools, :available_security_groups, :available_storage_domains,
-                                              :available_zones]
+                                              :available_zones, :available_storage_pods, :refresh_cache]
 
       api :GET, "/compute_resources/", N_("List all compute resources")
       param_group :taxonomy_scope, ::Api::V2::BaseController
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(ComputeResource)
 
       def index
         @compute_resources = resource_scope_for_index
@@ -35,15 +30,21 @@ module Api
         param :compute_resource, Hash, :required => true, :action_aware => true do
           param :name, String, :required => true
           param :provider, String, :desc => N_("Providers include %{providers}") # values are defined in apipie initializer
-          param :url, String, :desc => N_("URL for Libvirt, oVirt, and OpenStack")
+          param :url, String, :desc => N_("URL for %{providers_requiring_url}")
           param :description, String
           param :user, String, :desc => N_("Username for oVirt, EC2, VMware, OpenStack. Access Key for EC2.")
           param :password, String, :desc => N_("Password for oVirt, EC2, VMware, OpenStack. Secret key for EC2")
-          param :uuid, String, :desc => N_("for oVirt, VMware Datacenter")
-          param :region, String, :desc => N_("for EC2 only")
+          param :uuid, String, :desc => N_("Deprecated, please use datacenter") # FIXME: deprecated
+          param :datacenter, String, :desc => N_("for oVirt, VMware Datacenter")
+          param :use_v4, :bool, :desc => N_("for oVirt only")
+          param :ovirt_quota, String, :desc => N_("for oVirt only")
+          param :region, String, :desc => N_("for EC2 only, use '%s' for GovCloud region") % Foreman::Model::EC2::GOV_CLOUD_REGION
           param :tenant, String, :desc => N_("for OpenStack only")
+          param :domain, String, :desc => N_("for OpenStack only")
           param :server, String, :desc => N_("for VMware")
           param :set_console_password, :bool, :desc => N_("for Libvirt and VMware only")
+          param :display_type, %w(VNC SPICE), :desc => N_('for Libvirt only')
+          param :caching_enabled, :bool, :desc => N_('enable caching, for VMware only')
           param_group :taxonomies, ::Api::V2::BaseController
         end
       end
@@ -52,7 +53,14 @@ module Api
       param_group :compute_resource, :as => :create
 
       def create
-        @compute_resource = ComputeResource.new_provider(params[:compute_resource])
+        @compute_resource = ComputeResource.new_provider(compute_resource_params)
+
+        datacenter = compute_resource_params[:datacenter]
+
+        if @compute_resource.respond_to?(:get_datacenter_uuid) && datacenter.present? && !Foreman.is_uuid?(datacenter)
+          @compute_resource.test_connection
+          @compute_resource.datacenter = @compute_resource.get_datacenter_uuid(datacenter)
+        end
         process_response @compute_resource.save
       end
 
@@ -61,7 +69,7 @@ module Api
       param_group :compute_resource
 
       def update
-        process_response @compute_resource.update_attributes(params[:compute_resource])
+        process_response @compute_resource.update(compute_resource_params)
       end
 
       api :DELETE, "/compute_resources/:id/", N_("Delete a compute resource")
@@ -122,7 +130,6 @@ module Api
         render :available_resource_pools, :layout => 'api/v2/layouts/index_layout'
       end
 
-      api :GET, "/compute_resources/:id/available_storage_domains", "List storage_domains for a compute resource"
       api :GET, "/compute_resources/:id/available_storage_domains", N_("List storage domains for a compute resource")
       api :GET, "/compute_resources/:id/available_storage_domains/:storage_domain", N_("List attributes for a given storage domain")
       param :id, :identifier, :required => true
@@ -130,6 +137,15 @@ module Api
       def available_storage_domains
         @available_storage_domains = @compute_resource.available_storage_domains(params[:storage_domain])
         render :available_storage_domains, :layout => 'api/v2/layouts/index_layout'
+      end
+
+      api :GET, "/compute_resources/:id/available_storage_pods", N_("List storage pods for a compute resource")
+      api :GET, "/compute_resources/:id/available_storage_pods/:storage_pod", N_("List attributes for a given storage pod")
+      param :id, :identifier, :required => true
+      param :storage_pod, String
+      def available_storage_pods
+        @available_storage_pods = @compute_resource.available_storage_pods(params[:storage_pod])
+        render :available_storage_pods, :layout => 'api/v2/layouts/index_layout'
       end
 
       api :GET, "/compute_resources/:id/available_security_groups", N_("List available security groups for a compute resource")
@@ -142,26 +158,31 @@ module Api
       api :PUT, "/compute_resources/:id/associate/", N_("Associate VMs to Hosts")
       param :id, :identifier, :required => true
       def associate
-        @hosts = []
-        if @compute_resource.respond_to?(:associated_host)
-          @compute_resource.vms(:eager_loading => true).each do |vm|
-            if Host.for_vm(@compute_resource, vm).empty?
-              host = @compute_resource.associated_host(vm)
-              if host.present?
-                host.associate!(@compute_resource, vm)
-                @hosts << host
-              end
-            end
-          end
+        if @compute_resource.supports_host_association?
+          associator = ComputeResourceHostAssociator.new(@compute_resource)
+          associator.associate_hosts
+          @hosts = associator.hosts
+          render 'api/v2/hosts/index', :layout => 'api/v2/layouts/index_layout'
+        else
+          render_message(_('Associating VMs is not supported for this compute resource'), :status => :unprocessable_entity)
         end
-        render 'api/v2/hosts/index', :layout => 'api/v2/layouts/index_layout'
+      end
+
+      api :PUT, "/compute_resources/:id/refresh_cache/", N_("Refresh Compute Resource Cache")
+      param :id, :identifier, :required => true
+      def refresh_cache
+        if @compute_resource.respond_to?(:refresh_cache) && @compute_resource.refresh_cache
+          render_message(_('Successfully refreshed the cache.'))
+        else
+          render_message(_('Failed to refresh the cache.'), :status => :unprocessable_entity)
+        end
       end
 
       private
 
       def action_permission
         case params[:action]
-          when 'available_images', 'available_clusters', 'available_flavors', 'available_folders', 'available_networks', 'available_resource_pools', 'available_security_groups', 'available_storage_domains', 'available_zones', 'associate'
+          when 'available_images', 'available_clusters', 'available_flavors', 'available_folders', 'available_networks', 'available_resource_pools', 'available_security_groups', 'available_storage_domains', 'available_zones', 'associate', 'available_storage_pods', 'refresh_cache'
             :view
           else
             super

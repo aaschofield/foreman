@@ -1,35 +1,39 @@
-FactoryGirl.define do
+FactoryBot.define do
   factory :feature do
-    factory :template_feature do
-      name 'Templates'
+    factory :templates do
+      name { 'Templates' }
     end
 
     factory :tftp_feature do
-      name 'TFTP'
+      name { 'TFTP' }
     end
 
     trait :tftp do
-      name 'tftp'
+      name { 'tftp' }
     end
 
     trait :dhcp do
-      name 'dhcp'
+      name { 'DHCP' }
     end
 
     trait :dns do
-      name 'dns'
+      name { 'DNS' }
     end
 
     trait :realm do
-      name 'realm'
+      name { 'Realm' }
     end
 
     trait :puppetca do
-      name 'puppetca'
+      name { 'Puppet CA' }
     end
 
     trait :puppet do
-      name 'puppet'
+      name { 'Puppet' }
+    end
+
+    trait :bmc do
+      name { 'BMC' }
     end
   end
 end

@@ -2,18 +2,17 @@ module Api
   module V2
     class ConfigTemplatesController < V2::BaseController
       include Api::Version2
-      include Api::TaxonomyScope
-      include Foreman::Renderer
       include Foreman::Controller::ProvisioningTemplates
+      include Foreman::Controller::Parameters::ProvisioningTemplate
 
-      before_filter :deprecated
+      before_action :deprecated
 
-      before_filter :find_optional_nested_object
-      before_filter :find_resource, :only => %w{show update destroy clone}
+      before_action :find_optional_nested_object
+      before_action :find_resource, :only => %w{show update destroy clone}
 
-      before_filter :handle_template_upload, :only => [:create, :update]
-      before_filter :process_template_kind, :only => [:create, :update]
-      before_filter :process_operatingsystems, :only => [:create, :update]
+      before_action :handle_template_upload, :only => [:create, :update]
+      before_action :process_template_kind, :only => [:create, :update]
+      before_action :process_operatingsystems, :only => [:create, :update]
 
       api :GET, "/config_templates/", N_("List provisioning templates")
       api :GET, "/operatingsystems/:operatingsystem_id/config_templates", N_("List provisioning templates per operating system")
@@ -22,9 +21,10 @@ module Api
       param :operatingsystem_id, String, :desc => N_("ID of operating system")
       param_group :taxonomy_scope, ::Api::V2::BaseController
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(ProvisioningTemplate)
 
       def index
-        @config_templates = resource_scope_for_index(:permission => :view_provisioning_templates).includes(:template_kind)
+        @config_templates = resource_scope_for_index.includes(:template_kind)
       end
 
       api :GET, "/config_templates/:id", N_("Show provisioning template details")
@@ -52,7 +52,7 @@ module Api
       param_group :config_template, :as => :create
 
       def create
-        @config_template = ProvisioningTemplate.new(params[:config_template])
+        @config_template = ProvisioningTemplate.new(provisioning_template_params)
         process_response @config_template.save
       end
 
@@ -61,7 +61,7 @@ module Api
       param_group :config_template
 
       def update
-        process_response @config_template.update_attributes(params[:config_template])
+        process_response @config_template.update(provisioning_template_params)
       end
 
       api :GET, "/config_templates/revision"
@@ -83,7 +83,7 @@ module Api
 
       def build_pxe_default
         Foreman::Deprecation.api_deprecation_warning("GET method for build pxe default is deprecated. Please use POST instead") if request.method == "GET"
-        status, msg = ProvisioningTemplate.authorized(:deploy_provisioning_templates).build_pxe_default(self)
+        status, msg = ProvisioningTemplate.authorized(:deploy_provisioning_templates).build_pxe_default
         render_message(msg, :status => status)
       end
 
@@ -127,7 +127,7 @@ module Api
       end
 
       def process_operatingsystems
-        return unless (ct = params[:config_template]) and (operatingsystems = ct.delete(:operatingsystems))
+        return unless (ct = params[:config_template]) && (operatingsystems = ct.delete(:operatingsystems))
         ct[:operatingsystem_ids] = operatingsystems.collect {|os| os[:id]}
       end
 

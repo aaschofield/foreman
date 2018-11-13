@@ -1,32 +1,37 @@
-class Report < ActiveRecord::Base
+class Report < ApplicationRecord
   LOG_LEVELS = %w[debug info notice warning err alert emerg crit]
 
-  include Foreman::STI
+  prepend Foreman::STI
   include Authorizable
   include ConfigurationStatusScopedSearch
 
-  attr_accessible :host, :reported_at, :status, :metrics
-
   validates_lengths_from_database
   belongs_to_host
+  has_many :logs, :dependent => :destroy
   has_many :messages, :through => :logs
   has_many :sources, :through => :logs
-  has_many :logs, :dependent => :destroy
   has_one :environment, :through => :host
   has_one :hostgroup, :through => :host
 
   validates :host_id, :status, :presence => true
   validates :reported_at, :presence => true, :uniqueness => {:scope => [:host_id, :type]}
 
-  scoped_search :in => :host,        :on => :name,  :complete_value => true, :rename => :host
-  scoped_search :in => :environment, :on => :name,  :complete_value => true, :rename => :environment
-  scoped_search :in => :messages,    :on => :value,                          :rename => :log
-  scoped_search :in => :sources,     :on => :value,                          :rename => :resource
-  scoped_search :in => :hostgroup,   :on => :name,  :complete_value => true, :rename => :hostgroup
-  scoped_search :in => :hostgroup,   :on => :title, :complete_value => true, :rename => :hostgroup_fullname
-  scoped_search :in => :hostgroup,   :on => :title, :complete_value => true, :rename => :hostgroup_title
+  def self.inherited(child)
+    child.instance_eval do
+      scoped_search :relation => :host,        :on => :name,  :complete_value => true, :rename => :host
+      scoped_search :relation => :environment, :on => :name,  :complete_value => true, :rename => :environment
+      scoped_search :relation => :messages,    :on => :value,                          :rename => :log, :only_explicit => true
+      scoped_search :relation => :sources,     :on => :value,                          :rename => :resource, :only_explicit => true
+      scoped_search :relation => :hostgroup,   :on => :name,  :complete_value => true, :rename => :hostgroup
+      scoped_search :relation => :hostgroup,   :on => :title, :complete_value => true, :rename => :hostgroup_fullname
+      scoped_search :relation => :hostgroup,   :on => :title, :complete_value => true, :rename => :hostgroup_title
 
-  scoped_search :on => :reported_at, :complete_value => true, :default_order => :desc,    :rename => :reported, :only_explicit => true
+      scoped_search :on => :reported_at, :complete_value => true, :default_order => :desc, :rename => :reported, :only_explicit => true, :aliases => [:last_report]
+      scoped_search :on => :host_id,     :complete_value => false, :only_explicit => true
+      scoped_search :on => :origin
+    end
+    super
+  end
 
   # returns reports for hosts in the User's filter set
   scope :my_reports, lambda {
@@ -43,22 +48,17 @@ class Report < ActiveRecord::Base
 
   # extracts serialized metrics and keep them as a hash_with_indifferent_access
   def metrics
-    return {} if read_attribute(:metrics).nil?
-    YAML.load(read_attribute(:metrics)).with_indifferent_access
+    return {} if self[:metrics].nil?
+    YAML.load(read_metrics).with_indifferent_access
   end
 
   # serialize metrics as YAML
   def metrics=(m)
-    write_attribute(:metrics,m.to_yaml) unless m.nil?
+    self[:metrics] = m.to_h.to_yaml unless m.nil?
   end
 
   def to_label
     "#{host.name} / #{reported_at}"
-  end
-
-  def self.import(report, proxy_id = nil)
-    Foreman::Deprecation.deprecation_warning('1.13', "Report model has turned to be STI, please use child classes")
-    ConfigReportImporter.import(report, proxy_id)
   end
 
   # add sort by report time
@@ -68,22 +68,63 @@ class Report < ActiveRecord::Base
 
   # Expire reports based on time and status
   # Defaults to expire reports older than a week regardless of the status
-  def self.expire(conditions = {})
+  # This method will IS very slow, use only from rake task.
+  def self.expire(conditions = {}, batch_size = 1000, sleep_time = 0.2)
     timerange = conditions[:timerange] || 1.week
     status = conditions[:status]
-    cond = "reports.created_at < \'#{(Time.now.utc - timerange).to_formatted_s(:db)}\'"
-    cond += " and reports.status = #{status}" unless status.nil?
-
-    Log.joins(:report).where(:report_id => where(cond)).delete_all
-    Message.where("id not IN (#{Log.unscoped.select('DISTINCT message_id').to_sql})").delete_all
-    Source.where("id not IN (#{Log.unscoped.select('DISTINCT source_id').to_sql})").delete_all
-    count = where(cond).delete_all
-    logger.info Time.now.to_s + ": Expired #{count} #{to_s.underscore.humanize.pluralize}"
-    count
+    created = (Time.now.utc - timerange).to_formatted_s(:db)
+    logger.info "Starting #{to_s.underscore.humanize.pluralize} expiration before #{created} status #{status || 'not set'} batch size #{batch_size} sleep #{sleep_time}"
+    cond = "created_at < \'#{created}\'"
+    cond += " and status = #{status}" unless status.nil?
+    total_count = 0
+    report_ids = []
+    start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    loop do
+      Report.transaction do
+        batch_start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        report_ids = where(cond).reorder('').limit(batch_size).pluck(:id)
+        if report_ids.count > 0
+          message_count = Message.unscoped.joins(:logs).where("logs.report_id" => report_ids).delete_all
+          source_count = Source.unscoped.joins(:logs).where("logs.report_id" => report_ids).delete_all
+          log_count = Log.unscoped.where(:report_id => report_ids).reorder('').delete_all
+          count = where(:id => report_ids).reorder('').delete_all
+          total_count += count
+          rate = (count / (Process.clock_gettime(Process::CLOCK_MONOTONIC) - batch_start_time)).to_i
+          Foreman::Logging.with_fields(deleted_messages: message_count, expired_sources: source_count, expired_logs: log_count, expired_total: count, expire_rate: rate) do
+            logger.info "Expired #{count} #{to_s.underscore.humanize.pluralize} at rate #{rate} rec/sec"
+          end
+        end
+      end
+      break if report_ids.blank?
+      sleep sleep_time
+    end
+    duration = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time) / 60).to_i
+    logger.info "Total #{to_s.underscore.humanize.pluralize} expired: #{total_count}, duration: #{duration} min(s)"
+    total_count
   end
 
   # represent if we have a report --> used to ensure consistency across host report state the report itself
   def no_report
     false
+  end
+
+  def self.origins
+    Foreman::Plugin.report_origin_registry.all_origins
+  end
+
+  # we don't want to log reports, it can be a lot of data
+  def self.log_render_results?
+    false
+  end
+
+  private
+
+  def read_metrics
+    yml_hash = '!ruby/hash:ActiveSupport::HashWithIndifferentAccess'
+    yml_params = /!ruby\/[\w-]+:ActionController::Parameters/
+
+    metrics_attr = self[:metrics]
+    metrics_attr.gsub!(yml_params, yml_hash)
+    metrics_attr
   end
 end

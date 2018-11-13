@@ -1,4 +1,5 @@
-class Bookmark < ActiveRecord::Base
+class Bookmark < ApplicationRecord
+  audited
   include Authorizable
   extend FriendlyId
   friendly_id :name
@@ -7,12 +8,11 @@ class Bookmark < ActiveRecord::Base
   validates_lengths_from_database
 
   belongs_to :owner, :polymorphic => true
-  attr_accessible :name, :query, :public, :controller
-  audited :allow_mass_assignment => true
 
-  validates :name, :uniqueness => {:scope => :controller}, :unless => Proc.new{|b| Bookmark.my_bookmarks.where(:name => b.name).empty?}
+  validates :name, :uniqueness => {:scope => :controller}, :unless => Proc.new {|b| Bookmark.my_bookmarks.where(:name => b.name).empty?}
   validates :name, :query, :presence => true
   validates :controller, :presence => true, :no_whitespace => true, :bookmark_controller => true
+  validates :public, inclusion: { in: [true, false] }
   default_scope -> { order(:name) }
   before_validation :set_default_user
 

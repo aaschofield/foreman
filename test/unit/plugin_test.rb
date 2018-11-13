@@ -16,19 +16,35 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 require 'test_helper'
+require 'pagelets_test_helper'
 
-module Awesome; module Provider; class MyAwesome < ::ComputeResource; end; end; end
+module Awesome
+  module Provider; class MyAwesome < ::ComputeResource; end; end
+  def self.register_smart_proxy(name, options = {})
+  end
+end
+module Awesome; class FakeFacet; end; end
+
+module Test
+  class Resource
+  end
+end
 
 class PluginTest < ActiveSupport::TestCase
-  def setup
-    @klass = Foreman::Plugin
-    # In case some real plugins are installed
-    @klass.clear
+  module MyMod
+    def my_helper
+      'my_helper'
+    end
+
+    private
+
+    def private_helper
+      'private_helper'
+    end
   end
 
-  def teardown
-    @klass.clear
-  end
+  setup :clear_plugins
+  teardown :restore_plugins
 
   def test_register
     @klass.register :foo do
@@ -62,10 +78,10 @@ class PluginTest < ActiveSupport::TestCase
   end
 
   def test_menu
-    url_hash = {:controller=>'hosts', :action=>'index'}
+    url_hash = {:controller => 'hosts', :action => 'index'}
     assert_difference 'Menu::Manager.items(:project_menu).size' do
       @klass.register :foo do
-        menu :project_menu, :foo_menu_item, :url_hash=>url_hash, :caption => 'Foo'
+        menu :project_menu, :foo_menu_item, :url_hash => url_hash, :caption => 'Foo'
       end
     end
     menu_item = Menu::Manager.items(:project_menu).detect {|i| i.name == :foo_menu_item}
@@ -191,20 +207,55 @@ class PluginTest < ActiveSupport::TestCase
     end
   end
 
-  def test_register_allowed_template_helpers_and_variables
-    refute_includes Foreman::Renderer::ALLOWED_HELPERS, :my_helper
-    refute_includes Foreman::Renderer::ALLOWED_VARIABLES, :my_variable
+  def test_register_allowed_template_helpers
+    Foreman::Renderer.configure { |config| config.allowed_generic_helpers -= [:my_helper] }
+    refute_includes Foreman::Renderer.config.allowed_helpers, :my_helper
 
     @klass.register :foo do
       allowed_template_helpers :my_helper
+    end
+
+    # simulate application start
+    @klass.find(:foo).to_prepare_callbacks.each(&:call)
+    assert_includes Foreman::Renderer.config.allowed_helpers, :my_helper
+  end
+
+  def test_register_allowed_template_variables
+    refute_includes Foreman::Renderer.config.allowed_variables, :my_variable
+
+    @klass.register :foo do
       allowed_template_variables :my_variable
     end
 
-    assert_includes Foreman::Renderer::ALLOWED_HELPERS, :my_helper
-    assert_includes Foreman::Renderer::ALLOWED_VARIABLES, :my_variable
-  ensure
-    Foreman::Renderer::ALLOWED_HELPERS.delete(:my_helper)
-    Foreman::Renderer::ALLOWED_HELPERS.delete(:my_variable)
+    # simulate application start
+    @klass.find(:foo).to_prepare_callbacks.each(&:call)
+    assert_includes Foreman::Renderer.config.allowed_variables, :my_variable
+  end
+
+  def test_register_allowed_global_settings
+    refute_includes Foreman::Renderer.config.allowed_global_settings, :my_global_setting
+
+    @klass.register :foo do
+      allowed_template_global_settings :my_global_setting
+    end
+
+    # simulate application start
+    @klass.find(:foo).to_prepare_callbacks.each(&:call)
+    assert_includes Foreman::Renderer.config.allowed_global_settings, :my_global_setting
+  end
+
+  def test_extend_rendering_helpers
+    refute_includes Foreman::Renderer::Scope::Base.public_instance_methods, :my_helper
+    refute_includes Foreman::Renderer::Scope::Base.public_instance_methods, :private_helper
+
+    @klass.register(:foo) do
+      extend_template_helpers(MyMod)
+    end
+
+    # simulate application start
+    @klass.find(:foo).to_prepare_callbacks.each(&:call)
+    assert_includes Foreman::Renderer::Scope::Base.public_instance_methods, :my_helper
+    refute_includes Foreman::Renderer::Scope::Base.public_instance_methods, :private_helper
   end
 
   def test_add_compute_resource
@@ -212,17 +263,28 @@ class PluginTest < ActiveSupport::TestCase
       name 'Awesome compute'
       compute_resource Awesome::Provider::MyAwesome
     end
-    assert ComputeResource.providers.must_include 'MyAwesome'
+    assert ComputeResource.providers.keys.must_include 'MyAwesome'
+    assert ComputeResource.providers.values.must_include 'Awesome::Provider::MyAwesome'
     assert_equal ComputeResource.provider_class('MyAwesome'), 'Awesome::Provider::MyAwesome'
-    assert ComputeResource.supported_providers.keys.must_include 'MyAwesome'
-    assert ComputeResource.supported_providers.values.must_include 'Awesome::Provider::MyAwesome'
-    assert SETTINGS[:myawesome]
+    assert ComputeResource.registered_providers.keys.must_include 'MyAwesome'
+    assert ComputeResource.registered_providers.values.must_include 'Awesome::Provider::MyAwesome'
+  end
+
+  def test_invalid_compute_resource
+    e = assert_raise(Foreman::Exception) do
+      Foreman::Plugin.register :awesome_compute do
+        name 'Awesome compute'
+        compute_resource String
+      end
+    end
+    assert_match /wrong type supplied/, e.message
   end
 
   def test_add_search_path_override
-    Foreman::Plugin.register :filter_helpers do
+    plugin = Foreman::Plugin.register :filter_helpers do
       search_path_override("TestEngine") { |resource| "test_engine/another_search_path" }
     end
+    assert plugin.search_overrides.key?("TestEngine")
     assert FiltersHelperOverrides.can_override?("TestEngine::TestResource")
   end
 
@@ -257,6 +319,8 @@ class PluginTest < ActiveSupport::TestCase
     @klass.register :foo do
       register_custom_status(status)
     end
+    # simulate application start
+    @klass.find(:foo).to_prepare_callbacks.each(&:call)
     assert_include HostStatus.status_registry, status
     HostStatus.status_registry.delete status
   end
@@ -269,14 +333,286 @@ class PluginTest < ActiveSupport::TestCase
     assert_equal 'Awesomeness Based', Host::Managed.provision_methods['awesome']
   end
 
-  def test_extend_page
-    Foreman::Plugin.register(:foo) do
-      extend_page("tests/show") do |context|
-        context.add_pagelet :main_tabs, :name => "My Tab", :partial => "partial"
+  def test_register_facet
+    Facets.stubs(:configuration).returns({})
+
+    Foreman::Plugin.register :awesome_facet do
+      name 'Awesome facet'
+      register_facet(Awesome::FakeFacet, :fake_facet) do
+        api_view :list => 'api/v2/awesome/index', :single => 'api/v2/awesome/show'
       end
     end
 
-    assert_equal 1, ::Pagelets::Manager.sorted_pagelets_at("tests/show", :main_tabs).count
-    assert_equal "My Tab", ::Pagelets::Manager.sorted_pagelets_at("tests/show", :main_tabs).first.name
+    assert Facets.registered_facets[:fake_facet]
+
+    Host::Managed.cloned_parameters[:include].delete(:fake_facet)
+  end
+
+  def test_register_facet_resilience
+    old_config = Facets.instance_variable_get('@configuration')
+    Facets.instance_variable_set('@configuration', nil)
+
+    Foreman::Plugin.register :awesome_facet do
+      name 'Awesome facet'
+      register_facet(Awesome::FakeFacet, :fake_facet) do
+        api_view :list => 'api/v2/awesome/index', :single => 'api/v2/awesome/show'
+      end
+    end
+
+    # reset the configuration
+    Facets.instance_variable_set('@configuration', nil)
+
+    assert Facets.registered_facets[:fake_facet]
+
+    Host::Managed.cloned_parameters[:include].delete(:fake_facet)
+    Facets.instance_variable_set('@configuration', old_config)
+  end
+
+  def test_add_template_label
+    kind = FactoryBot.build_stubbed(:template_kind)
+    Foreman::Plugin.register :test_template_kind do
+      name 'Test template kind'
+      template_labels kind.name => 'Test plugin template kind'
+    end
+    assert_equal 'Test plugin template kind', kind.to_s
+  end
+
+  def test_add_parameter_filter
+    Foreman::Plugin.register :test_parameter_filter do
+      name 'Parameter filter test'
+      parameter_filter Domain, :foo, :bar => [], :ui => true
+    end
+    assert_equal([], Foreman::Plugin.find(:test_parameter_filter).parameter_filters(User))
+    assert_equal([[:foo, :bar => [], :ui => true]], Foreman::Plugin.find(:test_parameter_filter).parameter_filters(Domain))
+    assert_equal([[:foo, :bar => [], :ui => true]], Foreman::Plugin.find(:test_parameter_filter).parameter_filters('Domain'))
+  end
+
+  def test_add_parameter_filter_block
+    Foreman::Plugin.register :test_parameter_filter do
+      name 'Parameter filter test'
+      parameter_filter(Domain) { |ctx| ctx.permit(:foo) }
+    end
+    assert_kind_of Proc, Foreman::Plugin.find(:test_parameter_filter).parameter_filters(Domain).first.first
+  end
+
+  def test_add_smart_proxy_for
+    Foreman::Plugin.register :test_smart_proxy do
+      name 'Smart Proxy test'
+      smart_proxy_for Awesome, :foo, :feature => 'Foo'
+    end
+    assert_equal({}, Foreman::Plugin.find(:test_smart_proxy).smart_proxies(User))
+    assert_equal({:foo => {:feature => 'Foo'}}, Foreman::Plugin.find(:test_smart_proxy).smart_proxies(Awesome))
+  end
+
+  def test_hosts_controller_action_scope
+    mock_scope = ->(scope) { scope }
+    Foreman::Plugin.register :test_hosts_controller_action_scope do
+      add_controller_action_scope HostsController, :test_action, &mock_scope
+    end
+    scopes = HostsController.scopes_for(:test_action)
+    assert_equal mock_scope, scopes.last
+  end
+
+  def test_hosts_controller_action_scope_added_to_local
+    mock_scope = ->(scope) { scope }
+    HostsController.add_scope_for(:test_action) do |scope|
+      scope
+    end
+    Foreman::Plugin.register :test_hosts_controller_action_scope_added_to_local do
+      add_controller_action_scope HostsController, :test_action, &mock_scope
+    end
+    scopes = HostsController.scopes_for(:test_action)
+    assert_equal 2, scopes.count
+  end
+
+  def test_add_resource_permissions_to_defalut_roles
+    Foreman::Plugin.register :test_plugin do
+      add_resource_permissions_to_default_roles ["Test::Resource"], :except => [:create_test]
+    end
+    manager = Role.find_by :name => "Manager"
+    org_admin = Role.find_by :name => "Organization admin"
+    viewer = Role.find_by :name => "Viewer"
+    assert_equal 2, manager.permissions.where(:resource_type => "Test::Resource").count
+    assert_equal 2, org_admin.permissions.where(:resource_type => "Test::Resource").count
+    assert_equal 1, viewer.permissions.where(:resource_type => "Test::Resource").count
+  end
+
+  def test_add_permissions_to_default_roles
+    viewer = Role.find_by :name => "Viewer"
+    refute viewer.permissions.find_by :name => "misc_test"
+    Foreman::Plugin.register :test_plugin do
+      add_permissions_to_default_roles "Viewer" => [:misc_test]
+    end
+    assert viewer.permissions.find_by :name => "misc_test"
+  end
+
+  def test_add_all_permissions_to_default_roles
+    Foreman::Plugin.register :test_plugin do
+      security_block :test_permission do
+        permission :view_test, { :controller_name => [:test] }
+        permission :edit_test, { :controller_name => [:test] }
+        permission :create_test, { :controller_name => [:test] }
+        permission :misc_test, { :controller_name => [:test] }
+      end
+      add_all_permissions_to_default_roles
+    end
+    manager = Role.find_by :name => "Manager"
+    viewer = Role.find_by :name => "Viewer"
+    org_admin = Role.find_by :name => "Organization admin"
+
+    %w(view_test).each do |perm|
+      permission = Permission.find_by(:name => perm)
+      assert permission.roles.include?(manager)
+      assert permission.roles.include?(viewer)
+      assert permission.roles.include?(org_admin)
+    end
+
+    %w(edit_test create_test misc_test).each do |perm|
+      permission = Permission.find_by(:name => perm)
+      assert permission.roles.include?(manager)
+      assert permission.roles.include?(org_admin)
+      refute permission.roles.include?(viewer)
+    end
+  end
+
+  def test_add_dashboard_widget
+    widget_params = {template: 'plugin_widget', name: 'Plugin Widget', sizex: 2, sizey: 2}
+    plugin = Foreman::Plugin.register :test_widget do
+      widget 'plugin_widget', widget_params.except(:template)
+    end
+    assert_equal [widget_params], plugin.dashboard_widgets
+    assert_includes Dashboard::Manager.default_widgets, widget_params
+  end
+
+  def test_extend_rabl_template
+    Foreman::Plugin.register :test_extend_rabl_template do
+      extend_rabl_template 'api/v2/hosts/main', 'api/v2/hosts/expiration'
+    end
+    templates = Foreman::Plugin.find(:test_extend_rabl_template).rabl_template_extensions('api/v2/hosts/main')
+    assert_equal ['api/v2/hosts/expiration'], templates
+  end
+
+  def test_add_smart_proxy_reference
+    refs = ProxyReferenceRegistry.smart_proxy_references
+    ProxyReferenceRegistry.references = nil
+    Foreman::Plugin.register :test_add_smart_proxy_reference do
+      smart_proxy_reference :hosts => [:test]
+    end
+    assert_equal [:test], ProxyReferenceRegistry.find_by_relation(:hosts).columns
+  ensure
+    ProxyReferenceRegistry.references = refs
+  end
+
+  context "adding permissions" do
+    teardown do
+      permission = Foreman::AccessControl.permission(:test_permission)
+      Foreman::AccessControl.remove_permission(permission) if permission
+    end
+
+    def test_add_permission
+      Foreman::Plugin.register :test_permission do
+        name 'Permission test'
+        security_block :test_permission do
+          permission :test_permission, {:controller_name => [:test]}
+        end
+      end
+      assert_includes Foreman::Plugin.find(:test_permission).permission_names, :test_permission
+      ac_permission = Foreman::AccessControl.permission(:test_permission)
+      assert ac_permission, ":test_permission is not registered in Foreman::AccessControl"
+      assert_equal ['controller_name/test'], ac_permission.actions
+    end
+
+    def test_add_role
+      Foreman::Plugin.register :test_role do
+        name 'Role test'
+        security_block :test_permission do
+          permission :test_permission, {:controller_name => [:test]}
+        end
+        role 'Test role', [:test_permission]
+      end
+      assert_equal({'Test role' => [:test_permission]}, Foreman::Plugin.find(:test_role).default_roles)
+    end
+  end
+
+  context "asset precompilation" do
+    teardown do
+      Rails.application.config.assets.precompile.delete_if { |f| f.is_a?(String) && f.start_with?('test_assets_') }
+    end
+
+    def test_assets_from_precompile_assets
+      plugin = Foreman::Plugin.register(:test_assets_from_precompile_assets) do
+        precompile_assets 'test_assets_example.js', 'test_assets_another.css'
+      end
+      assert_equal ['test_assets_example.js', 'test_assets_another.css'], plugin.assets
+      assert_include Rails.application.config.assets.precompile, 'test_assets_example.js'
+    end
+
+    def test_assets_from_root
+      Dir.mktmpdir do |root|
+        FileUtils.mkdir_p File.join(root, 'app', 'assets', 'javascripts', 'test_assets_from_root')
+        FileUtils.touch File.join(root, 'app', 'assets', 'javascripts', 'test_outside.js')
+        FileUtils.touch File.join(root, 'app', 'assets', 'javascripts', 'test_assets_from_root', 'test_assets_example.js')
+
+        Rails.logger.expects(:warn).with(regexp_matches(/test_outside\.js/))
+        plugin = Foreman::Plugin.register(:test_assets_from_root) do
+          path root
+        end
+        assert_equal ['test_assets_from_root/test_assets_example.js'], plugin.assets
+        assert_include Rails.application.config.assets.precompile, 'test_assets_from_root/test_assets_example.js'
+      end
+    end
+
+    def test_assets_without_automatic
+      Dir.mktmpdir do |root|
+        FileUtils.mkdir_p File.join(root, 'app', 'assets', 'javascripts', 'test_assets_without_automatic')
+        FileUtils.touch File.join(root, 'app', 'assets', 'javascripts', 'test_assets_without_automatic', 'test_assets_example.js')
+
+        plugin = Foreman::Plugin.register(:test_assets_without_automatic) do
+          path root
+          automatic_assets false
+        end
+        assert_equal [], plugin.assets
+      end
+    end
+  end
+
+  context 'with pagelets' do
+    include PageletsIsolation
+
+    def test_extend_page
+      Foreman::Plugin.register(:foo) do
+        extend_page("tests/show") do |context|
+          context.add_pagelet :main_tabs, :name => "My Tab", :partial => "partial"
+        end
+      end
+
+      assert_equal 1, ::Pagelets::Manager.pagelets_at("tests/show", :main_tabs).count
+      assert_equal "My Tab", ::Pagelets::Manager.pagelets_at("tests/show", :main_tabs).first.name
+    end
+  end
+
+  describe 'Report scanner' do
+    subject { Foreman::Plugin.register('test') {} }
+    let(:report_scanner) { stub_everything('Object') }
+
+    describe '.register_report_scanner' do
+      it 'adds a class to report_scanner' do
+        refute subject.class.registered_report_scanners.include? report_scanner
+        subject.register_report_scanner report_scanner
+        assert subject.class.registered_report_scanners.include? report_scanner
+      end
+    end
+
+    describe '.unregister_report_scanner' do
+      before do
+        subject.register_report_scanner report_scanner
+      end
+
+      it 'removes a class to report_scanner' do
+        assert subject.class.registered_report_scanners.include? report_scanner
+        subject.unregister_report_scanner report_scanner
+        refute subject.class.registered_report_scanners.include? report_scanner
+      end
+    end
   end
 end

@@ -1,9 +1,9 @@
-class CreateProxies < ActiveRecord::Migration
+class CreateProxies < ActiveRecord::Migration[4.2]
   def up
     create_table :smart_proxies do |t|
-      t.string :name
-      t.string :url
-      t.timestamps
+      t.string :name, :limit => 255
+      t.string :url, :limit => 255
+      t.timestamps null: true
     end
   end
 

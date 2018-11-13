@@ -1,5 +1,4 @@
-# Read about fixtures at http://ar.rubyonrails.org/classes/Fixtures.html
-
+---
 common:
   name: test
   value: myvalue
@@ -35,8 +34,14 @@ location:
   type: LocationParameter
   location: location1
 
-org:
+organization:
   name: org_param
   value: xyz
   type: OrganizationParameter
   organization: organization1
+
+subnet:
+  name: parameter
+  value: subnet1
+  type: SubnetParameter
+  subnet: five

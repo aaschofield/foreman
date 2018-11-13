@@ -1,28 +1,20 @@
-<% title _("Images") %>
-<% title_actions display_link_if_authorized(_("New Image"), hash_for_new_compute_resource_image_path) %>
-<table class="table table-bordered table-striped" data-table='inline'>
-  <thead>
-    <tr>
-      <th><%= s_("Image|Name") %></th>
-      <th><%= s_("Operating System") %></th>
-      <th><%= s_("Image|Username") %></th>
-      <th><%= s_("Image|Uuid") %></th>
-      <th><%= s_("Image|User data") %></th>
-      <th><%= _('Actions') %>/th>
-    </tr>
-  </thead>
-  <tbody>
-    <% @images.each do |image| %>
-      <tr>
-        <td><%= image.name %></td>
-        <td><%= image.operatingsystem.to_label %></td>
-        <td><%= image.username %></td>
-        <td><%= image.uuid %></td>
-        <td><%= image.user_data? ? _("Enabled") : _("Disabled") %></td>
-        <td><%= action_buttons(link_to(_('Edit'), edit_compute_resource_image_path(@compute_resource, image)),
-                               link_to(_('Destroy'), [@compute_resource, image], :data => { :confirm => _('Are you sure?') }, :method => :delete)) %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
-<%= will_paginate_with_info @images %>
+<%= breadcrumbs(
+      items: [
+      {
+        caption: _("Compute Resources"),
+        url: (url_for(compute_resources_path) if authorized_for(hash_for_compute_resources_path))
+      },
+      {
+        caption: _(@compute_resource.to_s),
+        url: (url_for(compute_resource_path(@compute_resource)) if authorized_for(hash_for_compute_resources_path))
+      },
+      {
+        caption: _("Images")
+      }
+    ]
+  )
+%>
+
+<%= title_actions(new_link(_("Create Image"), { :compute_resource_id => @compute_resource.id, :controller => :images }, { :data=>{:target=>"full-page"} })) %>
+
+<%= render :partial => 'list' %>

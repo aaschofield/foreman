@@ -2,11 +2,12 @@ module Foreman::Controller::TaxonomiesController
   extend ActiveSupport::Concern
 
   included do
-    before_filter :find_resource, :only => %w{edit update destroy clone_taxonomy assign_hosts
+    before_action :find_resource, :only => %w{edit update destroy clone_taxonomy assign_hosts
                                               assign_selected_hosts assign_all_hosts step2 select
                                               parent_taxonomy_selected}
-    before_filter :count_nil_hosts, :only => %w{index create step2}
-    skip_before_filter :authorize, :set_taxonomy, :only => %w{select clear}
+    before_action :count_nil_hosts, :only => %w{index create step2}
+    before_action :new_taxonomy, :only => %w{create}
+    skip_before_action :authorize, :set_taxonomy, :only => %w{select clear}
   end
 
   def index
@@ -19,8 +20,7 @@ module Foreman::Controller::TaxonomiesController
 
     respond_to do |format|
       format.html do
-        @taxonomies = values.paginate(:page => params[:page])
-        @counter = Host.group(taxonomy_id).where(taxonomy_id => values).count
+        @taxonomies = values.paginate(:page => params[:page], :per_page => params[:per_page])
         render 'taxonomies/index'
       end
       format.json
@@ -37,7 +37,7 @@ module Foreman::Controller::TaxonomiesController
 
   def nest
     @taxonomy           = taxonomy_class.new
-    @taxonomy.parent_id = params[:id].to_i
+    @taxonomy.parent_id = params[:id].to_i if resource_scope.find_by_id(params[:id])
     render 'taxonomies/new'
   end
 
@@ -49,12 +49,12 @@ module Foreman::Controller::TaxonomiesController
   end
 
   def create
-    @taxonomy = taxonomy_class.new(params[taxonomy_single.to_sym])
     if @taxonomy.save
+      switch_taxonomy
       if @count_nil_hosts > 0
-        redirect_to send("step2_#{taxonomy_single}_path",@taxonomy)
+        redirect_to send("step2_#{taxonomy_single}_path", @taxonomy)
       else
-        process_success(:object => @taxonomy)
+        process_success(:object => @taxonomy, :success_redirect => send("edit_#{taxonomy_single}_path", @taxonomy))
       end
     else
       process_error(:render => "taxonomies/new", :object => @taxonomy)
@@ -76,7 +76,7 @@ module Foreman::Controller::TaxonomiesController
 
   def update
     result = Taxonomy.no_taxonomy_scope do
-      @taxonomy.update_attributes(params[taxonomy_single])
+      @taxonomy.update(resource_params)
     end
     if result
       process_success(:object => @taxonomy)
@@ -97,10 +97,7 @@ module Foreman::Controller::TaxonomiesController
   end
 
   def select
-    taxonomy_class.current = @taxonomy
-    session[taxonomy_id] = @taxonomy ? @taxonomy.id : nil
-
-    TopbarSweeper.expire_cache(self)
+    switch_taxonomy
     redirect_back_or_to root_url
   end
 
@@ -111,8 +108,9 @@ module Foreman::Controller::TaxonomiesController
 
   def clear_current_taxonomy_from_session
     taxonomy_class.current = nil
-    session[taxonomy_id] = nil
-    TopbarSweeper.expire_cache(self)
+    # session can't store nil, so we use empty string to represent any context
+    session[taxonomy_id] = ''
+    TopbarSweeper.expire_cache
   end
 
   def mismatches
@@ -126,30 +124,30 @@ module Foreman::Controller::TaxonomiesController
     @taxonomy = Taxonomy.find_by_id(params[:id])
     if @taxonomy
       @mismatches = @taxonomy.import_missing_ids
-      redirect_to send("edit_#{taxonomy_single}_path", @taxonomy), :notice => _("All mismatches between hosts and %s have been fixed") % @taxonomy.name
+      redirect_to send("edit_#{taxonomy_single}_path", @taxonomy), :success => _("All mismatches between hosts and %s have been fixed") % CGI.escapeHTML(@taxonomy.name)
     else
       Taxonomy.all_import_missing_ids
-      redirect_to send("#{taxonomies_plural}_path"), :notice => _("All mismatches between hosts and locations/organizations have been fixed")
+      redirect_to send("#{taxonomies_plural}_path"), :success => _("All mismatches between hosts and locations/organizations have been fixed")
     end
   end
 
   def assign_hosts
     @taxonomy_type = taxonomy_single.classify
-    @hosts = Host.authorized(:view_hosts, Host).send("no_#{taxonomy_single}").includes(included_associations).search_for(params[:search],:order => params[:order]).paginate(:page => params[:page])
+    @hosts = hosts_scope_without_taxonomy.includes(included_associations).search_for(params[:search], :order => params[:order]).paginate(:page => params[:page], :per_page => params[:per_page])
     render "hosts/assign_hosts"
   end
 
   def assign_all_hosts
-    Host.send("no_#{taxonomy_single}").update_all(taxonomy_id => @taxonomy.id)
+    hosts_scope_without_taxonomy.update_all(taxonomy_id => @taxonomy.id)
     @taxonomy.import_missing_ids
-    redirect_to send("#{taxonomies_plural}_path"), :notice => _("All hosts previously with no %{single} are now assigned to %{name}") % { :single => taxonomy_single, :name => @taxonomy.name }
+    redirect_to send("#{taxonomies_plural}_path"), :success => _("All hosts previously with no %{single} are now assigned to %{name}") % { :single => taxonomy_single, :name => CGI.escapeHTML(@taxonomy.name) }
   end
 
   def assign_selected_hosts
     host_ids = params[taxonomy_single.to_sym][:host_ids] - ["0"]
-    @hosts = Host.where(:id => host_ids).update_all(taxonomy_id => @taxonomy.id)
+    @hosts = hosts_scope_without_taxonomy.where(:id => host_ids).update_all(taxonomy_id => @taxonomy.id)
     @taxonomy.import_missing_ids
-    redirect_to send("#{taxonomies_plural}_path"), :notice => _("Selected hosts are now assigned to %s") % @taxonomy.name
+    redirect_to send("#{taxonomies_plural}_path"), :success => _("Selected hosts are now assigned to %s") % CGI.escapeHTML(@taxonomy.name)
   end
 
   def parent_taxonomy_selected
@@ -183,17 +181,48 @@ module Foreman::Controller::TaxonomiesController
 
   # overwrite application_controller
   def find_resource
-    not_found and return if params[:id].blank?
+    if params[:id].blank?
+      not_found
+      return
+    end
+
     case controller_name
       when 'organizations'
-        @taxonomy = @organization = Organization.find(params[:id])
+        @taxonomy = @organization = resource_scope.find(params[:id])
       when 'locations'
-        @taxonomy = @location = Location.find(params[:id])
+        @taxonomy = @location = resource_scope.find(params[:id])
     end
+  end
+
+  def resource_scope
+    taxonomy_class.send("my_#{taxonomies_plural}")
   end
 
   def count_nil_hosts
     return @count_nil_hosts if @count_nil_hosts
-    @count_nil_hosts = Host.where(taxonomy_id => nil).count
+    @count_nil_hosts = hosts_scope_without_taxonomy.count
+  end
+
+  def hosts_scope
+    Host.authorized(:view_hosts, Host)
+  end
+
+  def hosts_scope_without_taxonomy
+    hosts_scope.send("no_#{taxonomy_single}")
+  end
+
+  def resource_params
+    public_send("#{taxonomy_single}_params".to_sym)
+  end
+
+  def new_taxonomy
+    @taxonomy = taxonomy_class.new(resource_params)
+  end
+
+  def switch_taxonomy
+    taxonomy_class.current = @taxonomy
+    session[taxonomy_id] = @taxonomy ? @taxonomy.id : nil
+
+    TopbarSweeper.expire_cache
   end
 end

@@ -1,5 +1,6 @@
 module TaxonomyHelper
   include AncestryHelper
+  include FormHelper
 
   def show_location_tab?
     SETTINGS[:locations_enabled] && User.current.allowed_to?(:view_locations)
@@ -7,28 +8,6 @@ module TaxonomyHelper
 
   def show_organization_tab?
     SETTINGS[:organizations_enabled] && User.current.allowed_to?(:view_organizations)
-  end
-
-  def show_taxonomy_tabs?
-    SETTINGS[:locations_enabled] or SETTINGS[:organizations_enabled]
-  end
-
-  def organization_dropdown(count)
-    text = Organization.current.nil? ? _("Any Organization") : truncate(Organization.current.to_label)
-    if count == 1 && !User.current.admin?
-      link_to text, "#"
-    else
-      link_to(text, "#", :class => "dropdown-toggle", :'data-toggle'=>"dropdown")
-    end
-  end
-
-  def location_dropdown(count)
-    text = Location.current.nil? ? _("Any Location") : truncate(Location.current.to_label)
-    if count == 1 && !User.current.admin?
-      link_to text, "#"
-    else
-      link_to(text, "#", :class => "dropdown-toggle", :'data-toggle'=>"dropdown")
-    end
   end
 
   def taxonomy_single
@@ -48,12 +27,12 @@ module TaxonomyHelper
   end
 
   def wizard_header(current, *args)
-    content_tag(:ul,:class=>"wizard") do
-      step=1
+    content_tag(:ul, :class => "wizard") do
+      step = 1
       content = nil
       args.each do |arg|
-        step_content = content_tag(:li,(content_tag(:span,step,:class=>"badge" +" #{'badge-inverse' if step==current}")+arg).html_safe, :class=>"#{'active' if step==current}")
-        step == 1 ? content = step_content : content += step_content
+        step_content = content_tag(:li, (content_tag(:span, step, :class => "badge" + " #{'badge-inverse' if step == current}") + arg).html_safe, :class => ('active' if step == current).to_s)
+        (step == 1) ? content = step_content : content += step_content
         step += 1
       end
       content
@@ -132,12 +111,12 @@ module TaxonomyHelper
 
   def taxonomy_selects(f, selected_ids, taxonomy, label, options = {}, options_html = {})
     options[:disabled] = Array.wrap(options[:disabled])
-    options[:label]    ||= _(label)
-    multiple_selects f, label.downcase, taxonomy.authorized("assign_#{label.downcase}", taxonomy), selected_ids, options, options_html
+    options[:label] ||= _(label)
+    multiple_selects f, label.downcase.singularize + '_ids', taxonomy.authorized("assign_#{label.downcase}", taxonomy), selected_ids, options, options_html
   end
 
   def all_checkbox(f, resource)
-    return unless User.current.admin? || User.current.filters.joins(:permissions).where({:'permissions.name' => "view_#{resource}",
+    return ''.html_safe unless User.current.admin? || User.current.filters.joins(:permissions).where({:'permissions.name' => "view_#{resource}",
                                                        :search => nil,
                                                        :taxonomy_search => nil}).present?
     checkbox_f(f, :ignore_types,
@@ -180,8 +159,12 @@ module TaxonomyHelper
                :domains => { :all => _("All domains"), :select => _("Select domains") },
                :realms => { :all => _("All realms"), :select => _("Select realms") },
                :environments => { :all => _("All environments"), :select => _("Select environments") },
-               :hostgroups => { :all => _("All host groups"), :select => _("Select host groups") },
+               :hostgroups => { :all => _("All host groups"), :select => _("Select host groups") }
     }
     labels[resource][verb]
+  end
+
+  def org_loc_string(conjunction)
+    Taxonomy.enabled_taxonomies.map { |tax| _(tax) }.join(" #{conjunction} ")
   end
 end

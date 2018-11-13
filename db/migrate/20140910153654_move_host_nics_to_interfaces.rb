@@ -1,4 +1,4 @@
-class FakeNic < ActiveRecord::Base
+class FakeNic < ApplicationRecord
   self.table_name = 'nics'
 
   def type
@@ -6,11 +6,11 @@ class FakeNic < ActiveRecord::Base
   end
 end
 
-class FakeHost < ActiveRecord::Base
+class FakeHost < ApplicationRecord
   self.table_name = 'hosts'
 end
 
-class MoveHostNicsToInterfaces < ActiveRecord::Migration
+class MoveHostNicsToInterfaces < ActiveRecord::Migration[4.2]
   def up
     add_column :nics, :primary, :boolean, :default => false
     add_column :nics, :provision, :boolean, :default => false
@@ -26,7 +26,7 @@ class MoveHostNicsToInterfaces < ActiveRecord::Migration
       nic.subnet_id = host.attributes.with_indifferent_access[:subnet_id]
       nic.domain_id = host.attributes.with_indifferent_access[:domain_id]
       nic.virtual = false
-      nic.identifier = host.primary_interface || "eth0"
+      nic.identifier = host.attributes.with_indifferent_access[:primary_interface] || "eth0"
       nic.managed = host.attributes.with_indifferent_access[:managed]
       nic.primary = true
       nic.provision = true
@@ -46,9 +46,9 @@ class MoveHostNicsToInterfaces < ActiveRecord::Migration
   end
 
   def down
-    add_column :hosts, :ip, :string
-    add_column :hosts, :mac, :string, :default => ''
-    add_column :hosts, :primary_interface, :string
+    add_column :hosts, :ip, :string, :limit => 255
+    add_column :hosts, :mac, :string, :default => '', :limit => 255
+    add_column :hosts, :primary_interface, :string, :limit => 255
     add_column :hosts, :subnet_id, :integer
     add_foreign_key "hosts", "subnets", :name => "hosts_subnet_id_fk"
     add_column :hosts, :domain_id, :integer

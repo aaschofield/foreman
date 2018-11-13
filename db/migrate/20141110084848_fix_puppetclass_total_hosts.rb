@@ -1,6 +1,5 @@
-class FixPuppetclassTotalHosts < ActiveRecord::Migration
+class FixPuppetclassTotalHosts < ActiveRecord::Migration[4.2]
   def up
-    Rake::Task['puppet:fix_total_hosts'].invoke
   end
 
   def down

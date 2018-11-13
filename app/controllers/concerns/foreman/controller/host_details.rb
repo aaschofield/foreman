@@ -9,7 +9,9 @@ module Foreman::Controller::HostDetails
   end
 
   def os_selected
-    assign_parameter "operatingsystem", "common/os_selection/"
+    assign_parameter "operatingsystem", "common/os_selection/" do |item|
+      item.suggest_default_pxe_loader
+    end
   end
 
   def medium_selected
@@ -24,9 +26,9 @@ module Foreman::Controller::HostDetails
         taxonomy_scope
         Taxonomy.as_taxonomy @organization, @location do
           if (domain = Domain.find_by_id(params[:domain_id]))
-            render :json => domain.subnets
+            render :json => domain.subnets.as_json(:include => :unused_ip)
           elsif params[:interface]
-            render :json => Subnet.authorized(:view_subnets)
+            render :json => Subnet.authorized(:view_subnets).as_json(:include => :unused_ip)
           else
             render :json => {}
           end
@@ -45,10 +47,15 @@ module Foreman::Controller::HostDetails
   def assign_parameter(name, root = "")
     taxonomy_scope
     Taxonomy.as_taxonomy @organization, @location do
-      instance_variable_set("@#{name}",name.classify.constantize.where(:id => params["#{name}_id"]).first)
-      item = instance_variable_get("@#{controller_name.singularize}") || controller_name.classify.constantize.new(params[controller_name.singularize])
+      item = instance_variable_get("@#{controller_name.singularize}") || controller_name.classify.constantize.new(item_params)
+      instance_variable_set("@#{name}", item.send(name.to_sym))
+      yield item if block_given?
       render :partial => root + name, :locals => { :item => item }
     end
+  end
+
+  def item_params
+    send("#{item_name}_params".to_sym)
   end
 
   def item_name
@@ -59,6 +66,6 @@ module Foreman::Controller::HostDetails
   # @host = Host.new params[:host]
   def item_object
     name = item_name
-    instance_variable_set("@#{name}", name.classify.constantize.new(params[name.to_sym]))
+    instance_variable_set("@#{name}", name.classify.constantize.new(public_send("#{name}_params".to_sym)))
   end
 end

@@ -1,12 +1,17 @@
 module Foreman::Model
   class Rackspace < ComputeResource
+    validates :url, :format => { :with => URI::DEFAULT_PARSER.make_regexp }, :presence => true
     validates :user, :password, :region, :presence => true
     validate :ensure_valid_region
 
     delegate :flavors, :to => :client
 
     def provided_attributes
-      super.merge({ :ip => :public_ip_address })
+      super.merge(:ip => :ipv4_address, :ip6 => :ipv6_address)
+    end
+
+    def self.available?
+      Fog::Compute.providers.include?(:rackspace)
     end
 
     def self.model_name
@@ -47,10 +52,10 @@ module Foreman::Model
     end
 
     def test_connection(options = {})
-      super and flavors
+      super && flavors
     rescue Excon::Errors::Unauthorized => e
       errors[:base] << e.response.body
-    rescue Fog::Compute::Rackspace::Error, Excon::Errors::SocketError=> e
+    rescue Fog::Compute::Rackspace::Error, Excon::Errors::SocketError => e
       errors[:base] << e.message
     end
 
@@ -64,7 +69,7 @@ module Foreman::Model
 
     def destroy_vm(uuid)
       vm = find_vm_by_uuid(uuid)
-      vm.destroy if vm
+      vm&.destroy
       true
     end
 
@@ -78,7 +83,7 @@ module Foreman::Model
     end
 
     def ensure_valid_region
-      errors.add(:region, 'is not valid') unless regions.include?(region.upcase)
+      errors.add(:region, 'is not valid') unless regions.include?(region.to_s.upcase)
     end
 
     def associated_host(vm)
@@ -87,6 +92,14 @@ module Foreman::Model
 
     def user_data_supported?
       true
+    end
+
+    def normalize_vm_attrs(vm_attrs)
+      normalized = slice_vm_attributes(vm_attrs, ['flavor_id', 'image_id'])
+
+      normalized['flavor_name'] = self.flavors.detect { |f| f.id == normalized['flavor_id'] }.try(:name)
+      normalized['image_name'] = self.images.find_by(:uuid => normalized['image_id']).try(:name)
+      normalized
     end
 
     private
@@ -103,7 +116,7 @@ module Foreman::Model
     end
 
     def vm_instance_defaults
-      #256 server
+      # 256 server
       super.merge(
         :flavor_id => 1,
         :config_drive => true

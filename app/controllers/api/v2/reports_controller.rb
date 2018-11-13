@@ -3,9 +3,9 @@ module Api
     class ReportsController < V2::BaseController
       include Api::Version2
       include Foreman::Controller::SmartProxyAuth
-      before_filter :deprecated
-      before_filter :find_resource, :only => %w{show destroy}
-      before_filter :setup_search_options, :only => [:index, :last]
+      before_action :deprecated
+      before_action :find_resource, :only => %w{show destroy}
+      before_action :setup_search_options, :only => [:index, :last]
 
       add_smart_proxy_filters :create, :features => Proc.new { ConfigReportImporter.authorized_smart_proxy_features }
 
@@ -13,7 +13,7 @@ module Api
       param_group :search_and_pagination, ::Api::V2::BaseController
 
       def index
-        @reports = resource_scope_for_index.my_reports.includes(:logs => [:source, :message])
+        @reports = resource_scope_for_index.my_reports
         @total = resource_class.my_reports.count
       end
 
@@ -37,7 +37,7 @@ module Api
       param_group :report, :as => :create
 
       def create
-        @report = resource_class.import(params[:report], detected_proxy.try(:id))
+        @report = resource_class.import(params.to_unsafe_h[:report], detected_proxy.try(:id))
         process_response @report.errors.empty?
       rescue ::Foreman::Exception => e
         render_message(e.to_s, :status => :unprocessable_entity)

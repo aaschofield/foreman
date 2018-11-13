@@ -1,10 +1,11 @@
 class AuditsController < ApplicationController
   include Foreman::Controller::AutoCompleteSearch
 
-  before_filter :setup_search_options, :only => :index
+  before_action :setup_search_options, :only => :index
 
   def index
-    Audit.unscoped { @audits = resource_base.includes(:user).search_for(params[:search], :order => params[:order]).paginate :page => params[:page] }
+    @audits = resource_base_search_and_page.preload(:user)
+    @host = resource_finder(Host.authorized(:view_hosts), params[:host_id]) if params[:host_id]
   end
 
   def show
@@ -13,6 +14,10 @@ class AuditsController < ApplicationController
   end
 
   private
+
+  def resource_base(*args)
+    super(*args).taxed_and_untaxed
+  end
 
   def controller_permission
     'audit_logs'

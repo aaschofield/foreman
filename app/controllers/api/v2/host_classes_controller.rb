@@ -2,9 +2,9 @@ module Api
   module V2
     class HostClassesController < V2::BaseController
       include Api::Version2
-      include Api::TaxonomyScope
 
-      before_filter :find_host, :only => [:index, :create, :destroy]
+      before_action :find_host, :only => [:index, :create, :destroy]
+      before_action :find_puppetclass, :only => [:create]
 
       api :GET, "/hosts/:host_id/puppetclass_ids/", N_("List all Puppet class IDs for host")
 
@@ -17,7 +17,7 @@ module Api
       param :puppetclass_id, String, :required => true, :desc => N_("ID of Puppet class")
 
       def create
-        @host_class = HostClass.create!(:host_id => @host.id, :puppetclass_id => params[:puppetclass_id].to_i)
+        @host_class = HostClass.create!(:host_id => @host.id, :puppetclass_id => @puppetclass.id)
         render :json => {:host_id => @host_class.host_id, :puppetclass_id => @host_class.puppetclass_id}
       end
 
@@ -34,11 +34,18 @@ module Api
 
       # overwrite resource_name so it's host and and not host_class, since we want to return @host
       def find_host
-        not_found and return false if params[:host_id].blank?
+        if params[:host_id].blank?
+          not_found
+          return false
+        end
         if Host::Managed.respond_to?(:authorized) &&
             Host::Managed.authorized("view_host", Host::Managed)
           @host = resource_finder(Host.authorized(:view_hosts), params[:host_id])
         end
+      end
+
+      def find_puppetclass
+        @puppetclass = resource_finder(Puppetclass.authorized(:view_puppetclasses), params[:puppetclass_id])
       end
     end
   end

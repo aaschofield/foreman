@@ -1,42 +1,21 @@
 module Host
-  class Base < ActiveRecord::Base
-    include Foreman::STI
+  class Base < ApplicationRecord
+    prepend Foreman::STI
     include Authorizable
-    include CounterCacheFix
     include Parameterizable::ByName
     include DestroyFlag
+    include InterfaceCloning
+    include Hostext::Ownership
+    include Foreman::TelemetryHelper
+    include Facets::BaseHostExtensions
 
     self.table_name = :hosts
     extend FriendlyId
     friendly_id :name
-    OWNER_TYPES = %w(User Usergroup)
-
-    attr_accessible :name, :managed, :type, :start, :mac, :ip, :root_pass,
-      :is_owned_by, :enabled, :comment,
-      :overwrite, :capabilities, :provider, :last_compile,
-      # Model relations sorted in alphabetical order
-      :architecture, :architecture_id, :architecture_name,
-      :config_group, :config_group_ids, :config_group_names,
-      :domain, :domain_id, :domain_name,
-      :environment, :environment_id, :environment_name,
-      :hostgroup, :hostgroup_id, :hostgroup_name,
-      :host_parameters_attributes,
-      :interfaces, :interfaces_attributes,
-      :location, :location_id, :location_name,
-      :medium, :medium_id, :medium_name,
-      :model, :model_id, :model_name,
-      :operatingsystem, :operatingsystem_id, :operatingsystem_name,
-      :organization, :organization_id, :organization_name,
-      :ptable, :ptable_id, :ptable_name,
-      :puppet_ca_proxy, :puppet_ca_proxy_id, :puppet_ca_proxy_name,
-      :puppet_proxy, :puppet_proxy_id, :puppet_proxy_name,
-      :puppetclasses, :puppetclass_ids, :puppetclass_names,
-      :progress_report, :progress_report_id, :progress_report_name,
-      :realm, :realm_id, :realm_name,
-      :subnet, :subnet_id, :subnet_name
 
     validates_lengths_from_database
-    belongs_to :model, :counter_cache => :hosts_count
+    belongs_to :model, :name_accessor => 'hardware_model_name'
+    belongs_to :owner, :polymorphic => true
     has_many :fact_values, :dependent => :destroy, :foreign_key => :host_id
     has_many :fact_names, :through => :fact_values
     has_many :interfaces, -> { order(:identifier) }, :dependent => :destroy, :inverse_of => :host, :class_name => 'Nic::Base',
@@ -45,18 +24,21 @@ module Host
     has_one :provision_interface, -> { where(:provision => true) }, :class_name => 'Nic::Base', :foreign_key => 'host_id'
     has_one :domain, :through => :primary_interface
     has_one :subnet, :through => :primary_interface
+    has_one :subnet6, :through => :primary_interface
     accepts_nested_attributes_for :interfaces, :allow_destroy => true
 
     belongs_to :location
     belongs_to :organization
+    belongs_to :hostgroup
 
     alias_attribute :hostname, :name
-    validates :name, :presence   => true, :uniqueness => true, :format => {:with => Net::Validations::HOST_REGEXP}
-    validates :owner_type, :inclusion => { :in          => OWNER_TYPES,
-                                           :allow_blank => true,
-                                           :message     => (_("Owner type needs to be one of the following: %s") % OWNER_TYPES.join(', ')) }
+
+    validates :name, :presence => true, :uniqueness => true, :format => {:with => Net::Validations::HOST_REGEXP, :message => _(Net::Validations::HOST_REGEXP_ERR_MSG)}
     validate :host_has_required_interfaces
     validate :uniq_interfaces_identifiers
+    validate :build_managed_only
+
+    include PxeLoaderSuggestion
 
     default_scope -> { where(taxonomy_conditions) }
 
@@ -64,13 +46,22 @@ module Host
       org = Organization.expand(Organization.current) if SETTINGS[:organizations_enabled]
       loc = Location.expand(Location.current) if SETTINGS[:locations_enabled]
       conditions = {}
-      conditions[:organization_id] = Array(org).map { |o| o.subtree_ids }.flatten.uniq if org.present?
-      conditions[:location_id] = Array(loc).map { |l| l.subtree_ids }.flatten.uniq if loc.present?
+      conditions[:organization_id] = Array(org).map { |o| o.subtree_ids }.flatten.uniq unless org.nil?
+      conditions[:location_id] = Array(loc).map { |l| l.subtree_ids }.flatten.uniq unless loc.nil?
       conditions
     end
 
-    scope :no_location,     -> { where(:location_id => nil) }
-    scope :no_organization, -> { where(:organization_id => nil) }
+    scope :no_location,     -> { rewhere(:location_id => nil) }
+    scope :no_organization, -> { rewhere(:organization_id => nil) }
+
+    delegate :ssh_authorized_keys, :to => :owner, :allow_nil => true
+    delegate :notification_recipients_ids, :to => :owner, :allow_nil => true
+
+    PRIMARY_INTERFACE_ATTRIBUTES = [:name, :ip, :ip6, :mac,
+                                    :subnet, :subnet_id, :subnet_name,
+                                    :subnet6, :subnet6_id, :subnet6_name,
+                                    :domain, :domain_id, :domain_name,
+                                    :lookup_values_attributes].freeze
 
     # primary interface is mandatory because of delegated methods so we build it if it's missing
     # similar for provision interface
@@ -79,35 +70,30 @@ module Host
     # we can't create primary interface before calling super because args may contain nested
     # interface attributes
     def initialize(*args)
-      primary_interface_attrs = [:name, :ip, :mac,
-                                 :subnet, :subnet_id, :subnet_name,
-                                 :domain, :domain_id, :domain_name,
-                                 :lookup_values_attributes]
       values_for_primary_interface = {}
-
-      new_attrs = args.shift
-      unless new_attrs.nil?
-        new_attrs = new_attrs.with_indifferent_access
-        primary_interface_attrs.each do |attr|
-          values_for_primary_interface[attr] = new_attrs.delete(attr) if new_attrs.has_key?(attr)
-        end
-        args.unshift(new_attrs.to_hash)
-      end
+      build_values_for_primary_interface!(values_for_primary_interface, args)
 
       super(*args)
 
       build_required_interfaces
-      values_for_primary_interface.each do |name, value|
-        self.send "#{name}=", value
+      update_primary_interface_attributes(values_for_primary_interface)
+    end
+
+    def dup
+      super.tap do |host|
+        host.interfaces << self.primary_interface.dup if self.primary_interface.present?
       end
     end
 
-    delegate :ip, :mac,
+    delegate :ip, :ip6, :mac,
              :subnet, :subnet_id, :subnet_name,
+             :subnet6, :subnet6_id, :subnet6_name,
              :domain, :domain_id, :domain_name,
-             :hostname,
+             :hostname, :fqdn, :shortname,
              :to => :primary_interface, :allow_nil => true
-    delegate :name=, :ip=, :mac=, :subnet=, :subnet_id=, :subnet_name=,
+    delegate :name=, :ip=, :ip6=, :mac=,
+             :subnet=, :subnet_id=, :subnet_name=,
+             :subnet6=, :subnet6_id=, :subnet6_name=,
              :domain=, :domain_id=, :domain_name=, :to => :primary_interface
 
     attr_writer :updated_virtuals
@@ -119,31 +105,63 @@ module Host
       super - [ inheritance_column ]
     end
 
-    def self.import_host_and_facts(json)
-      # noop, overridden by STI descendants
-      [self, true]
+    def self.import_host(hostname, certname = nil)
+      raise(::Foreman::Exception.new("Invalid Hostname, must be a String")) unless hostname.is_a?(String)
+
+      # downcase everything
+      hostname.try(:downcase!)
+      certname.try(:downcase!)
+
+      host = Host.find_by_certname(certname) if certname.present?
+      host ||= Host.find_by_name(hostname)
+      host ||= self.new(:name => hostname) # if no host was found, build a new one
+
+      # if we were given a certname but found the Host by hostname we should update the certname
+      # this also sets certname for newly created hosts
+      host.certname = certname if certname.present?
+
+      host
+    end
+
+    def create_new_host_when_facts_are_uploaded?
+      Setting[:create_new_host_when_facts_are_uploaded]
     end
 
     # expect a facts hash
-    def import_facts(facts)
+    def import_facts(facts, source_proxy = nil)
+      return false if !create_new_host_when_facts_are_uploaded? && new_record?
+
       # we are not importing facts for hosts in build state (e.g. waiting for a re-installation)
       raise ::Foreman::Exception.new('Host is pending for Build') if build?
+      facts = facts.with_indifferent_access
 
-      time = facts[:_timestamp]
-      time = time.to_time if time.is_a?(String)
+      facts[:domain] = facts[:domain].downcase if facts[:domain].present?
 
-      # we are not doing anything we already processed this fact (or a newer one)
-      if time
-        return true unless last_compile.nil? or (last_compile + 1.minute < time)
-        self.last_compile = time
+      type = facts.delete(:_type)
+      importer = FactImporter.importer_for(type).new(self, facts)
+      telemetry_observe_histogram(:importer_facts_import_duration, facts.size, type: type)
+      telemetry_duration_histogram(:importer_facts_import_duration, 1000, type: type) do
+        importer.import!
       end
 
-      type = facts.delete(:_type) || 'puppet'
-      importer = FactImporter.importer_for(type).new(self, facts)
-      importer.import!
-
       save(:validate => false)
-      populate_fields_from_facts(facts, type)
+
+      parse_facts facts, type, source_proxy
+    end
+
+    def parse_facts(facts, type, source_proxy)
+      time = facts[:_timestamp]
+      time = time.to_time if time.is_a?(String)
+      self.last_compile = time if time
+
+      unless build?
+        parser = FactParser.parser_for(type).new(facts)
+
+        telemetry_duration_histogram(:importer_facts_import_duration, 1000, type: type) do
+          populate_fields_from_facts(parser, type, source_proxy)
+        end
+      end
+
       set_taxonomies(facts)
 
       # we are saving here with no validations, as we want this process to be as fast
@@ -158,24 +176,17 @@ module Host
       [ :model ]
     end
 
-    def populate_fields_from_facts(facts = self.facts_hash, type = 'puppet')
-      # we don't import facts for host in build mode
-      return if build?
-
-      parser = FactParser.parser_for(type).new(facts)
-
+    def populate_fields_from_facts(parser, type, source_proxy)
       # we must create interface if it's missing so we can store domain
       build_required_interfaces(:managed => false)
       set_non_empty_values(parser, attributes_to_import_from_facts)
       set_interfaces(parser) if parser.parse_interfaces?
-
-      parser
     end
 
     def set_non_empty_values(parser, methods)
       methods.each do |attr|
         value = parser.send(attr)
-        self.send("#{attr}=", value) unless value.blank?
+        self.send("#{attr}=", value) if value.present?
       end
     end
 
@@ -190,19 +201,21 @@ module Host
         self.primary_interface.save!
       end
 
+      changed_count = 0
       parser.interfaces.each do |name, attributes|
-        iface = get_interface_scope(name, attributes).first || interface_class(name).new(:managed => false)
+        iface = get_interface_scope(name, attributes).try(:first) || interface_class(name).new(:managed => false)
         # create or update existing interface
-        set_interface(attributes, name, iface)
+        changed_count += 1 if set_interface(attributes, name, iface)
       end
 
       ipmi = parser.ipmi_interface
       if ipmi.present?
-        existing = self.interfaces.where(:mac => ipmi[:macaddress], :type => Nic::BMC).first
+        existing = self.interfaces.find_by(:mac => ipmi[:macaddress], :type => Nic::BMC.name)
         iface = existing || Nic::BMC.new(:managed => false)
         iface.provider ||= 'IPMI'
-        set_interface(ipmi, 'ipmi', iface)
+        changed_count += 1 if set_interface(ipmi, 'ipmi', iface)
       end
+      telemetry_increment_counter(:importer_facts_count_interfaces, changed_count, type: parser.class_name_humanized)
 
       self.interfaces.reload
     end
@@ -229,13 +242,13 @@ module Host
         taxonomy_class = taxonomy.classify.constantize
         taxonomy_fact = Setting["#{taxonomy}_fact"]
 
-        if taxonomy_fact.present? && facts.keys.include?(taxonomy_fact)
-          taxonomy_from_fact = taxonomy_class.find_by_title(facts[taxonomy_fact])
+        if taxonomy_fact.present? && facts.key?(taxonomy_fact)
+          taxonomy_from_fact = taxonomy_class.find_by_title(facts[taxonomy_fact].to_s)
         else
           default_taxonomy = taxonomy_class.find_by_title(Setting["default_#{taxonomy}"])
         end
 
-        if self.send("#{taxonomy}").present?
+        if self.send(taxonomy.to_s).present?
           # Change taxonomy to fact taxonomy if set, otherwise leave it as is
           self.send("#{taxonomy}=", taxonomy_from_fact) unless taxonomy_from_fact.nil?
         else
@@ -313,7 +326,55 @@ module Host
       tax_organization.import_missing_ids if organization
     end
 
+    # Provide _id aliases for consistency with the _name methods
+    alias_attribute :hardware_model_id, :model_id
+
+    def lookup_value_match
+      "fqdn=#{fqdn || name}"
+    end
+
+    # we must also clone interfaces objects so we can detect their attribute changes
+    # method is public because it's used when we run orchestration from interface side
+    def setup_clone
+      return if new_record?
+      @old = super { |clone| clone.interfaces = self.interfaces.map {|i| setup_object_clone(i) } }
+    end
+
+    def skip_orchestration?
+      false
+    end
+
+    def orchestrated?
+      self.class.included_modules.include?(Orchestration)
+    end
+
+    def render_template(template:, **params)
+      template.render(host: self, **params)
+    end
+
     private
+
+    def build_values_for_primary_interface!(values_for_primary_interface, args)
+      new_attrs = args.shift
+      unless new_attrs.nil?
+        new_attrs = new_attrs.with_indifferent_access
+        values_for_primary_interface[:name] = NameGenerator.new.next_random_name unless new_attrs.has_key?(:name)
+        PRIMARY_INTERFACE_ATTRIBUTES.each do |attr|
+          values_for_primary_interface[attr] = new_attrs.delete(attr) if new_attrs.has_key?(attr)
+        end
+
+        model_name = new_attrs.delete(:model_name)
+        new_attrs[:hardware_model_name] = model_name if model_name.present?
+
+        args.unshift(new_attrs)
+      end
+    end
+
+    def update_primary_interface_attributes(attrs)
+      attrs.each do |name, value|
+        self.send "#{name}=", value
+      end
+    end
 
     def tax_location
       return nil unless location_id
@@ -326,7 +387,15 @@ module Host
     end
 
     def build_required_interfaces(attrs = {})
-      self.interfaces.build(attrs.merge(:primary => true, :type => 'Nic::Managed')) if self.primary_interface.nil?
+      if self.primary_interface.nil?
+        if self.interfaces.empty?
+          self.interfaces.build(attrs.merge(:primary => true, :type => 'Nic::Managed'))
+        else
+          interface = self.interfaces.first
+          interface.attributes = attrs
+          interface.primary = true
+        end
+      end
       self.primary_interface.provision = true if self.provision_interface.nil?
     end
 
@@ -342,22 +411,61 @@ module Host
         else
           begin
             macaddress = Net::Validations.normalize_mac(attributes[:macaddress])
-          rescue ArgumentError
+          rescue Net::Validations::Error
             logger.debug "invalid mac during parsing: #{attributes[:macaddress]}"
           end
-          base = base.where(:mac => macaddress)
+
+          mac_based = base.where(:mac => macaddress)
           if attributes[:virtual]
-            base.virtual.where(:identifier => name)
-          else
-            base.physical
+            mac_based.virtual.where(:identifier => name)
+          elsif mac_based.physical.any?
+            mac_based.physical
+          elsif !self.managed
+            # Unmanaged host's interfaces are just used for reporting, so overwrite based on identifier first
+            base.where(:identifier => name)
           end
       end
     end
 
+    def update_bonds(iface, name, attributes)
+      bond_interfaces.each do |bond|
+        next unless bond.children_mac_addresses.include?(attributes['macaddress'])
+        next if bond.attached_devices_identifiers.include? name
+        update_bond bond, iface, name
+      end
+    end
+
+    def update_bond(bond, iface, name)
+      if iface&.identifier
+        bond.remove_device(iface.identifier)
+        bond.add_device(name)
+        logger.debug "Updating bond #{bond.identifier}, id #{bond.id}: removing #{iface.identifier}, adding #{name} to attached interfaces"
+        save_updated_bond bond
+      end
+    end
+
+    def save_updated_bond(bond)
+      bond.save!
+    rescue StandardError => e
+      logger.warn "Saving #{bond.identifier} NIC for host #{self.name} failed, skipping because #{e.message}:"
+      bond.errors.full_messages.each { |e| logger.warn " #{e}" }
+    end
+
     def set_interface(attributes, name, iface)
+      # update bond.attached_interfaces when interface is in the list and identifier has changed
+      update_bonds(iface, name, attributes) if iface.identifier != name && !iface.virtual? && iface.persisted?
       attributes = attributes.clone
       iface.mac = attributes.delete(:macaddress)
       iface.ip = attributes.delete(:ipaddress)
+      iface.ip6 = attributes.delete(:ipaddress6)
+      iface.ip6 = nil if (IPAddr.new('fe80::/10').include?(iface.ip6) rescue false)
+      keep_subnet = attributes.delete(:keep_subnet)
+
+      if Setting[:update_subnets_from_facts] && !keep_subnet
+        iface.subnet = Subnet.subnet_for(iface.ip) if iface.ip_changed? && !iface.matches_subnet?(:ip, :subnet)
+        iface.subnet6 = Subnet.subnet_for(iface.ip6) if iface.ip6_changed? && !iface.matches_subnet?(:ip6, :subnet6)
+      end
+
       iface.virtual = attributes.delete(:virtual) || false
       iface.tag = attributes.delete(:tag) || ''
       iface.attached_to = attributes.delete(:attached_to) if attributes[:attached_to].present?
@@ -367,12 +475,16 @@ module Host
       update_virtuals(iface.identifier_was, name) if iface.identifier_changed? && !iface.virtual? && iface.persisted? && iface.identifier_was.present?
       iface.attrs = attributes
 
-      logger.debug "Saving #{name} NIC for host #{self.name}"
-      result = iface.save
-      result or begin
-        logger.warn "Saving #{name} NIC for host #{self.name} failed, skipping because:"
-        iface.errors.full_messages.each { |e| logger.warn " #{e}"}
-        false
+      if iface.new_record? || iface.changed?
+        logger.debug "Saving #{name} NIC for host #{self.name}"
+        result = iface.save_without_auditing
+
+        unless result
+          logger.warn "Saving #{name} NIC for host #{self.name} failed, skipping because:"
+          iface.errors.full_messages.each { |e| logger.warn " #{e}" }
+        end
+
+        result
       end
     end
 
@@ -454,6 +566,12 @@ module Host
 
       errors.add(:interfaces, _('some interfaces are invalid')) unless success
       success
+    end
+
+    def build_managed_only
+      if !managed? && build?
+        errors.add(:build, _('cannot be enabled for an unmanaged host'))
+      end
     end
 
     def password_base64_encrypted?

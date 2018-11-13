@@ -1,16 +1,20 @@
 class FactImporter
+  include Foreman::TelemetryHelper
+
   delegate :logger, :to => :Rails
   attr_reader :counters
 
   def self.importer_for(type)
-    importers[type.to_s] || importers[:puppet]
+    importers[type.to_s]
   end
 
   def self.importers
-    @importers ||= { :puppet => PuppetFactImporter }.with_indifferent_access
+    @importers ||= {}.with_indifferent_access
   end
 
-  def self.register_fact_importer(key, klass)
+  def self.register_fact_importer(key, klass, default = false)
+    importers.default = klass if default
+
     importers[key.to_sym] = klass
   end
 
@@ -28,7 +32,18 @@ class FactImporter
     []
   end
 
+  def self.excluded_facts_regex
+    Setting.convert_array_to_regexp(
+      Setting[:excluded_facts],
+      {
+        :prefix => '(\A|.*::|.*_)',
+        :suffix => '(\Z|::.*)'
+      }
+    )
+  end
+
   def initialize(host, facts = {})
+    @error    = false
     @host     = host
     @facts    = normalize(facts)
     @counters = {}
@@ -36,11 +51,26 @@ class FactImporter
 
   # expect a facts hash
   def import!
-    delete_removed_facts
-    add_new_facts
-    update_facts
+    # This function uses its own transactions that should not be included
+    # in the transaction that handles fact values
+    ensure_fact_names
 
+    ActiveRecord::Base.transaction do
+      delete_removed_facts
+      update_facts
+      add_new_facts
+    end
+
+    report_error(@error) if @error
     logger.info("Import facts for '#{host}' completed. Added: #{counters[:added]}, Updated: #{counters[:updated]}, Deleted #{counters[:deleted]} facts")
+    telemetry_increment_counter(:importer_facts_count_processed, counters[:added], type: fact_name_class_humanized, action: :added)
+    telemetry_increment_counter(:importer_facts_count_processed, counters[:updated], type: fact_name_class_humanized, action: :updated)
+    telemetry_increment_counter(:importer_facts_count_processed, counters[:deleted], type: fact_name_class_humanized, action: :deleted)
+  end
+
+  def report_error(error)
+    Foreman::Logging.exception("Error during fact import for #{@host.name}", error)
+    raise ::Foreman::WrappedException.new(error, N_("Import of facts failed for host %s"), @host.name)
   end
 
   # to be defined in children
@@ -48,58 +78,134 @@ class FactImporter
     raise NotImplementedError
   end
 
+  def fact_name_class_humanized
+    @class_humanized ||= fact_name_class.name.demodulize.underscore
+  end
+
   private
 
-  attr_reader :host, :facts
+  attr_reader :host, :facts, :fact_names, :facts_to_create
+
+  def fact_name_class_name
+    @fact_name_class_name ||= fact_name_class.name
+  end
+
+  def ensure_fact_names
+    initialize_fact_names
+
+    missing_keys = facts.keys - fact_names.keys
+    add_missing_fact_names(missing_keys)
+  end
+
+  def add_missing_fact_names(missing_keys)
+    missing_keys.sort.each do |fact_name|
+      # create a new record and make sure it could be saved.
+      name_record = fact_name_class.new(fact_name_attributes(fact_name))
+
+      ensure_no_active_transaction
+
+      ActiveRecord::Base.transaction(:requires_new => true) do
+        begin
+          save_name_record(name_record)
+        rescue ActiveRecord::RecordNotUnique
+          name_record = nil
+        end
+      end
+
+      # if the record could not be saved in the previous transaction,
+      # re-get the record outside of transaction
+      if name_record.nil?
+        name_record = fact_name_class.find_by!(name: fact_name)
+      end
+
+      # make the new record available immediately for other fact_name_attributes calls
+      @fact_names[fact_name] = name_record
+    end
+  end
+
+  def initialize_fact_names
+    name_records = fact_name_class.unscoped.where(:name => facts.keys, :type => fact_name_class_name).reorder('')
+    @fact_names = name_records.index_by(&:name)
+  end
+
+  def fact_name_attributes(fact_name)
+    {
+      name: fact_name
+    }
+  end
 
   def delete_removed_facts
-    to_delete = host.fact_values.eager_load(:fact_name).where("fact_names.type = '#{fact_name_class}' AND fact_names.name NOT IN (?)", facts.keys)
-    # N+1 DELETE SQL, but this would allow us to use callbacks (e.g. auditing) when deleting.
-    deleted = to_delete.destroy_all
-    @counters[:deleted] = deleted.size
+    delete_query = FactValue.joins(:fact_name).where(:host => host, 'fact_names.type' => fact_name_class_name).where.not(:fact_name => fact_names.values).reorder('')
+    if ActiveRecord::Base.connection.adapter_name.downcase.starts_with? 'mysql'
+      # MySQL does not handle delete with inner query correctly (slow) so we will do two queries on purpose
+      @counters[:deleted] = FactValue.where(:id => delete_query.pluck(:id)).delete_all
+    else
+      # deletes all facts using a single SQL query with inner query otherwise
+      @counters[:deleted] = delete_query.delete_all
+    end
+  end
 
-    @db_facts = nil
-    logger.debug("Merging facts for '#{host}': deleted #{counters[:deleted]} facts")
+  def add_new_fact(name)
+    # if the host does not exist yet, we don't have an host_id to use the fact_values table.
+    method = host.new_record? ? :build : :create!
+    fact_name = fact_names[name]
+    host.fact_values.send(method, :value => facts[name], :fact_name => fact_name)
+  rescue => e
+    logger.error("Fact #{name} could not be imported because of #{e.message}")
+    @error = e
   end
 
   def add_new_facts
-    facts_to_create = facts.keys - db_facts.keys
-    # if the host does not exists yet, we don't have an host_id to use the fact_values table.
-    if facts_to_create.present?
-      method          = host.new_record? ? :build : :create!
-      fact_names      = fact_name_class.group(:name).maximum(:id)
-      facts_to_create.each do |name|
-        host.fact_values.send(method, :value => facts[name],
-                              :fact_name_id  => fact_names[name] || fact_name_class.create!(:name => name).id)
-      end
-    end
-
+    facts_to_create.each { |f| add_new_fact(f) }
     @counters[:added] = facts_to_create.size
-    logger.debug("Merging facts for '#{host}': added #{@counters[:added]} facts")
   end
 
   def update_facts
-    facts_to_update = []
-    db_facts.each { |name, fv| facts_to_update << [facts[name], fv] if fv.value != facts[name] }
-
-    @counters[:updated] = facts_to_update.size
-    return logger.debug("No facts update required for #{host}") if facts_to_update.empty?
-
-    logger.debug("Merging facts for '#{host}': updated #{@counters[:updated]} facts")
-
-    facts_to_update.each do |new_value, fv|
-      fv.update_attribute(:value, new_value)
+    time = Time.now.utc
+    updated = 0
+    db_facts_names = []
+    db_facts.find_each do |record|
+      new_value = facts[record.name]
+      if record.value != new_value
+        # skip callbacks/validations
+        record.update_columns(:value => new_value, :updated_at => time)
+        updated += 1
+      end
+      db_facts_names << record.name
     end
+    @facts_to_create = facts.keys - db_facts_names
+    @counters[:updated] = updated
   end
 
   def normalize(facts)
-    # convert all structures to simple strings
-    facts = Hash[facts.map {|k, v| [k.to_s, v.to_s]}]
-    # and remove empty values
-    facts.keep_if { |k, v| v.present? }
+    normalized_facts = {}
+    facts.each do |k, v|
+      key = k.to_s
+      val = v.to_s
+
+      normalized_facts[key] = val unless val.empty? || key.match(excluded_facts)
+    end
+    normalized_facts
   end
 
   def db_facts
-    @db_facts ||= host.fact_values.eager_load(:fact_name).where("fact_names.type = '#{fact_name_class}'").index_by(&:name)
+    query = host.fact_values
+    if ActiveRecord::Base.connection.adapter_name.downcase.starts_with? 'mysql'
+      # MySQL query optimizer does not appear to pick the correct index here: https://projects.theforeman.org/issues/25053
+      query = query.from("fact_values USE INDEX(index_fact_values_on_fact_name_id_and_host_id)")
+    end
+    query.where(:fact_name => fact_names.values).reorder('')
+  end
+
+  def ensure_no_active_transaction
+    raise 'Fact names should be added outside of global transaction' if ActiveRecord::Base.connection.transaction_open?
+  end
+
+  def save_name_record(name_record)
+    name_record.save!(:validate => false)
+  end
+
+  def excluded_facts
+    @excluded_facts ||= FactImporter.excluded_facts_regex
   end
 end

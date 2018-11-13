@@ -17,10 +17,11 @@ Apipie.configure do |config|
 
   substitutions = {
     :operatingsystem_families => Operatingsystem.families.join(", "),
-    :providers => ComputeResource.providers.join(', '),
+    :providers => -> { ComputeResource.providers.keys.join(', ') },
+    :providers_requiring_url => -> { ComputeResource.providers_requiring_url },
     :default_nic_type => InterfaceTypeMapper::DEFAULT_TYPE.humanized_name.downcase,
-    :template_kinds => -> { TemplateKind.pluck(:name).join(", ") },
-    :provision_methods => -> { Host::Managed.provision_methods.map { |method, friendly_name| "#{method} (#{_(friendly_name)})" }.join(', ') },
+    :template_kinds => -> { Rails.cache.fetch("template_kind_names", expires_in: 1.hour) {TemplateKind.pluck(:name).join(", ")} },
+    :host_rebuild_steps => -> { Host::Managed.valid_rebuild_only_values.join(', ') }
   }
 
   config.translate = lambda do |str, loc|
@@ -28,7 +29,7 @@ Apipie.configure do |config|
     FastGettext.set_locale(loc)
     if str
       trans = _(str)
-      trans = trans % Hash[substitutions.map { |k,v| [k, v.respond_to?(:call) ? v.call : v] }]
+      trans = trans % Hash[substitutions.map { |k, v| [k, v.respond_to?(:call) ? v.call : v] }]
     end
     FastGettext.set_locale(old_loc)
     trans
@@ -36,8 +37,8 @@ Apipie.configure do |config|
   config.validate = false
   config.force_dsl = true
   config.reload_controllers = Rails.env.development?
-  config.markup = Apipie::Markup::Markdown.new if Rails.env.development? and defined? Maruku
-  config.default_version = "v1"
+  config.markup = Apipie::Markup::Markdown.new if Rails.env.development? && defined? Maruku
+  config.default_version = "v2"
   config.update_checksum = true
   config.checksum_path = ['/api/', '/apidoc/']
 end
@@ -47,16 +48,18 @@ if Apipie.configuration.use_cache
   cache_name = File.join(Apipie.configuration.cache_dir, Apipie.configuration.doc_base_url + '.json')
   if File.exist? cache_name
     target = max = File.mtime(cache_name)
-    roots = ::Rails::Engine.subclasses.map(&:instance).collect{ |e| e.root }
+    roots = ::Rails::Engine.subclasses.map(&:instance).collect { |e| e.root }
     roots << Rails.root
     roots.each do |root|
       path = "#{root}/app/controllers/api"
-      Find.find(path) do |e|
-        t = File.mtime(e)
-        max = t if t > max
-      end if File.exist?(path)
+      if File.exist?(path)
+        Find.find(path) do |e|
+          t = File.mtime(e)
+          max = t if t > max
+        end
+      end
     end
-    if ! $ARGV.nil? && $ARGV.first != "apipie:cache" && max > target
+    if !$ARGV.nil? && $ARGV.first != "apipie:cache" && max > target
       puts "API controllers newer than Apipie cache! Run apipie:cache rake task to regenerate cache."
     end
   else
@@ -84,7 +87,7 @@ end
 class IdentifierValidator < Apipie::Validator::BaseValidator
   def validate(value)
     value = value.to_s
-    value =~ /\A[\w| |_|-]*\Z/ && value.strip == value && (1..128).include?(value.length)
+    value =~ /\A[\w| |_|-]*\Z/ && value.strip == value && (1..128).cover?(value.length)
   end
 
   def self.build(param_description, argument, options, block)
@@ -100,7 +103,7 @@ end
 class IdentifierDottableValidator < Apipie::Validator::BaseValidator
   def validate(value)
     value = value.to_s
-    value =~ /\A[\w| |_|-|.]*\Z/ && value.strip == value && (1..128).include?(value.length)
+    value =~ /\A[\w| |_|-|.]*\Z/ && value.strip == value && (1..128).cover?(value.length)
   end
 
   def self.build(param_description, argument, options, block)
@@ -110,5 +113,37 @@ class IdentifierDottableValidator < Apipie::Validator::BaseValidator
   def description
     "Must be an identifier, string from 1 to 128 characters containing only alphanumeric characters, " +
         "dot(.), space, underscore(_), hypen(-) with no leading or trailing space."
+  end
+end
+
+# Allows to enumerate multiple types that a parameter accepts.
+class AnyTypeValidator < Apipie::Validator::BaseValidator
+  def initialize(param_description, argument, options = {})
+    super(param_description)
+    @allowed_types = options[:of] || []
+  end
+
+  def validate(value)
+    # The validator has rather informative value, skip the real validation
+    true
+  end
+
+  def self.build(param_description, argument, options, block)
+    if argument == :any_type
+      self.new(param_description, argument, options)
+    end
+  end
+
+  def description
+    if @allowed_types.empty?
+      'Can be any type'
+    else
+      types = @allowed_types.map { |type| "<code>#{type}</code>" }.join(', ')
+      'Must be one of types: %s' % types
+    end
+  end
+
+  def expected_type
+    :any_type
   end
 end

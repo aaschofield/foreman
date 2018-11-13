@@ -1,17 +1,16 @@
-class Environment < ActiveRecord::Base
+class Environment < ApplicationRecord
+  audited
   extend FriendlyId
   friendly_id :name, :reserved_words => []
   include Taxonomix
   include Authorizable
   include Parameterizable::ByName
 
-  attr_accessible :name
-
   validates_lengths_from_database
   before_destroy EnsureNotUsedBy.new(:hosts, :hostgroups)
 
   has_many :environment_classes, :dependent => :destroy
-  has_many :puppetclasses, -> { uniq }, :through => :environment_classes
+  has_many :puppetclasses, -> { distinct }, :through => :environment_classes
   has_many_hosts
   has_many :hostgroups
 
@@ -29,11 +28,9 @@ class Environment < ActiveRecord::Base
   }
 
   scoped_search :on => :name, :complete_value => :true
-  scoped_search :on => :hosts_count
-  scoped_search :on => :hostgroups_count
 
   class << self
-    #TODO: this needs to be removed, as PuppetDOC generation no longer works
+    # TODO: this needs to be removed, as PuppetDOC generation no longer works
     # if the manifests are not on the foreman host
     # returns an hash of all puppet environments and their relative paths
     def puppetEnvs(proxy = nil)

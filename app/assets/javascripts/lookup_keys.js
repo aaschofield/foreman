@@ -53,7 +53,7 @@ function fix_template_context(content, context) {
 
 function fix_template_names(content, assoc, new_id) {
   var regexp  = new RegExp('new_' + assoc, 'g');
-  return content.replace(regexp, "new_" + new_id);
+  return content.replace(regexp, new_id);
 }
 
 function add_child_node(item) {
@@ -84,7 +84,7 @@ function add_child_node(item) {
     $(item).closest("form").trigger({type: 'nested:fieldAdded', field: field});
     $('a[rel="popover"]').popover();
     $('a[rel="twipsy"]').tooltip();
-    $(field).find('select:not(.matcher_key)').select2();
+    activate_select2($(field).not('.matcher_key'));
     return new_id;
 }
 
@@ -140,14 +140,14 @@ function undo_remove_child_node(item){
 function toggleOverrideValue(item) {
   var override = $(item).is(':checked');
   var fields = $(item).closest('.fields');
-  var fields_to_disable = fields.find("[id$='_required'],[id$='_key_type'],[id$='_validator_type'],[id$='use_puppet_default'],[id$='hidden_value']");
-  var use_puppet_default = $(item).closest('fieldset').find("[id$='use_puppet_default']").is(':checked');
+  var fields_to_disable = fields.find("[name$='[required]'],[id$='_key_type'],[id$='_validator_type'],[name$='[omit]'],[name$='[hidden_value]']");
+  var omit = $(item).closest('fieldset').find("[id$='omit']").is(':checked');
   var default_value_field = fields.find("[id$='_default_value']");
   var pill_icon = $('#pill_' + fields[0].id +' i');
   var override_value_div = fields.find("[id$='lookup_key_override_value']");
 
   fields_to_disable.prop('disabled', !override);
-  default_value_field.prop('disabled', !override || use_puppet_default);
+  default_value_field.prop('disabled', !override || omit);
   override ? pill_icon.addClass('fa-flag') : pill_icon.removeClass('fa-flag');
   override_value_div.toggle(override);
 }
@@ -188,9 +188,9 @@ function mergeOverridesChanged(item) {
   changeCheckboxEnabledStatus(mergeDefault, item.checked);
 }
 
-function toggleUsePuppetDefaultValue(item, value_field) {
-  var use_puppet_default = $(item).is(':checked');
-  $(item).closest('.fields').find('[id$=' + value_field + ']').prop('disabled', use_puppet_default);
+function toggleOmitValue(item, value_field) {
+  var omit = $(item).is(':checked');
+  $(item).closest('.fields').find('[id$=' + value_field + ']').prop('disabled', omit);
 }
 
 function filterByEnvironment(item){
@@ -220,8 +220,8 @@ function validatorTypeSelected(item){
   validator_rule_field.attr('disabled', validatorType == "" ? 'disabled' : null);
 }
 
-const KEY_DELM = ",";
-const EQ_DELM  = "=";
+var KEY_DELM = ",";
+var EQ_DELM  = "=";
 
 function match_to_key_value(match){
   var regex = new RegExp('[' + KEY_DELM + EQ_DELM + ']');
@@ -288,25 +288,13 @@ function toggle_lookupkey_hidden(checkbox) {
 }
 
 function toggle_value_hidden(target){
-  shown = target.prop('type') == "textarea";
-  var attrs = {
-    id: target.attr('id'),
-    name: target.attr('name'),
-    value: target.val(),
-    disabled: target.prop('disabled'),
-    class: target.attr('class'),
-    'data-inherited-value': target.data('inherited-value')
-  };
+  var shown = !target.hasClass('masked-input');
   target.closest('tr').find('.set_hidden_value').prop('checked', shown);
-  if (shown) {
-    target.replaceWith($('<input/>').attr(_.extend({ type: 'password' }, attrs)));
-  } else {
-    target.replaceWith($('<textarea/>').attr(_.extend({ placeholder: _('Value'), rows: 1 }, attrs)).val(attrs['value']));
-  }
+  target.toggleClass('masked-input');
 }
 
 function input_group_hidden(btn) {
   target = $(btn).closest('.input-group').find('textarea, input');
-  toggle_value_hidden(target, target.is('textarea'));
+  toggle_value_hidden(target);
   $(btn).hide().siblings('.btn-hide').show();
 }

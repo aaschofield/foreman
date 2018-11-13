@@ -1,6 +1,6 @@
 <% title @vm.name %>
 <div class='col-md-12'>
-  <table class="table table-bordered table-striped">
+  <table class="<%= table_css_classes %>">
     <thead>
       <tr><th colspan="2"><%=_('Properties') %></th></tr>
     </thead>
@@ -13,9 +13,11 @@
       <%= prop :mac %>
       <%= prop :cpus %>
       <%= prop :corespersocket, _('Cores per socket') %>
+      <%= prop :firmware, _('Firmware') %>
       <%= prop :hypervisor %>
       <%= prop :connection_state %>
       <%= prop :overall_status %>
+      <%= prop :annotation, _('Annotation notes') %>
     </tbody>
   </table>
 </div>

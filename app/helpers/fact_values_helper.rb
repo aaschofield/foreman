@@ -1,6 +1,6 @@
 module FactValuesHelper
   def fact_from(record)
-    _("%s ago") % time_ago_in_words(record.host.last_compile)
+    date_time_relative(record.updated_at)
   rescue
     _("N/A")
   end
@@ -8,44 +8,62 @@ module FactValuesHelper
   def fact_name(value, parent)
     value_name = name = h(value.name)
     memo       = ''
-    name       = name.split(FactName::SEPARATOR).map do |current_name|
+    name.split(FactName::SEPARATOR).map do |current_name|
       memo = memo.empty? ? current_name : memo + FactName::SEPARATOR + current_name
-      if parent.present? && h(parent.name) == memo
-        current_name
-      else
-        if value_name != memo || value.compose
-          parameters = { :parent_fact => memo }
-          if params[:host_id]
-            url = host_facts_path(parameters.merge({ :host_id => params[:host_id] }))
-          else
-            url = fact_values_path(parameters)
-          end
-          link_to(current_name, url,
-                  :title => _("Show all %s children fact values") % memo)
+      content_tag(:li) do
+        if value.compose && current_name == name.split(FactName::SEPARATOR).last
+          url = host_parent_fact_facts_path(:parent_fact => value_name, :host_id => params[:host_id] || value.host.name)
+          link_to(icon_text('angle-down', '', :kind => 'fa', :title => _('Expand nested items')), url) + ' ' + create_fact_name_link(parent, current_name, params[:host_id], value, value_name, memo)
         else
-          link_to(current_name, fact_values_path("search" => "name = #{value_name}"),
-                  :title => _("Show all %s fact values") % value_name)
+          create_fact_name_link(parent, current_name, params[:host_id], value, value_name, memo)
         end
       end
-    end.join(FactName::SEPARATOR).html_safe
+    end.join.html_safe
+  end
 
-    if value.compose
-      link_to(icon_text('plus-sign','', :title => _('Expand nested items')),
-              fact_values_path(:parent_fact => value_name)) + ' ' +
-          content_tag(:span, name)
+  def create_fact_name_link(parent, current_name, host_id, value, value_name, memo)
+    return current_name if parent.present? && h(parent.name) == memo
+    if value_name != memo || value.compose
+      parameters = { :parent_fact => memo }
+      url = host_parent_fact_facts_path(parameters.merge({ :host_id => host_id || value.host.name }))
+      link_to(current_name, url,
+              :title => _("Show all %s children fact values") % memo)
     else
-      name
+      link_to(current_name, fact_values_path(:search => "name = #{value_name}"),
+              :title => _("Show %s fact values for all hosts") % value_name)
     end
   end
 
   def show_full_fact_value(fact_value)
     content_tag(:div, :class => 'replace-hidden-value') do
       link_to_function(icon_text('plus', '', :class => 'small'), 'replace_value_control(this)',
-               :title => _('Show full value'),
-               :class => 'replace-hidden-value pull-right') +
-      content_tag(:span, :class => 'full-value') do
-        fact_value
-      end
+                       :title => _('Show full value'),
+                       :class => 'replace-hidden-value pull-right') +
+          content_tag(:span, :class => 'full-value') do
+            fact_value
+          end
     end.html_safe
+  end
+
+  def fact_origin_icon(origin)
+    return origin if origin == 'N/A'
+    image_tag(origin + ".png", :title => origin)
+  end
+
+  def fact_breadcrumbs
+    breadcrumbs(
+      items: [
+        {
+          caption: _("Facts Values"),
+          url: (url_for(fact_values_path) if authorized_for(hash_for_fact_values_path))
+        },
+        {
+          caption: params[:host_id]
+        }
+      ],
+      resource_url: api_hosts_path(thin: true),
+      switcher_item_url: host_facts_path(':name'),
+      switchable: true
+    )
   end
 end

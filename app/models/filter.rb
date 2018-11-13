@@ -1,11 +1,12 @@
-class Filter < ActiveRecord::Base
+class Filter < ApplicationRecord
+  audited :associated_with => :role
+
   include Taxonomix
   include Authorizable
+  include TopbarCacheExpiry
 
   attr_writer :resource_type
   attr_accessor :unlimited
-  attr_accessible :search, :unlimited, :resource_type, :permissions,
-    :permission_ids, :permission_names, :role_id
 
   class ScopedSearchValidator < ActiveModel::Validator
     def validate(record)
@@ -25,8 +26,12 @@ class Filter < ActiveRecord::Base
     false
   end
 
+  # allow creating filters for non-taxable resources when user is not admin
+  def ensure_taxonomies_not_escalated
+  end
+
   belongs_to :role
-  has_many :filterings, :dependent => :destroy
+  has_many :filterings, :autosave => true, :dependent => :destroy
   has_many :permissions, :through => :filterings
 
   validates_lengths_from_database
@@ -36,28 +41,34 @@ class Filter < ActiveRecord::Base
   scope :limited, -> { where("search IS NOT NULL OR taxonomy_search IS NOT NULL") }
 
   scoped_search :on => :search, :complete_value => true
+  scoped_search :on => :override, :complete_value => { :true => true, :false => false }
   scoped_search :on => :limited, :complete_value => { :true => true, :false => false }, :ext_method => :search_by_limited, :only_explicit => true
   scoped_search :on => :unlimited, :complete_value => { :true => true, :false => false }, :ext_method => :search_by_unlimited, :only_explicit => true
-  scoped_search :in => :role, :on => :id, :rename => :role_id, :complete_enabled => false, :only_explicit => true
-  scoped_search :in => :role, :on => :name, :rename => :role
-  scoped_search :in => :permissions, :on => :resource_type, :rename => :resource
-  scoped_search :in => :permissions, :on => :name,          :rename => :permission
+  scoped_search :relation => :role, :on => :id, :rename => :role_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
+  scoped_search :relation => :role, :on => :name, :rename => :role
+  scoped_search :relation => :permissions, :on => :resource_type, :rename => :resource
+  scoped_search :relation => :permissions, :on => :name,          :rename => :permission
 
-  before_validation :build_taxonomy_search, :nilify_empty_searches
+  before_validation :build_taxonomy_search, :nilify_empty_searches, :enforce_override_flag
+  before_save :enforce_inherited_taxonomies
 
   validates :search, :presence => true, :unless => Proc.new { |o| o.search.nil? }
   validates_with ScopedSearchValidator
   validates :role, :presence => true
+
+  validate :role_not_locked
+  before_destroy :role_not_locked
+
   validate :same_resource_type_permissions, :not_empty_permissions, :allowed_taxonomies
 
   def self.search_by_unlimited(key, operator, value)
-    search_by_limited(key, operator, value == 'true' ? 'false' : 'true')
+    search_by_limited(key, operator, (value == 'true') ? 'false' : 'true')
   end
 
   def self.search_by_limited(key, operator, value)
     value      = value == 'true'
     value      = !value if operator == '<>'
-    conditions = value ? limited.where_values.join(' AND ') : unlimited.where_values.map(&:to_sql).join(' AND ')
+    conditions = value ? 'search IS NOT NULL OR taxonomy_search IS NOT NULL' : 'search IS NULL AND taxonomy_search IS NULL'
     { :conditions => conditions }
   end
 
@@ -70,7 +81,7 @@ class Filter < ActiveRecord::Base
     resource_type.constantize
   rescue NameError => e
     Foreman::Logging.exception("unknown class #{resource_type}, ignoring", e)
-    return nil
+    nil
   end
 
   def unlimited?
@@ -85,9 +96,13 @@ class Filter < ActiveRecord::Base
     _('filter for %s role') % self.role.try(:name) || 'unknown'
   end
 
+  def to_label
+    permissions.pluck(:name).to_sentence
+  end
+
   def resource_type
-    type = @resource_type || permissions.first.try(:resource_type)
-    type.blank? ? nil : type
+    type = @resource_type || filterings.first.try(:permission).try(:resource_type)
+    type.presence
   end
 
   def resource_class
@@ -102,6 +117,10 @@ class Filter < ActiveRecord::Base
       return true if resource_type == 'Host'
       resource_class.included_modules.include?(Authorizable) && resource_class.respond_to?(:search_for)
     end
+  end
+
+  def allows_taxonomies_filtering?
+    allows_organization_filtering? || allows_location_filtering?
   end
 
   def allows_organization_filtering?
@@ -120,9 +139,24 @@ class Filter < ActiveRecord::Base
     searches.join(' and ')
   end
 
-  def expire_topbar_cache(sweeper)
-    role.users.each      { |u| u.expire_topbar_cache(sweeper) }
-    role.usergroups.each { |g| g.expire_topbar_cache(sweeper) }
+  def expire_topbar_cache
+    role.users.each      { |u| u.expire_topbar_cache }
+    role.usergroups.each { |g| g.expire_topbar_cache }
+  end
+
+  def disable_overriding!
+    self.override = false
+    self.save!
+  end
+
+  def enforce_inherited_taxonomies
+    inherit_taxonomies! unless self.override?
+  end
+
+  def inherit_taxonomies!
+    self.organization_ids = self.role.organization_ids if self.allows_organization_filtering?
+    self.location_ids = self.role.location_ids if self.allows_location_filtering?
+    build_taxonomy_search
   end
 
   private
@@ -164,7 +198,17 @@ class Filter < ActiveRecord::Base
 
   # if we have 0 types, empty validation will set error, we can't have more than one type
   def same_resource_type_permissions
-    errors.add(:permissions, _('Permissions must be of same resource type')) if self.permissions.map(&:resource_type).uniq.size > 1
+    types = self.permissions.map(&:resource_type).uniq
+    if types.size > 1
+      errors.add(
+        :permissions,
+        _('must be of same resource type (%{types}) - Role (%{role})') %
+        {
+          types: types.join(','),
+          role: self.role.name
+        }
+      )
+    end
   end
 
   def not_empty_permissions
@@ -179,5 +223,15 @@ class Filter < ActiveRecord::Base
     if self.location_ids.present? && !self.allows_location_filtering?
       errors.add(:location_ids, _('You can\'t assign locations to this resource'))
     end
+  end
+
+  def enforce_override_flag
+    self.override = false unless self.allows_taxonomies_filtering?
+    true
+  end
+
+  def role_not_locked
+    errors.add(:role_id, _('is locked for user modifications.')) if role.locked? && !role.modify_locked
+    errors.empty?
   end
 end

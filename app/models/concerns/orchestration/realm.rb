@@ -1,5 +1,6 @@
 module Orchestration::Realm
   extend ActiveSupport::Concern
+  include Orchestration::Common
 
   included do
     after_validation  :queue_realm
@@ -45,8 +46,7 @@ module Orchestration::Realm
   private
 
   def queue_realm
-    logger.debug "Queueing Realm"
-    return unless realm? && errors.empty?
+    return log_orchestration_errors unless realm? && errors.empty?
     new_record? ? queue_realm_create : queue_realm_update
   end
 

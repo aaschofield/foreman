@@ -1,4 +1,4 @@
-class DropPtables < ActiveRecord::Migration
+class DropPtables < ActiveRecord::Migration[4.2]
   def up
     drop_table :ptables
   end
@@ -7,8 +7,8 @@ class DropPtables < ActiveRecord::Migration
     create_table :ptables do |t|
       t.string :name, :limit => 64, :null => false
       t.text :layout, :null => false
-      t.string :os_family
-      t.timestamps
+      t.string :os_family, :limit => 255
+      t.timestamps null: true
     end
   end
 end

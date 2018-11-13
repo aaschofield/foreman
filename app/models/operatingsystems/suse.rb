@@ -1,8 +1,9 @@
 class Suse < Operatingsystem
   PXEFILES = {:kernel => "linux", :initrd => "initrd"}
 
-  class << self
-    delegate :model_name, :to => :superclass
+  # Simple output of the media url
+  def mediumpath(medium_provider)
+    medium_provider.medium_uri.to_s
   end
 
   def pxe_type
@@ -13,8 +14,8 @@ class Suse < Operatingsystem
     "boot/$arch/loader"
   end
 
-  def url_for_boot(file)
-    pxedir + "/" + PXEFILES[file]
+  def available_loaders
+    self.class.all_loaders
   end
 
   def display_family
@@ -23,11 +24,11 @@ class Suse < Operatingsystem
 
   def self.shorten_description(description)
     return "" if description.blank?
-    s=description
-    s.gsub!('SUSE Linux Enterprise Server','SLES')
-    s.gsub!(/\(.+?\)/,'')
+    s = description.dup
+    s.gsub!('SUSE Linux Enterprise Server', 'SLES')
+    s.gsub!(/\(.+?\)/, '')
     s.squeeze! " "
     s.strip!
-    s.blank? ? description : s
+    s.presence || description
   end
 end

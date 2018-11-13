@@ -26,14 +26,20 @@ module Facets
     configuration[entry.name] = entry
 
     Facets::ManagedHostExtensions.register_facet_relation(Host::Managed, entry)
+    Facets::BaseHostExtensions.register_facet_relation(Host::Base, entry)
+    entry
   end
 
-  #declare private module methods.
+  # declare private module methods.
   class << self
     private
 
     def configuration
-      @configuration ||= {}
+      @configuration ||= Hash[entries_from_plugins.map { |entry| [entry.name, entry]}]
+    end
+
+    def entries_from_plugins
+      Foreman::Plugin.all.map {|plugin| plugin.facets}.compact.flatten
     end
   end
 end

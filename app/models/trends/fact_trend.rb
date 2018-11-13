@@ -1,15 +1,15 @@
 class FactTrend < Trend
-  validates :trendable_id, :presence => true, :uniqueness => {:scope =>  [:trendable_type, :fact_value] }, :allow_blank => false
+  validates :trendable_id, :presence => true, :uniqueness => {:scope => [:trendable_type, :fact_value] }, :allow_blank => false
 
   before_save :update_fact_name
 
   def to_label
-    name.blank? ? fact_value || fact_name : name
+    name.presence || fact_value || fact_name
   end
 
   def type_name
     if fact_value.blank?
-      name.blank? ? fact_name : name
+      name.presence || fact_name
     else
       fact_name
     end
@@ -44,7 +44,7 @@ class FactTrend < Trend
   end
 
   def find_hosts
-    Host.joins(:fact_values).where(:fact_values => {:value => fact_value}).find(:all, :order => 'name')
+    Host.joins(:fact_values).where(:fact_values => {:value => fact_value}).order(:name)
   end
 
   private

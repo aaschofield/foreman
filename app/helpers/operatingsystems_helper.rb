@@ -2,46 +2,51 @@ module OperatingsystemsHelper
   include CommonParametersHelper
 
   def icon(record, opts = {})
-    return "" if record.blank? or record.name.blank?
+    return "" if record.blank? || record.name.blank?
     family = case record.name
-    when /fedora/i
-      "Fedora"
-    when /ubuntu/i
-      "Ubuntu"
-    when /solaris|sunos/i
-      "Solaris"
-    when /darwin/i
-      "Darwin"
-    when /centos/i
-      "Centos"
-    when /scientific/i
-      "Scientific"
-    when /archlinux/i
-      "Archlinux"
-    when /altlinux/i
-      "Altlinux"
-    when /gentoo/i
-      "Gentoo"
-    when /SLC/i
-      "SLC"
-    when /FreeBSD/i
-      "FreeBSD"
-    when /aix/i
-      "AIX"
-    when /Junos/i
-      "Junos"
-    when /OracleLinux/i
-      "OracleLinux"
-    when /CoreOS/i
-      "CoreOS"
-    when /NXOS/i
-      "NXOS"
-    else
-      return "" if record.family.blank?
-      record.family
-    end
+             when /fedora/i
+               "Fedora"
+             when /ubuntu/i
+               "Ubuntu"
+             when /solaris|sunos/i
+               "Solaris"
+             when /darwin/i
+               "Darwin"
+             when /centos/i
+               "Centos"
+             when /scientific/i
+               "Scientific"
+             when /archlinux/i
+               "Archlinux"
+             when /altlinux/i
+               "Altlinux"
+             when /gentoo/i
+               "Gentoo"
+             when /SLC/i
+               "SLC"
+             when /FreeBSD/i
+               "FreeBSD"
+             when /aix/i
+               "AIX"
+             when /Junos/i
+               "Junos"
+             when /OracleLinux/i
+               "OracleLinux"
+             when /CoreOS|ContainerLinux|Container Linux/i
+               "CoreOS"
+             when /RancherOS/i
+               "RancherOS"
+             when /NXOS/i
+               "NXOS"
+             when /XenServer/i
+               "XenServer"
+             else
+               return "" if record.family.blank?
+               record.family
+             end
+    return image_path(family + ".png") if opts[:path]
 
-    image_tag(family+".png", opts) + " "
+    image_tag(family + ".png", opts) + " "
   end
 
   def os_name(record, opts = {})

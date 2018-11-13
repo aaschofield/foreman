@@ -7,8 +7,7 @@ module StripWhitespace
 
   def strip_spaces
     self.changes.each do |column, values|
-      # return string if RuntimeError: can't modify frozen String
-      self.send(column).strip! if (values.last.is_a?(String) && !skip_strip_attrs.include?(column)) rescue send(column)
+      self[column] = self[column].strip if (self[column].is_a?(String) && !skip_strip_attrs.include?(column))
     end
   end
 

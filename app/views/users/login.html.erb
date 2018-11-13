@@ -1,4 +1,5 @@
 <% content_for :title, _('Login') %>
+<span id="badge"></span>
 <div id="login" class="container">
   <div class="row">
     <div class="col-sm-12">
@@ -6,6 +7,17 @@
         <%= image_tag("login_logo.png") %>
       </div><!--/#brand-->
     </div>
+    <% if flash_inline.any? %>
+      <div class="col-sm-12">
+        <% flash_inline.each do |type, message| %>
+          <div class="alert <%= alert_class(type) %>">
+            <% header = _('Success!') if type == :success %>
+            <%= alert_header(header || "", alert_class(type)) %>
+            <%= message %>
+          </div>
+        <% end %>
+      </div>
+    <% end  %>
     <div class="col-sm-7 col-md-6 col-lg-5 login">
       <%= form_tag login_users_path, :id => "login-form", :class=>"form-horizontal" do %>
           <div class="form-group">
@@ -24,14 +36,11 @@
           </div>
           <div class="form-group">
             <div class="col-xs-offset-8 col-xs-4 submit">
-              <%= submit_tag(_("Login").html_safe, :class => "btn btn-primary", :data => { :disable_with => _("Please wait...") }) %>
+              <%= submit_tag(_("Log In").html_safe, :class => "btn btn-primary", :data => { :disable_with => _("Log In") }) %>
             </div>
           </div>
       <% end %>
     </div>
-    <div class="col-sm-5 col-md-6 col-lg-7 details">
-      <p><strong><%= _("Welcome to Foreman") %></strong>
-      <p id="version"><%= _("Version %{version}") % {:version => SETTINGS[:version]} %></p>
-    </div><!--/.col-*-->
+    <%= render 'welcome_box' %>
   </div>
 </div>

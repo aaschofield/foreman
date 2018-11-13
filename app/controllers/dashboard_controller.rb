@@ -1,20 +1,35 @@
 class DashboardController < ApplicationController
   include Foreman::Controller::AutoCompleteSearch
-  before_filter :prefetch_data, :only => :index
-  before_filter :find_resource, :only => [:destroy]
-  skip_before_filter :welcome
+  include Foreman::Controller::Parameters::Widget
+
+  before_action :init_widget_data, :only => :show
+  before_action :find_resource, :only => [:show, :destroy]
+  skip_before_action :welcome
 
   def index
     respond_to do |format|
       format.html
-      format.yaml { render :text => @report.to_yaml }
+      format.yaml { render :plain => @report.to_yaml }
       format.json
     end
   end
 
+  def show
+    if @widget.present? && @widget.user == User.current
+      render(:partial => @widget.template, :locals => @widget.data)
+    else
+      render_403 "User #{User.current} attempted to access another user's widget"
+    end
+  rescue ActionView::MissingTemplate, ActionView::Template::Error => exception
+    process_ajax_error exception, "load widget"
+  end
+
   def create
     widget = Dashboard::Manager.find_default_widget_by_name(params[:name])
-    (not_found and return) unless widget.present?
+    unless widget.present?
+      not_found
+      return
+    end
     Dashboard::Manager.add_widget_to_user(User.current, widget.first)
     render :json => { :name => params[:name] }, :status => :ok
   end
@@ -39,9 +54,11 @@ class DashboardController < ApplicationController
 
   def save_positions
     errors = []
-    params[:widgets].each do |id, values|
-      widget = User.current.widgets.where("id = #{id}").first
-      errors << widget.errors unless widget.update_attributes(values)
+    filter = self.class.widget_params_filter
+    params.fetch(:widgets, []).each do |id, values|
+      widget = User.current.widgets.where(:id => id).first
+      values = filter.filter_params(values, parameter_filter_context, :none)
+      errors << widget.errors unless widget.update(values)
     end
     respond_to do |format|
       if errors.empty?
@@ -54,15 +71,14 @@ class DashboardController < ApplicationController
     process_ajax_error exception, 'save positions'
   end
 
-  private
-
-  def prefetch_data
-    dashboard = Dashboard::Data.new(params[:search])
-    @hosts    = dashboard.hosts
-    @report   = dashboard.report
-  end
-
   def resource_name
     "widget"
+  end
+
+  private
+
+  def init_widget_data
+    find_resource unless @widget
+    @data = Dashboard::Data.new(params[:search], @widget.data[:settings])
   end
 end

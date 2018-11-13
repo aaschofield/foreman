@@ -1,5 +1,3 @@
-require 'api_constraints'
-
 Foreman::Application.routes.draw do
   resources :mail_notifications, :only => [] do
     collection do
@@ -7,7 +5,7 @@ Foreman::Application.routes.draw do
     end
   end
 
-  #ENC requests goes here
+  # ENC requests goes here
   get "node/:name" => 'hosts#externalNodes', :constraints => { :name => /[^\.][\w\.-]+/ }
 
   resources :config_reports, :only => [:index, :show, :destroy] do
@@ -21,16 +19,17 @@ Foreman::Application.routes.draw do
     resources :hosts do
       member do
         get 'clone'
-        get 'storeconfig_klasses'
         get 'externalNodes'
         get 'review_before_build'
         put 'setBuild'
         get 'cancelBuild'
+        get 'build_errors'
         get 'puppetrun'
         get 'pxe_config'
         put 'toggle_manage'
         post 'environment_selected'
         put 'power'
+        get 'power', :to => 'hosts#get_power_state'
         get 'console'
         get 'overview'
         get 'bmc'
@@ -43,27 +42,33 @@ Foreman::Application.routes.draw do
         put 'disassociate'
       end
       collection do
-        get 'multiple_actions'
-        get 'multiple_parameters'
+        post 'multiple_actions'
+        post 'multiple_parameters'
         post 'update_multiple_parameters'
-        get 'select_multiple_hostgroup'
+        post 'select_multiple_hostgroup'
         post 'update_multiple_hostgroup'
-        get 'select_multiple_environment'
+        post 'select_multiple_environment'
         post 'update_multiple_environment'
-        get 'select_multiple_owner'
+        post 'select_multiple_owner'
         post 'update_multiple_owner'
-        get 'multiple_puppetrun'
+        post 'select_multiple_power_state'
+        post 'update_multiple_power_state'
+        post 'select_multiple_puppet_proxy'
+        post 'update_multiple_puppet_proxy'
+        post 'select_multiple_puppet_ca_proxy'
+        post 'update_multiple_puppet_ca_proxy'
+        post 'multiple_puppetrun'
         post 'update_multiple_puppetrun'
-        get 'multiple_destroy'
+        post 'multiple_destroy'
         post 'submit_multiple_destroy'
-        get 'multiple_build'
+        post 'multiple_build'
         post 'submit_multiple_build'
         get 'reset_multiple'
-        get 'multiple_disable'
+        post 'multiple_disable'
         post 'submit_multiple_disable'
-        get 'multiple_enable'
+        post 'multiple_enable'
         post 'submit_multiple_enable'
-        get 'multiple_disassociate'
+        post 'multiple_disassociate'
         post 'update_multiple_disassociate'
         get 'auto_complete_search'
         post 'template_used'
@@ -82,14 +87,17 @@ Foreman::Application.routes.draw do
         post 'domain_selected'
         post 'use_image_selected'
         post 'compute_resource_selected'
+        post 'scheduler_hint_selected'
         post 'interfaces'
         post 'medium_selected'
-        get  'select_multiple_organization'
+        post 'select_multiple_organization'
         post 'update_multiple_organization'
-        get  'select_multiple_location'
+        post 'select_multiple_location'
         post 'update_multiple_location'
-        get  'rebuild_config'
+        post 'rebuild_config'
         post 'submit_rebuild_config'
+        get 'random_name', :only => :new
+        get 'preview_host_collection'
       end
 
       constraints(:host_id => /[^\/]+/) do
@@ -97,11 +105,18 @@ Foreman::Application.routes.draw do
         resources :audits, :only => :index
         resources :facts, :only => :index, :controller => :fact_values
         resources :puppetclasses, :only => :index
+
+        get 'parent_facts/:parent_fact/facts', :to => 'fact_values#index', :as => 'parent_fact_facts', :parent_fact => /[\w.:_-]+/
       end
     end
 
-    resources :bookmarks, :except => [:show]
-    [:lookup_keys, :variable_lookup_keys, :puppetclass_lookup_keys].each do |key|
+    resources :bookmarks, :except => [:show, :new, :create] do
+      collection do
+        get 'auto_complete_search'
+      end
+    end
+
+    [:lookup_keys, :puppetclass_lookup_keys].each do |key|
       resources key, :except => [:show, :new, :create] do
         resources :lookup_values, :only => [:index, :create, :update, :destroy]
         collection do
@@ -110,15 +125,21 @@ Foreman::Application.routes.draw do
       end
     end
 
+    resources :variable_lookup_keys, :except => [:show] do
+      resources :lookup_values, :only => [:index, :create, :update, :destroy]
+      collection do
+        get 'auto_complete_search'
+      end
+    end
+
+    get 'parent_facts/:parent_fact/facts', :to => 'fact_values#index', :as => 'parent_fact_facts'
     resources :facts, :only => [:index, :show] do
       constraints(:id => /[^\/]+/) do
         resources :values, :only => :index, :controller => :fact_values, :as => "host_fact_values"
       end
     end
 
-    constraints(:hostgroup => /[^\/]+/) do
-      get 'unattended/template/:id/:hostgroup', :to => "unattended#hostgroup_template"
-    end
+    get 'unattended/template/:id/*hostgroup', :to => "unattended#hostgroup_template", hostgroup: /.+/, :format => 'text'
   end
 
   resources :settings, :only => [:index, :update] do
@@ -127,6 +148,11 @@ Foreman::Application.routes.draw do
     end
   end
   resources :common_parameters, :except => [:show] do
+    collection do
+      get 'auto_complete_search'
+    end
+  end
+  resources :parameters, :only => [:index] do
     collection do
       get 'auto_complete_search'
     end
@@ -145,6 +171,9 @@ Foreman::Application.routes.draw do
   end
 
   resources :compute_profiles do
+    collection do
+      get 'auto_complete_search'
+    end
     resources :compute_attributes, :only => [:create, :edit, :update]
     resources :compute_resources, :only => [] do
       resources :compute_attributes, :only => :new
@@ -196,13 +225,36 @@ Foreman::Application.routes.draw do
       get 'version'
       get 'plugin_version'
       get 'tftp_server'
+      get 'puppet_environments'
+      get 'puppet_dashboard'
+      get 'log_pane'
+      get 'failed_modules'
+      get 'errors_card'
+      get 'modules_card'
+      post 'expire_logs'
     end
     constraints(:id => /[^\/]+/) do
-      resources :puppetca, :only => [:index, :update, :destroy]
-      resources :autosign, :only => [:index, :new, :create, :destroy]
+      resources :puppetca, :only => [:index, :update, :destroy] do
+        member do
+          get 'counts'
+          get 'expiry'
+        end
+      end
+      resources :autosign, :only => [:index, :new, :create, :destroy] do
+        member do
+          get 'counts'
+        end
+      end
     end
     collection do
       get 'auto_complete_search'
+    end
+  end
+
+  resources :http_proxies, :controller => 'http_proxies' do
+    collection do
+      get 'auto_complete_search'
+      put 'test_connection'
     end
   end
 
@@ -228,16 +280,18 @@ Foreman::Application.routes.draw do
       collection do
         get 'login'
         post 'login'
+        get 'logout'
         post 'logout'
         get 'extlogin'
         get 'extlogout'
-        get 'auth_source_selected'
         get 'auto_complete_search'
       end
+      resources :ssh_keys, :only => [:new, :create, :destroy]
     end
     resources :roles, :except => [:show] do
       member do
         get 'clone'
+        patch 'disable_filters_overriding'
       end
       collection do
         get 'auto_complete_search'
@@ -245,6 +299,9 @@ Foreman::Application.routes.draw do
     end
 
     resources :filters, :except => [:show] do
+      member do
+        patch 'disable_overriding'
+      end
       collection do
         get 'auto_complete_search'
       end
@@ -267,6 +324,25 @@ Foreman::Application.routes.draw do
     end
   end
 
+  scope 'templates' do
+    resources :report_templates, :except => [:show] do
+      member do
+        get 'clone_template'
+        get 'lock'
+        get 'unlock'
+        get 'export'
+        get 'generate'
+        post 'schedule_report'
+        post 'preview'
+      end
+      collection do
+        post 'preview'
+        get 'revision'
+        get 'auto_complete_search'
+      end
+    end
+  end
+
   if SETTINGS[:unattended]
     resources :provisioning_templates, :only => [] do
       collection do
@@ -280,6 +356,7 @@ Foreman::Application.routes.draw do
           get 'clone_template'
           get 'lock'
           get 'unlock'
+          get 'export'
           post 'preview'
         end
         collection do
@@ -294,6 +371,7 @@ Foreman::Application.routes.draw do
           get 'clone_template'
           get 'lock'
           get 'unlock'
+          get 'export'
           post 'preview'
         end
         collection do
@@ -342,10 +420,12 @@ Foreman::Application.routes.draw do
       resources :compute_resources do
         member do
           post 'template_selected'
+          post 'instance_type_selected'
           post 'cluster_selected'
           get 'resource_pools'
           post 'ping'
           put 'associate'
+          put 'refresh_cache'
         end
         constraints(:id => /[^\/]+/) do
           resources :vms, :controller => "compute_resources_vms" do
@@ -354,15 +434,17 @@ Foreman::Application.routes.draw do
               put 'pause'
               put 'associate'
               get 'console'
+              get 'import'
             end
           end
         end
         collection do
-          get  'auto_complete_search'
+          get 'auto_complete_search'
           get 'provider_selected'
-          put  'test_connection'
+          put 'test_connection'
         end
         resources :images, :except => [:show]
+        resources :key_pairs, :except => [:new, :edit, :update]
       end
 
       resources :realms, :except => [:show] do
@@ -383,26 +465,30 @@ Foreman::Application.routes.draw do
 
   end
 
-  resources :widgets, :controller => 'dashboard', :only => [:create, :destroy] do
+  resources :widgets, :controller => 'dashboard', :only => [:show, :create, :destroy] do
     collection do
       post 'save_positions', :to => 'dashboard#save_positions'
       put 'reset_default', :to => 'dashboard#reset_default'
     end
   end
 
+  resources :statistics, :only => [:index, :show]
+
   root :to => 'dashboard#index'
   get 'dashboard', :to => 'dashboard#index', :as => "dashboard"
   get 'dashboard/auto_complete_search', :to => 'hosts#auto_complete_search', :as => "auto_complete_search_dashboards"
-  get 'statistics', :to => 'statistics#index', :as => "statistics"
   get 'status', :to => 'home#status', :as => "status"
 
   # get only for alterator unattended scripts
-  get 'unattended/provision/:metadata', :controller => 'unattended', :action => 'host_template', :format => 'html',
+  get 'unattended/provision/:metadata', :controller => 'unattended', :action => 'host_template', :format => 'text',
     :constraints => { :metadata => /(autoinstall\.scm|vm-profile\.scm|pkg-groups\.tar)/ }
-  # get for end of build action
-  get 'unattended/built/(:id(:format))', :controller => 'unattended', :action => 'built'
+  # built call can be done both via GET (for backward compatibility) and POST
+  get 'unattended/built/(:id(:format))', :controller => 'unattended', :action => 'built', :format => 'text'
+  post 'unattended/built/(:id(:format))', :controller => 'unattended', :action => 'built', :format => 'text'
+  # failed call only via POST
+  post 'unattended/failed/(:id(:format))', :controller => 'unattended', :action => 'failed', :format => 'text'
   # get for all unattended scripts
-  get 'unattended/(:kind/(:id(:format)))', :controller => 'unattended', :action => 'host_template'
+  get 'unattended/(:kind/(:id(:format)))', :controller => 'unattended', :action => 'host_template', :format => 'text'
 
   resources :tasks, :only => [:show]
 
@@ -454,5 +540,16 @@ Foreman::Application.routes.draw do
   resources :about, :only => :index do
   end
 
-  resources :interfaces, :only => :new
+  resources :interfaces, :only => :new do
+    collection do
+      get :random_name
+    end
+  end
+
+  resources :notification_recipients, :only => [:index, :update, :destroy] do
+    collection do
+      put 'group/:group' => 'notification_recipients#update_group_as_read'
+      delete 'group/:group' => 'notification_recipients#destroy_group'
+    end
+  end
 end

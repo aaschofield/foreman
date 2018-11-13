@@ -13,7 +13,14 @@ module ProvisioningTemplatesHelper
   end
 
   def permitted_actions(template)
-    actions = [display_link_if_authorized(_('Clone'), template_hash_for_member(template, 'clone_template'))]
+    actions = [
+      display_link_if_authorized(_('Clone'), template_hash_for_member(template, 'clone_template')),
+      display_link_if_authorized(_('Export'), template_hash_for_member(template, 'export'), { :data => { :no_turbolink => true } })
+    ]
+
+    if template.is_a?(ReportTemplate) && !template.snippet
+      actions.unshift(display_link_if_authorized(_('Generate'), template_hash_for_member(template, 'generate').merge(:authorizer => authorizer, :auth_object => template), { :data => { :no_turbolink => true } }))
+    end
 
     if template.locked?
       confirm = [
@@ -66,11 +73,11 @@ module ProvisioningTemplatesHelper
 
   def how_templates_are_determined
     alert(:class => 'alert-info', :header => 'How templates are determined',
-          :text => '<p>' + _("When editing a template, you must assign a list\
-of operating systems which this template can be used with. Optionally, you can\
+          :text => ('<p>' + _("When editing a template, you must assign a list \
+of operating systems which this template can be used with. Optionally, you can \
 restrict a template to a list of host groups and/or environments.") + '</p>' +
-'<p>'+ _("When a Host requests a template (e.g. during provisioning), Foreman\
-will select the best match from the available templates of that type, in the\
+'<p>' + _("When a Host requests a template (e.g. during provisioning), Foreman \
+will select the best match from the available templates of that type, in the \
 following order:") + '</p>' + '<ul>' +
     '<li>' + _("Host group and Environment") + '</li>' +
     '<li>' + _("Host group only") + '</li>' +
@@ -78,7 +85,7 @@ following order:") + '</p>' + '<ul>' +
     '<li>' + _("Operating system default") + '</li>' +
     '</ul>' +
     (_("The final entry, Operating System default, can be set by editing the %s page.") %
-     (link_to _("Operating System"), operatingsystems_path)).html_safe)
+     (link_to _("Operating System"), operatingsystems_path))).html_safe)
   end
 
   private
@@ -95,4 +102,3 @@ following order:") + '</p>' + '<ul>' +
     SETTINGS[:locations_enabled] && SETTINGS[:organizations_enabled]
   end
 end
-

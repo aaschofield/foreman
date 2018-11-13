@@ -4,16 +4,19 @@ module Foreman::Model
     before_create :setup_key_pair
     validate :check_google_key_path
     validates :key_path, :project, :email, :presence => true
-    attr_accessible :key_pair, :key_path, :project, :email
 
     delegate :flavors, :to => :client
+
+    def self.available?
+      Fog::Compute.providers.include?(:google)
+    end
 
     def to_label
       "#{name} (#{zone}-#{provider_friendly_name})"
     end
 
     def capabilities
-      [:image]
+      [:image, :new_volume]
     end
 
     def project
@@ -82,8 +85,8 @@ module Foreman::Model
           args[:volumes].first[:source_image] = client.images.find { |i| i.id == args[:image_id] }.name
         end
         args[:disks] = []
-        args[:volumes].each_with_index do |vol_args,i|
-          args[:disks] << new_volume(vol_args.merge(:name => "#{args[:name]}-disk#{i+1}"))
+        args[:volumes].each_with_index do |vol_args, i|
+          args[:disks] << new_volume(vol_args.merge(:name => "#{args[:name]}-disk#{i + 1}"))
         end
       end
 
@@ -94,7 +97,7 @@ module Foreman::Model
       new_vm(args)
       create_volumes(args)
 
-      username = images.where(:uuid => args[:image_name]).first.try(:username)
+      username = images.find_by(:uuid => args[:image_name]).try(:username)
       ssh      = { :username => username, :public_key => key_pair.public }
       vm = super(args.merge(ssh))
       vm.disks.each { |disk| vm.set_disk_auto_delete(true, disk['deviceName']) }
@@ -127,7 +130,7 @@ module Foreman::Model
 
     def test_connection(options = {})
       super
-      errors[:user].empty? and errors[:password].empty? and zones
+      errors[:user].empty? && errors[:password].empty? && zones
     rescue => e
       errors[:base] << e.message
     end
@@ -143,9 +146,25 @@ module Foreman::Model
     def new_volume(attrs = { })
       args = {
         :size_gb   => (attrs[:size_gb] || 10).to_i,
-        :zone_name => zone,
+        :zone_name => zone
       }.merge(attrs)
       client.disks.new(args)
+    end
+
+    def normalize_vm_attrs(vm_attrs)
+      normalized = slice_vm_attributes(vm_attrs, ['image_id', 'machine_type', 'network'])
+
+      normalized['external_ip'] = to_bool(vm_attrs['external_ip'])
+      normalized['image_name'] = self.images.find_by(:uuid => vm_attrs['image_id']).try(:name)
+
+      volume_attrs = vm_attrs['volumes_attributes'] || {}
+      normalized['volumes_attributes'] = volume_attrs.each_with_object({}) do |(key, vol), volumes|
+        volumes[key] = {
+          'size' => memory_gb_to_bytes(vol['size_gb']).to_s
+        }
+      end
+
+      normalized
     end
 
     private
@@ -168,7 +187,7 @@ module Foreman::Model
       super.merge(
         :zone => zone,
         :name => "foreman-#{Time.now.to_i}",
-        :disks => [new_volume],
+        :disks => [new_volume]
       )
     end
   end
