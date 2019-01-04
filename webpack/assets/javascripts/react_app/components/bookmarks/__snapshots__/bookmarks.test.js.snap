@@ -16,15 +16,11 @@ exports[`bookmarks empty state 1`] = `
     <span
       aria-hidden="true"
       class="fa fa-bookmark"
-    >
-      
-    </span>
+    />
      
     <span
       class="caret"
-    >
-      
-    </span>
+    />
   </button>
   <ul
     aria-labelledby="hosts"
@@ -54,19 +50,16 @@ exports[`bookmarks empty state 1`] = `
         tabindex="-1"
       >
         <span
-          class="glyphicon glyphicon-question-sign icon-black"
-        >
-          
-        </span>
+          aria-hidden="true"
+          class="fa fa-question-circle"
+        />
          Documentation
       </a>
     </li>
     <li
       class="divider"
       role="separator"
-    >
-      
-    </li>
+    />
     <li
       class="dropdown-header"
       role="heading"
@@ -93,15 +86,11 @@ exports[`bookmarks should show an error message if loading failed 1`] = `
     <span
       aria-hidden="true"
       class="fa fa-bookmark"
-    >
-      
-    </span>
+    />
      
     <span
       class="caret"
-    >
-      
-    </span>
+    />
   </button>
   <ul
     aria-labelledby="hosts"
@@ -131,19 +120,16 @@ exports[`bookmarks should show an error message if loading failed 1`] = `
         tabindex="-1"
       >
         <span
-          class="glyphicon glyphicon-question-sign icon-black"
-        >
-          
-        </span>
+          aria-hidden="true"
+          class="fa fa-question-circle"
+        />
          Documentation
       </a>
     </li>
     <li
       class="divider"
       role="separator"
-    >
-      
-    </li>
+    />
     <li
       class="dropdown-header"
       role="heading"
@@ -186,15 +172,11 @@ exports[`bookmarks should show no bookmarks if server did not respond with any 1
     <span
       aria-hidden="true"
       class="fa fa-bookmark"
-    >
-      
-    </span>
+    />
      
     <span
       class="caret"
-    >
-      
-    </span>
+    />
   </button>
   <ul
     aria-labelledby="hosts"
@@ -224,19 +206,16 @@ exports[`bookmarks should show no bookmarks if server did not respond with any 1
         tabindex="-1"
       >
         <span
-          class="glyphicon glyphicon-question-sign icon-black"
-        >
-          
-        </span>
+          aria-hidden="true"
+          class="fa fa-question-circle"
+        />
          Documentation
       </a>
     </li>
     <li
       class="divider"
       role="separator"
-    >
-      
-    </li>
+    />
     <li
       class="dropdown-header"
       role="heading"

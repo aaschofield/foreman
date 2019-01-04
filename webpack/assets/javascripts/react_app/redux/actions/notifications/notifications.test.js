@@ -21,7 +21,7 @@ describe('Notification Drawer actions', () => {
 
     dispatcher(dispatch, () => state);
 
-    expect(dispatch.mock.calls.length).toBe(0);
+    expect(dispatch.mock.calls).toHaveLength(0);
   });
 
   it('should make notification group read', () => {
@@ -38,7 +38,12 @@ describe('Notification Drawer actions', () => {
 
   it('should make a notification read', () => {
     API.put.mockImplementation(async () => null);
-    const state = { notifications: { expandedGroup: 'Community', notifications: [{ id: 21, seen: false }] } };
+    const state = {
+      notifications: {
+        expandedGroup: 'Community',
+        notifications: [{ id: 21, seen: false }],
+      },
+    };
     const dispatch = jest.fn();
     const dispatcher = actions.markAsRead('Community', 21);
 
@@ -50,7 +55,12 @@ describe('Notification Drawer actions', () => {
 
   it('should skip a notification read', () => {
     API.put.mockImplementation(async () => null);
-    const state = { notifications: { expandedGroup: 'Community', notifications: [{ id: 21, seen: true }] } };
+    const state = {
+      notifications: {
+        expandedGroup: 'Community',
+        notifications: [{ id: 21, seen: true }],
+      },
+    };
     const dispatch = jest.fn();
     const dispatcher = actions.markAsRead('Community', 21);
 
@@ -125,12 +135,41 @@ describe('Notification Drawer actions', () => {
   });
 
   it('should open link', () => {
-    const state = { notifications: { isDrawerOpen: true } };
+    const opener = 'original-opener';
+    global.open = () => ({ opener });
+
+    const toggleDrawerAction = () => 'toggle the drawer action';
+
     const dispatch = jest.fn();
-    const dispatcher = actions.clickedLink('https://www.redhat.com/en');
+    const dispatcher = actions.clickedLink(
+      { href: 'https://www.redhat.com/en' },
+      toggleDrawerAction
+    );
 
-    dispatcher(dispatch, () => state);
+    const openedWindow = dispatcher(dispatch);
 
+    expect(openedWindow.opener).toEqual(opener);
+    expect(dispatch.mock.calls).toMatchSnapshot();
+  });
+
+  it('should open external link', () => {
+    const opener = 'original-opener';
+    global.open = () => ({ opener });
+
+    const toggleDrawerAction = () => 'toggle the drawer action';
+
+    const dispatch = jest.fn();
+    const dispatcher = actions.clickedLink(
+      {
+        href: 'https://www.redhat.com/en',
+        external: true,
+      },
+      toggleDrawerAction
+    );
+
+    const openedWindow = dispatcher(dispatch);
+
+    expect(openedWindow.opener).toBe(null);
     expect(dispatch.mock.calls).toMatchSnapshot();
   });
 });

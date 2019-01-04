@@ -3,7 +3,6 @@ import EmptyStatePattern from './EmptyStatePattern';
 import PrimaryActionButton from './EmptyStatePrimaryActionButton';
 import SecondaryActionButtons from './EmptyStateSecondaryActionButtons';
 import { defaultEmptyStatePropTypes } from './EmptyStatePropTypes';
-import { DocumentLinkContent } from '../DocumentationLink';
 import { translate as __ } from '../../../common/I18n';
 
 const documentationBlock = ({
@@ -14,13 +13,13 @@ const documentationBlock = ({
   url && (
     <React.Fragment>
       {label}{' '}
-      <a href={url} target="_blank">
-        <DocumentLinkContent>{buttonLabel}</DocumentLinkContent>
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {buttonLabel}
       </a>
     </React.Fragment>
   );
 
-const DefaultEmptyState = (props) => {
+const DefaultEmptyState = props => {
   const {
     icon,
     iconType,

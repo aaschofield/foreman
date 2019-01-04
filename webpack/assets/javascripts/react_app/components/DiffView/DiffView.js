@@ -13,25 +13,55 @@ const getDiff = (oldText, newText) => {
   return `${header.join('\n')}\n${diffText}`;
 };
 
-const DiffView = ({
-  oldText,
-  newText,
-  viewType,
-}) => {
-  const markEdits = markCharacterEdits({ threshold: 30, markLongDistanceDiff: true });
-  const gitDiff = getDiff(oldText, newText);
-  const files = parseDiff(gitDiff);
-  const hunk = files[0].hunks;
+const DiffView = ({ oldText, newText, viewType, patch }) => {
+  const markEdits = markCharacterEdits({
+    threshold: 30,
+    markLongDistanceDiff: true,
+  });
 
-  return (
-    hunk && <Diff hunks={hunk} markEdits={markEdits} viewType={viewType} />
+  // old,new Text
+  if (patch === '') {
+    const gitDiff = getDiff(oldText, newText);
+    const files = parseDiff(gitDiff);
+    const hunk = files[0].hunks;
+
+    return (
+      hunk && <Diff hunks={hunk} markEdits={markEdits} viewType={viewType} />
+    );
+  }
+  // Patch
+  const files = parseDiff(
+    patch
+      .split('\n')
+      .slice(1)
+      .join('\n')
   );
+  // eslint-disable-next-line react/prop-types
+  const renderFile = ({ oldRevision, newRevision, type, hunks }) => (
+    <Diff
+      key={`${oldRevision}-${newRevision}`}
+      viewType={viewType}
+      diffType={type}
+      hunks={hunks}
+      markEdits={markEdits}
+    />
+  );
+
+  return <div>{files.map(renderFile)}</div>;
 };
 
 DiffView.propTypes = {
-  oldText: PropTypes.string.isRequired,
-  newText: PropTypes.string.isRequired,
+  // None are required because only one can be used at a time: (old + new || patch)
+  oldText: PropTypes.string,
+  newText: PropTypes.string,
   viewType: PropTypes.string.isRequired,
+  patch: PropTypes.string,
+};
+
+DiffView.defaultProps = {
+  oldText: '',
+  newText: '',
+  patch: '',
 };
 
 export default DiffView;

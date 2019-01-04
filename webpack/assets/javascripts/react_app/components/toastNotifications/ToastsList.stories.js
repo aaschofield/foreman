@@ -16,6 +16,7 @@ import {
 import store from '../../redux';
 import { addToast } from '../../redux/actions/toasts';
 import ToastsList from './index';
+import Story from '../../../../../stories/components/Story';
 
 storiesOf('Components/Toast Notifications', module).add('Toaster', () => {
   const inputRefs = {};
@@ -38,10 +39,11 @@ storiesOf('Components/Toast Notifications', module).add('Toaster', () => {
     store.dispatch(addToast(toast));
   };
 
-  const setRef = key => (ref) => {
+  const setRef = key => ref => {
     inputRefs[key] = ref;
   };
 
+  // eslint-disable-next-line react/prop-types
   const FormField = ({ id, label, children }) => (
     <FormGroup controlId={id}>
       <Col componentClass={ControlLabel} sm={3}>
@@ -90,10 +92,12 @@ storiesOf('Components/Toast Notifications', module).add('Toaster', () => {
 
   return (
     <Provider store={store}>
-      <Grid style={{ paddingTop: '20px' }}>
-        {toastCreatorForm}
-        <ToastsList />
-      </Grid>
+      <Story>
+        <Grid>
+          {toastCreatorForm}
+          <ToastsList />
+        </Grid>
+      </Story>
     </Provider>
   );
 });

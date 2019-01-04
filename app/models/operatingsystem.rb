@@ -68,11 +68,12 @@ class Operatingsystem < ApplicationRecord
                'Freebsd'   => %r{FreeBSD}i,
                'AIX'       => %r{AIX}i,
                'Junos'     => %r{Junos}i,
+               'VRP'       => %r{VRP}i,
                'NXOS'      => %r{NX-OS}i,
                'Xenserver' => %r{XenServer}i }
 
   class Jail < Safemode::Jail
-    allow :name, :media_url, :major, :minor, :family, :to_s, :==, :release, :release_name, :kernel, :initrd, :pxe_type, :medium_uri, :boot_files_uri, :password_hash
+    allow :name, :media_url, :major, :minor, :family, :to_s, :repos, :==, :release, :release_name, :kernel, :initrd, :pxe_type, :medium_uri, :boot_files_uri, :password_hash
   end
 
   def self.title_name
@@ -119,6 +120,24 @@ class Operatingsystem < ApplicationRecord
     end
   end
 
+  # DEPRECATED - This will be removed in 1.22.
+  #
+  # This method is deprecated in favor of the additional media features of
+  # medium providers.
+  #
+  # Operating system family can override this method to provide an array of
+  # hashes, each describing a repository. For example, to describe a yum repo,
+  # the following structure can be returned by the method:
+  # [{ :baseurl => "https://dl.thesource.com/get/it/here",
+  #    :name => "awesome",
+  #    :description => "awesome product repo"",
+  #    :enabled => 1,
+  #    :gpgcheck => 1
+  #  }]
+  def repos(host)
+    []
+  end
+
   # The OS is usually represented as the concatenation of the OS and the revision
   def to_label
     return description if description.present?
@@ -162,9 +181,14 @@ class Operatingsystem < ApplicationRecord
     ["None", "PXELinux BIOS"]
   end
 
+  # The DHCP record type to use, can be overriden by OSs subclasses
+  def dhcp_record_type
+    Net::DHCP::Record
+  end
+
   # Compatibility method, don't want to break all templates that use it.
   def medium_uri(host)
-    Foreman::Deprecation.deprecation_warning("1.20", "medium_uri is now accessible through @medium_provider.medium_uri in templates")
+    Foreman::Deprecation.deprecation_warning("1.22", "medium_uri is now accessible through @medium_provider.medium_uri in templates")
     @medium_provider = Foreman::Plugin.medium_providers.find_provider(host)
     @medium_provider.medium_uri
   end
@@ -180,7 +204,7 @@ class Operatingsystem < ApplicationRecord
   def pxe_files(medium_provider, _arch = nil, host = nil)
     # Try to maintain backwards compatibility, if medium_provider could be constructed - do it with a warning.
     if host
-      Foreman::Deprecation.deprecation_warning("1.20", "Please provide a medium provider. It can be found as @medium_provider in templates, or Foreman::Plugin.medium_providers.find_provider(host)")
+      Foreman::Deprecation.deprecation_warning("1.22", "Please provide a medium provider. It can be found as @medium_provider in templates, or Foreman::Plugin.medium_providers.find_provider(host)")
       medium_provider = Foreman::Plugin.medium_providers.find_provider(host)
     end
 
@@ -232,6 +256,8 @@ class Operatingsystem < ApplicationRecord
 
   # Does this OS family use release_name in its naming scheme
   def use_release_name?
+    return false unless family
+    return self.becomes(family.constantize).use_release_name? unless self.class == family.constantize
     false
   end
 

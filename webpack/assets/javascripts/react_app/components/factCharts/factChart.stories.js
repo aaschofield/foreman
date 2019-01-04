@@ -3,34 +3,48 @@ import { storiesOf } from '@storybook/react';
 import thunk from 'redux-thunk';
 import configureMockStore from 'redux-mock-store';
 import FactChart from './';
-import { initialState, modalSuccessState, modalLoadingState, modalErrorState } from './factChart.fixtures';
+import {
+  initialState,
+  modalSuccessState,
+  modalLoadingState,
+  modalErrorState,
+} from './factChart.fixtures';
+import Story from '../../../../../stories/components/Story';
 
 const mockStore = configureMockStore([thunk]);
 
 const dataProp = { id: 1, title: 'test title' };
 
-storiesOf('Components/FactChartModal', module)
+storiesOf('Page chunks/FactChartModal', module)
   .add('ModalClosed', () => (
+    <Story>
       <FactChart
-        store={ mockStore({ factChart: initialState }) }
-        data={ dataProp }
+        store={mockStore({ factChart: initialState })}
+        data={dataProp}
       />
+    </Story>
   ))
   .add('ModalOpen', () => (
+    <Story>
       <FactChart
-        store={ mockStore({ factChart: modalSuccessState }) }
-        data ={ dataProp }
+        store={mockStore({ factChart: modalSuccessState })}
+        data={dataProp}
       />
+    </Story>
   ))
   .add('Loading', () => (
+    <Story>
       <FactChart
-        store={ mockStore({ factChart: modalLoadingState }) }
-        data={ dataProp }
+        store={mockStore({ factChart: modalLoadingState })}
+        data={dataProp}
       />
+    </Story>
   ))
   .add('No data', () => (
-    <FactChart
-      store={ mockStore({ factChart: modalErrorState }) }
-      data={ dataProp }
-    />
+    <Story>
+      <FactChart
+        store={mockStore({ factChart: modalErrorState })}
+        data={dataProp}
+      />
+    </Story>
   ));

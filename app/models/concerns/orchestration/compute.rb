@@ -80,6 +80,10 @@ module Orchestration::Compute
 
   def setCompute
     logger.info "Adding Compute instance for #{name}"
+    if compute_attributes.nil?
+      failure _("Failed to find compute attributes, please check if VM #{name} was deleted: %{message}") % { name: name, message: e.message }, e
+      return false
+    end
     # TODO: extract the merging into separate class in combination
     # with ComputeAttributesMerge and InterfacesMerge http://projects.theforeman.org/issues/14536
     final_compute_attrs = compute_attributes.merge(compute_resource.host_compute_attrs(self))
@@ -97,9 +101,9 @@ module Orchestration::Compute
     if template.nil?
       failure((_("%{image} needs user data, but %{os_link} is not associated to any provisioning template of the kind user_data. Please associate it with a suitable template or uncheck 'User data' for %{compute_resource_image_link}.") %
       { :image => image.name,
-        :os_link => "<a target='_blank' href='#{url_for(edit_operatingsystem_path(operatingsystem))}'>#{operatingsystem.title}</a>",
+        :os_link => "<a target='_blank' rel='noopener noreferrer' href='#{url_for(edit_operatingsystem_path(operatingsystem))}'>#{operatingsystem.title}</a>",
         :compute_resource_image_link =>
-          "<a target='_blank' href='#{url_for(edit_compute_resource_image_path(:compute_resource_id => compute_resource.id, :id => image.id))}'>#{image.name}</a>"}).html_safe)
+          "<a target='_blank' rel='noopener noreferrer' href='#{url_for(edit_compute_resource_image_path(:compute_resource_id => compute_resource.id, :id => image.id))}'>#{image.name}</a>"}).html_safe)
       return false
     end
 
@@ -360,7 +364,8 @@ module Orchestration::Compute
   end
 
   def vm_exists?
-    return false unless compute_object
-    compute_object.persisted?
+    vm = compute_object
+    return false unless vm
+    vm.persisted?
   end
 end

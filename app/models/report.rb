@@ -13,6 +13,9 @@ class Report < ApplicationRecord
   has_one :environment, :through => :host
   has_one :hostgroup, :through => :host
 
+  has_one :organization, :through => :host
+  has_one :location, :through => :host
+
   validates :host_id, :status, :presence => true
   validates :reported_at, :presence => true, :uniqueness => {:scope => [:host_id, :type]}
 
@@ -20,6 +23,8 @@ class Report < ApplicationRecord
     child.instance_eval do
       scoped_search :relation => :host,        :on => :name,  :complete_value => true, :rename => :host
       scoped_search :relation => :environment, :on => :name,  :complete_value => true, :rename => :environment
+      scoped_search :relation => :organization, :on => :name, :complete_value => true, :rename => :organization
+      scoped_search :relation => :location,    :on => :name,  :complete_value => true, :rename => :location
       scoped_search :relation => :messages,    :on => :value,                          :rename => :log, :only_explicit => true
       scoped_search :relation => :sources,     :on => :value,                          :rename => :resource, :only_explicit => true
       scoped_search :relation => :hostgroup,   :on => :name,  :complete_value => true, :rename => :hostgroup
@@ -69,7 +74,7 @@ class Report < ApplicationRecord
   # Expire reports based on time and status
   # Defaults to expire reports older than a week regardless of the status
   # This method will IS very slow, use only from rake task.
-  def self.expire(conditions = {}, batch_size = 1000, sleep_time = 0.2)
+  def self.expire(conditions, batch_size, sleep_time)
     timerange = conditions[:timerange] || 1.week
     status = conditions[:status]
     created = (Time.now.utc - timerange).to_formatted_s(:db)
@@ -110,11 +115,6 @@ class Report < ApplicationRecord
 
   def self.origins
     Foreman::Plugin.report_origin_registry.all_origins
-  end
-
-  # we don't want to log reports, it can be a lot of data
-  def self.log_render_results?
-    false
   end
 
   private

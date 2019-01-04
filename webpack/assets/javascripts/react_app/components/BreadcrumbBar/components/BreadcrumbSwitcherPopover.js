@@ -1,6 +1,12 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { Popover, ListGroup, ListGroupItem, Pager, Icon } from 'patternfly-react';
+import {
+  Popover,
+  ListGroup,
+  ListGroupItem,
+  Pager,
+  Icon,
+} from 'patternfly-react';
 import EllipsisWithTooltip from 'react-ellipsis-with-tooltip';
 import SearchInput from '../../common/SearchInput';
 import SubstringWrapper from '../../common/SubstringWrapper';
@@ -38,7 +44,7 @@ const BreadcrumbSwitcherPopover = ({
       </div>
     );
   } else {
-    const createItemProps = (item) => {
+    const createItemProps = item => {
       const { id, url, name } = item;
       const key = `${id}-${name}`;
 
@@ -62,9 +68,13 @@ const BreadcrumbSwitcherPopover = ({
           {resources.map(resource => (
             <ListGroupItem {...createItemProps(resource)}>
               <EllipsisWithTooltip>
-                <SubstringWrapper substring={searchValue}>
-                  {resource.name}
-                </SubstringWrapper>
+                {searchValue && searchValue.length ? (
+                  <SubstringWrapper substring={searchValue}>
+                    {resource.name}
+                  </SubstringWrapper>
+                ) : (
+                  resource.name
+                )}
               </EllipsisWithTooltip>
             </ListGroupItem>
           ))}
@@ -75,7 +85,9 @@ const BreadcrumbSwitcherPopover = ({
           onNextPage={onNextPageClick}
           onPreviousPage={onPrevPageClick}
           disablePrevious={currentPage === 1}
-          disableNext={totalPages === 0 || currentPage === Math.ceil(totalPages)}
+          disableNext={
+            totalPages === 0 || currentPage === Math.ceil(totalPages)
+          }
         />
       </React.Fragment>
     );
@@ -88,7 +100,8 @@ const BreadcrumbSwitcherPopover = ({
         timeout={searchDebounceTimeout}
         focus
         onSearchChange={onSearchChange}
-        searchValue={searchValue} />
+        searchValue={searchValue}
+      />
       {popoverBody}
     </Popover>
   );
@@ -101,12 +114,14 @@ BreadcrumbSwitcherPopover.propTypes = {
   hasError: PropTypes.bool,
   currentPage: PropTypes.number,
   totalPages: PropTypes.number,
-  resources: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
-    name: PropTypes.string.isRequired,
-    href: PropTypes.string,
-    onClick: PropTypes.func,
-  })),
+  resources: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+      name: PropTypes.string.isRequired,
+      href: PropTypes.string,
+      onClick: PropTypes.func,
+    })
+  ),
   onSearchChange: PropTypes.func,
   onResourceClick: PropTypes.func,
 };
@@ -119,6 +134,7 @@ BreadcrumbSwitcherPopover.defaultProps = {
   totalPages: 1,
   resources: [],
   onResourceClick: noop,
+  onSearchChange: noop,
 };
 
 export default BreadcrumbSwitcherPopover;

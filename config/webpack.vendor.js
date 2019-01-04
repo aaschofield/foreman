@@ -7,6 +7,7 @@ module.exports = [
   'react-dom',
   'react-bootstrap',
   'react-debounce-input',
+  'react-diff-view',
   'react-ellipsis-with-tooltip',
   'react-numeric-input',
   'react-onclickoutside',
@@ -21,6 +22,8 @@ module.exports = [
   'prop-types',
   'seamless-immutable',
   'isomorphic-fetch',
+  'react-intl',
+  'intl',
 
   /*
    * jquery related

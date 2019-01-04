@@ -1,7 +1,8 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { TypeAheadSelect } from 'patternfly-react';
-import cx from 'classnames';
+import classNames from 'classnames';
+import Immutable from 'seamless-immutable';
 import { bindMethods, debounceMethods, noop } from '../../common/helpers';
 import AutoCompleteMenu from './components/AutoCompleteMenu';
 import AutoCompleteSearchButton from './components/AutoCompleteSearchButton';
@@ -42,7 +43,7 @@ class AutoComplete extends React.Component {
       return;
     }
     const instance = this._typeahead.current.getInstance();
-    switch (e.keyCode) {
+    switch (e.charCode) {
       case KEYCODES.ENTER: {
         this.props.handleSearch();
         break;
@@ -64,7 +65,9 @@ class AutoComplete extends React.Component {
   // TODO: remove this HACK when react-bootstrap-typeahead
   // will support autocomplete = 'off' instead of 'nope' in inputProps prop.
   unableHTMLAutocomplete() {
-    const input = this._typeahead.current && this._typeahead.current.getInstance().getInput();
+    const input =
+      this._typeahead.current &&
+      this._typeahead.current.getInstance().getInput();
     if (input) {
       input.autocomplete = 'off';
     }
@@ -139,8 +142,6 @@ class AutoComplete extends React.Component {
 
   render() {
     const {
-      clearTooltipID,
-      focusTooltipID,
       emptyLabel,
       error,
       initialQuery,
@@ -149,12 +150,16 @@ class AutoComplete extends React.Component {
       results,
       useKeyShortcuts,
     } = this.props;
+    /** Using a 3rd party library (react-bootstrap-typeahead) that expects a mutable array. */
+    const options = Immutable.isImmutable(results)
+      ? results.asMutable()
+      : results;
     return (
       <div>
         <TypeAheadSelect
           ref={this._typeahead}
           defaultInputValue={initialQuery}
-          options={results}
+          options={options}
           isLoading={this.handleLoading()}
           onInputChange={this.handleInputChange}
           onChange={this.handleResultsChange}
@@ -162,15 +167,20 @@ class AutoComplete extends React.Component {
           onKeyDown={this.handleKeyDown}
           emptyLabel={emptyLabel}
           placeholder={__(placeholder)}
-          renderMenu={(r, menuProps) => <AutoCompleteMenu {...{ results: r, menuProps }} />}
+          renderMenu={(r, menuProps) => (
+            <AutoCompleteMenu {...{ results: r, menuProps }} />
+          )}
           inputProps={{
-            className: cx('search-input', useKeyShortcuts ? 'use-shortcuts' : ''),
+            className: classNames(
+              'search-input',
+              useKeyShortcuts ? 'use-shortcuts' : ''
+            ),
             spellCheck: 'false',
             ...inputProps,
           }}
         />
-        <AutoCompleteAux onClear={this.handleClear} clearTooltipID={clearTooltipID} />
-        <AutoCompleteFocusShortcut useKeyShortcuts={useKeyShortcuts} tooltipID={focusTooltipID} />
+        <AutoCompleteAux onClear={this.handleClear} />
+        <AutoCompleteFocusShortcut useKeyShortcuts={useKeyShortcuts} />
         <AutoCompleteError error={error} />
       </div>
     );
@@ -183,7 +193,9 @@ AutoComplete.propTypes = {
   initialQuery: PropTypes.string,
   inputProps: PropTypes.object,
   status: PropTypes.string,
+  error: PropTypes.string,
   controller: PropTypes.string,
+  handleSearch: PropTypes.func,
   getResults: PropTypes.func,
   resetData: PropTypes.func,
   initialUpdate: PropTypes.func,
@@ -199,7 +211,9 @@ AutoComplete.defaultProps = {
   initialQuery: '',
   inputProps: {},
   status: null,
+  error: null,
   controller: null,
+  handleSearch: noop,
   getResults: noop,
   resetData: noop,
   initialUpdate: noop,

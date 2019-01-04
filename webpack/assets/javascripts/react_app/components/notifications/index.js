@@ -1,18 +1,24 @@
 import onClickOutside from 'react-onclickoutside';
 import React from 'react';
+import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { groupBy } from 'lodash';
-import { NotificationDrawerWrapper } from 'patternfly-react';
-import { translate as __ } from '../../../react_app/common/I18n';
+import {
+  NotificationDrawerWrapper,
+  NotificationDrawerPanelWrapper,
+} from 'patternfly-react';
 import * as NotificationActions from '../../redux/actions/notifications';
+import { noop, translateObject } from '../../common/helpers';
 
 import './notifications.scss';
-import ToggleIcon from './toggleIcon';
-
+import ToggleIcon from './ToggleIcon/ToggleIcon';
 
 class notificationContainer extends React.Component {
   componentDidMount() {
-    const { startNotificationsPolling, data: { url } } = this.props;
+    const {
+      startNotificationsPolling,
+      data: { url },
+    } = this.props;
 
     startNotificationsPolling(url);
   }
@@ -39,49 +45,89 @@ class notificationContainer extends React.Component {
       hasUnreadMessages,
       isReady,
       clickedLink,
+      translations,
     } = this.props;
 
-    const notificationGroups = Object.entries(notifications).map(([key, group]) => ({
-      panelkey: key,
-      panelName: key,
-      notifications: group,
-    }));
-
-    const translations = {
-      title: __('Notifications'),
-      unreadEvent: __('Unread Event'),
-      unreadEvents: __('Unread Events'),
-      emptyState: __('No Notifications Available'),
-      readAll: __('Mark All Read'),
-      clearAll: __('Clear All'),
-      deleteNotification: __('Hide this notification'),
-    };
+    const notificationGroups = Object.entries(notifications).map(
+      ([key, group]) => ({
+        panelkey: key,
+        panelName: key,
+        notifications: group,
+      })
+    );
 
     return (
       <div>
-        <ToggleIcon hasUnreadMessages={hasUnreadMessages} onClick={toggleDrawer} />
-        {isReady &&
-          isDrawerOpen && (
-            <NotificationDrawerWrapper
-              panels={notificationGroups}
-              expandedPanel={expandedGroup}
-              togglePanel={expandGroup}
-              onNotificationAsRead={markAsRead}
-              onNotificationHide={clearNotification}
-              onMarkPanelAsRead={markGroupAsRead}
-              onMarkPanelAsClear={clearGroup}
-              onClickedLink={clickedLink}
-              toggleDrawerHide={toggleDrawer}
-              isExpandable={false}
-              translations={translations}
-            />
-          )}
+        <ToggleIcon
+          hasUnreadMessages={hasUnreadMessages}
+          onClick={toggleDrawer}
+        />
+        {isReady && isDrawerOpen && (
+          <NotificationDrawerWrapper
+            panels={notificationGroups}
+            expandedPanel={expandedGroup}
+            togglePanel={expandGroup}
+            onNotificationAsRead={markAsRead}
+            onNotificationHide={clearNotification}
+            onMarkPanelAsRead={markGroupAsRead}
+            onMarkPanelAsClear={clearGroup}
+            onClickedLink={clickedLink}
+            toggleDrawerHide={toggleDrawer}
+            isExpandable={false}
+            translations={translateObject(translations)}
+          />
+        )}
       </div>
     );
   }
 }
 
-const mapStateToProps = (state) => {
+notificationContainer.propTypes = {
+  data: PropTypes.shape({
+    url: PropTypes.string.isRequired,
+  }).isRequired,
+  isDrawerOpen: PropTypes.bool,
+  isReady: PropTypes.bool,
+  notifications: PropTypes.object,
+  expandedGroup: PropTypes.string,
+  hasUnreadMessages: PropTypes.bool,
+  clickedLink: PropTypes.func,
+  startNotificationsPolling: PropTypes.func,
+  toggleDrawer: PropTypes.func,
+  expandGroup: PropTypes.func,
+  markAsRead: PropTypes.func,
+  markGroupAsRead: PropTypes.func,
+  clearNotification: PropTypes.func,
+  clearGroup: PropTypes.func,
+  translations: PropTypes.shape({
+    title: PropTypes.string,
+    unreadEvent: PropTypes.string,
+    unreadEvents: PropTypes.string,
+    emptyState: PropTypes.string,
+    readAll: PropTypes.string,
+    clearAll: PropTypes.string,
+    deleteNotification: PropTypes.string,
+  }),
+};
+
+notificationContainer.defaultProps = {
+  isDrawerOpen: false,
+  isReady: false,
+  notifications: {},
+  expandedGroup: null,
+  hasUnreadMessages: false,
+  clickedLink: noop,
+  startNotificationsPolling: noop,
+  toggleDrawer: noop,
+  expandGroup: noop,
+  markAsRead: noop,
+  markGroupAsRead: noop,
+  clearNotification: noop,
+  clearGroup: noop,
+  translations: NotificationDrawerPanelWrapper.defaultProps.translations,
+};
+
+const mapStateToProps = state => {
   const {
     notifications,
     isDrawerOpen,
@@ -100,4 +146,7 @@ const mapStateToProps = (state) => {
   };
 };
 
-export default connect(mapStateToProps, NotificationActions)(onClickOutside(notificationContainer));
+export default connect(
+  mapStateToProps,
+  NotificationActions
+)(onClickOutside(notificationContainer));

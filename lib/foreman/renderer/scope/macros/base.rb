@@ -8,6 +8,8 @@ module Foreman
 
           attr_reader :template_name, :medium_provider
 
+          delegate :medium_uri, to: :medium_provider
+
           def subnet_has_param?(subnet, param_name)
             validate_subnet(subnet)
             subnet.parameters.exists?(name: param_name)
@@ -99,6 +101,22 @@ module Foreman
             mode == Renderer::PREVIEW_MODE
           end
 
+          def rand_hex(n)
+            SecureRandom.hex(n)
+          end
+
+          def rand_name
+            NameGenerator.new.generate_next_random_name
+          end
+
+          def mac_name(mac_address)
+            NameGenerator.new.generate_next_mac_name(mac_address)
+          end
+
+          def host_kernel_release(host)
+            host&.kernel_release&.value
+          end
+
           private
 
           def validate_subnet(subnet)
@@ -109,11 +127,14 @@ module Foreman
           #   .each { |batch| batch.each { |record| record.name }}
           # or
           #   .each_record { |record| record.name }
-          def load_resource(klass:, search:, permission:, batch: 1_000, includes: nil)
+          def load_resource(klass:, search:, permission:, batch: 1_000, includes: nil, limit: nil)
+            limit ||= 10 if preview?
+
             base = klass
             base = base.search_for(search)
             base = base.includes(includes) unless includes.nil?
             base = base.authorized(permission) unless permission.nil?
+            base = base.limit(limit) unless limit.nil?
             base.in_batches(of: batch)
           end
         end

@@ -7,8 +7,6 @@ class Taxonomy < ApplicationRecord
 
   serialize :ignore_types, Array
 
-  belongs_to :user
-
   before_create :assign_default_templates
   after_create :assign_taxonomy_to_user
   before_validation :sanitize_ignored_types
@@ -27,6 +25,8 @@ class Taxonomy < ApplicationRecord
   has_many :environments, :through => :taxable_taxonomies, :source => :taxable, :source_type => 'Environment'
   has_many :subnets, :through => :taxable_taxonomies, :source => :taxable, :source_type => 'Subnet'
   has_many :auth_sources, :through => :taxable_taxonomies, :source => :taxable, :source_type => 'AuthSource'
+
+  has_many :puppetclasses, :through => :environments
 
   validate :check_for_orphans, :unless => Proc.new {|t| t.new_record?}
   # the condition for parent_id != 0 is required because of our tests, should validate macros fill in attribute with values and it set 0 to this one
@@ -57,11 +57,13 @@ class Taxonomy < ApplicationRecord
   }
 
   def self.locations_enabled
-    enabled?(:location)
+    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.locations_enabled is always true, settings to disable taxonomies has been removed in 1.21.')
+    true
   end
 
   def self.organizations_enabled
-    enabled?(:organization)
+    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.organizations_enabled is always true, settings to disable taxonomies has been removed in 1.21.')
+    true
   end
 
   def self.no_taxonomy_scope
@@ -79,18 +81,14 @@ class Taxonomy < ApplicationRecord
   end
 
   def self.enabled?(taxonomy)
-    case taxonomy
-      when :organization
-        SETTINGS[:organizations_enabled]
-      when :location
-        SETTINGS[:locations_enabled]
-      else
-        raise ArgumentError, "unknown taxonomy #{taxonomy}"
-    end
+    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.enabled? is always true, settings to disable taxonomies has been removed in 1.21.')
+    true
   end
 
   def self.enabled_taxonomies
-    %w(locations organizations).select { |taxonomy| SETTINGS["#{taxonomy}_enabled".to_sym] }
+    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.enabled_taxonomies is always locations and organizations, settings to disable taxonomies has been removed in 1.21.')
+    true
+    %w(locations organizations)
   end
 
   def self.ignore?(taxable_type)

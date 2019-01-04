@@ -21,10 +21,6 @@ const setupTurbolinksMock = () => {
   global.Turbolinks = {
     visit: jest.fn(),
   };
-  Object.defineProperty(window.location, 'href', {
-    writable: true,
-    value: 'http://localhost',
-  });
 };
 
 describe('bookmark', () => {
@@ -35,6 +31,8 @@ describe('bookmark', () => {
     expect(toJson(wrapper)).toMatchSnapshot();
     wrapper.find('a').simulate('click');
     expect(global.Turbolinks.visit).toBeCalled();
-    expect(global.Turbolinks.visit).toHaveBeenLastCalledWith('http://localhost/?search=query');
+    expect(global.Turbolinks.visit).toHaveBeenLastCalledWith(
+      'http://localhost/?search=query'
+    );
   });
 });

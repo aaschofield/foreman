@@ -23,7 +23,11 @@ module Foreman
         :host_status,
         :preview?,
         :raise,
-        :input
+        :input,
+        :rand_hex,
+        :rand_name,
+        :mac_name,
+        :host_kernel_release
       ]
 
       DEFAULT_ALLOWED_HOST_HELPERS = [
@@ -53,6 +57,7 @@ module Foreman
         :preseed_path,
         :preseed_server,
         :provisioning_type,
+        :repos,
         :static,
         :template_name,
         :xen

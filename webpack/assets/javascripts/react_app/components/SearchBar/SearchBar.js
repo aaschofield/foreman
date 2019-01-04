@@ -19,7 +19,6 @@ const SearchBar = ({
   searchQuery,
   error,
   onSearch,
-  initialQuery,
   results,
   status,
   useKeyShortcuts,
@@ -50,7 +49,9 @@ const SearchBar = ({
         url={autocomplete.url}
       />
       <div className="input-group-btn">
-        <AutoComplete.SearchButton onClick={() => handleSearch(searchQuery, onSearch)} />
+        <AutoComplete.SearchButton
+          onClick={() => handleSearch(searchQuery, onSearch)}
+        />
         {bookmarksComponent}
       </div>
     </div>
@@ -61,6 +62,7 @@ SearchBar.propTypes = {
   className: PropTypes.string,
   onSearch: PropTypes.func,
   searchQuery: PropTypes.string,
+  error: PropTypes.string,
   results: PropTypes.array,
   status: PropTypes.string,
   resetData: PropTypes.func,
@@ -83,6 +85,7 @@ SearchBar.defaultProps = {
   className: '',
   searchQuery: '',
   onSearch: noop,
+  error: null,
   results: [],
   status: null,
   resetData: noop,

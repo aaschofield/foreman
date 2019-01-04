@@ -115,10 +115,10 @@ module Api
           param :compute_attributes, Hash, :desc => N_("Additional compute resource specific attributes.")
 
           Facets.registered_facets.values.each do |facet_config|
-            next unless facet_config.api_param_group && facet_config.api_controller
+            next unless facet_config.host_configuration.api_param_group && facet_config.host_configuration.api_controller
             param "#{facet_config.name}_attributes".to_sym, Hash, :desc => facet_config.api_param_group_description || (N_("Parameters for host's %s facet") % facet_config.name) do
-              facet_config.load_api_controller
-              param_group facet_config.api_param_group, facet_config.api_controller
+              facet_config.host_configuration.load_api_controller
+              param_group facet_config.host_configuration.api_param_group, facet_config.host_configuration.api_controller
             end
           end
         end
@@ -360,6 +360,17 @@ Return the host's compute attributes that can be used to create a clone of this 
             :view
           when 'rebuild_config'
             :build
+          else
+            super
+        end
+      end
+
+      def parent_permission(child_permission)
+        case child_permission.to_s
+          when 'power', 'boot', 'console', 'vm_compute_attributes', 'get_status', 'template', 'enc', 'rebuild_config'
+            'view'
+          when 'disassociate'
+            'edit'
           else
             super
         end

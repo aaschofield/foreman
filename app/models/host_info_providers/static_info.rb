@@ -29,7 +29,7 @@ module HostInfoProviders
 
     def add_login_params(param)
       owner = host.owner
-      return unless SETTINGS[:login] && owner
+      return unless owner
 
       param["owner_name"]  = owner.name
       param["owner_email"] = owner.is_a?(User) ? owner.mail : owner.users.map(&:mail)
@@ -44,8 +44,7 @@ module HostInfoProviders
     end
 
     def add_taxonomy_params(param)
-      Taxonomy.enabled_taxonomies.each do |taxonomy_type|
-        single_taxonomy = taxonomy_type.singularize
+      ['location', 'organization'].each do |single_taxonomy|
         tax_field = host.send(single_taxonomy)
         next unless tax_field.present?
 

@@ -28,7 +28,6 @@ class Setting < ApplicationRecord
   end
 
   validates_lengths_from_database
-  # audit the changes to this model
 
   validates :name, :presence => true, :uniqueness => true
   validates :description, :presence => true
@@ -57,12 +56,18 @@ class Setting < ApplicationRecord
   after_find :readonly_when_overridden
   default_scope -> { order(:name) }
 
-  # Filer out settings from disabled plugins and ones releated to taxonomies when required
+  # Filer out settings from disabled plugins
   scope :disabled_plugins, -> { where(:category => self.descendants.map(&:to_s)) unless Rails.env.development? }
-  scope :default_organization, -> { where('name not in (?)', 'default_organization') unless Taxonomy.enabled_taxonomies.include? 'organizations' }
-  scope :organization_fact, -> { where('name not in (?)', 'organization_fact') unless Taxonomy.enabled_taxonomies.include? 'organizations' }
-  scope :default_location, -> { where('name not in (?)', 'default_location') unless Taxonomy.enabled_taxonomies.include? 'locations' }
-  scope :location_fact, -> { where('name not in (?)', 'location_fact') unless Taxonomy.enabled_taxonomies.include? 'locations' }
+
+  def self.deprecated_scope(scope)
+    Foreman::Deprecation.deprecation_warning('1.23', "the Setting.#{scope} scope no longer filters anything, taxonomies cannot be disabled since 1.21.")
+    where(nil)
+  end
+  scope :default_organization, -> { deprecated_scope(:default_organization) }
+  scope :organization_fact, -> { deprecated_scope(:organization_fact) }
+  scope :default_location, -> { deprecated_scope(:default_location) }
+  scope :location_fact, -> { deprecated_scope(:location_fact) }
+
   scope :order_by, ->(attr) { except(:order).order(attr) }
 
   scoped_search :on => :name, :complete_value => :true
@@ -73,7 +78,7 @@ class Setting < ApplicationRecord
   end
 
   def self.live_descendants
-    self.disabled_plugins.default_organization.organization_fact.default_location.location_fact.order_by(:full_name)
+    self.disabled_plugins.order_by(:full_name)
   end
 
   def self.stick_general_first
@@ -90,15 +95,14 @@ class Setting < ApplicationRecord
     nil
   end
 
+  def self.cache_key(name)
+    "settings/#{name}"
+  end
+
   def self.[](name)
     name = name.to_s
-    cache_value = Setting.cache.read(name)
-    if cache_value.nil?
-      value = find_by(:name => name).try(:value)
-      Setting.cache.write(name, value)
-      return value
-    else
-      return cache_value
+    cache.fetch(cache_key(name)) do
+      find_by(:name => name)&.value
     end
   end
 
@@ -356,10 +360,14 @@ class Setting < ApplicationRecord
   end
 
   def clear_cache
-    # ensures we don't have cache left overs in settings
-    if Setting.cache.delete(name.to_s) == false
+    # Rails cache returns false if the delete failed and nil if the key is missing
+    if Setting.cache.delete(cache_key) == false
       Rails.logger.warn "Failed to remove #{name} from cache"
     end
+  end
+
+  def cache_key
+    Setting.cache_key(self.name)
   end
 
   def readonly_when_overridden

@@ -38,11 +38,7 @@ const TaxonomyDropdown = ({
         </a>
       </li>
       <li>
-        <a
-          className="manage-menu"
-          className={taxonomyType.toLowerCase()}
-          href={manageTaxonomyURL}
-        >
+        <a className={taxonomyType.toLowerCase()} href={manageTaxonomyURL}>
           {__(manageTaxonomyText)}
         </a>
       </li>
@@ -68,11 +64,13 @@ const TaxonomyDropdown = ({
 TaxonomyDropdown.propTypes = {
   taxonomyType: PropTypes.string.isRequired,
   currentTaxonomy: PropTypes.string.isRequired,
-  taxonomies: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.number.isRequired,
-    title: PropTypes.string,
-    href: PropTypes.string.isRequired,
-  })).isRequired,
+  taxonomies: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.number.isRequired,
+      title: PropTypes.string,
+      href: PropTypes.string.isRequired,
+    })
+  ).isRequired,
   id: PropTypes.string.isRequired,
   changeTaxonomy: PropTypes.func,
   anyTaxonomyText: PropTypes.string.isRequired,

@@ -77,7 +77,7 @@ class ActiveSupport::TestCase
 
   def set_session_user(user = :admin)
     user = user.is_a?(User) ? user : users(user)
-    SETTINGS[:login] ? {:user => user.id, :expires_at => 5.minutes.from_now} : {}
+    {:user => user.id, :expires_at => 5.minutes.from_now}
   end
 
   def as_user(user)
@@ -99,18 +99,6 @@ class ActiveSupport::TestCase
     result = yield
   ensure
     new_taxonomy.class.current = saved_taxonomy
-    result
-  end
-
-  def disable_taxonomies
-    org_settings = SETTINGS[:organizations_enabled]
-    SETTINGS[:organizations_enabled] = false
-    loc_settings = SETTINGS[:locations_enabled]
-    SETTINGS[:locations_enabled] = false
-    result = yield
-  ensure
-    SETTINGS[:organizations_enabled] = org_settings
-    SETTINGS[:locations_enabled] = loc_settings
     result
   end
 

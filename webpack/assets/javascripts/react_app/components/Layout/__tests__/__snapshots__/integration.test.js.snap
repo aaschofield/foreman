@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`Changed ActiveMenu to Hosts 1`] = `
+exports[`Layout integration test should flow: Changed ActiveMenu to Hosts 1`] = `
 Object {
   "action": Array [
     Array [
@@ -301,7 +301,7 @@ Object {
 }
 `;
 
-exports[`Location "yaml" clicked 1`] = `
+exports[`Layout integration test should flow: Location "yaml" clicked 1`] = `
 Object {
   "action": Array [
     Array [
@@ -318,7 +318,7 @@ Object {
   ],
   "state": Object {
     "layout": Object {
-      "activeMenu": "",
+      "activeMenu": "Monitor",
       "currentLocation": Object {
         "id": 1,
         "title": "yaml",
@@ -330,7 +330,7 @@ Object {
       "isLoading": false,
       "items": Array [
         Object {
-          "active": false,
+          "active": true,
           "children": Array [
             Object {
               "name": "Dashboard",
@@ -469,7 +469,7 @@ Object {
 }
 `;
 
-exports[`Org "org2" clicked 1`] = `
+exports[`Layout integration test should flow: Org "org2" clicked 1`] = `
 Object {
   "action": Array [
     Array [
@@ -486,7 +486,7 @@ Object {
   ],
   "state": Object {
     "layout": Object {
-      "activeMenu": "",
+      "activeMenu": "Monitor",
       "currentLocation": Object {
         "id": 1,
         "title": "yaml",
@@ -498,7 +498,7 @@ Object {
       "isLoading": false,
       "items": Array [
         Object {
-          "active": false,
+          "active": true,
           "children": Array [
             Object {
               "name": "Dashboard",
@@ -637,10 +637,10 @@ Object {
 }
 `;
 
-exports[`initial state 1`] = `
+exports[`Layout integration test should flow: initial state 1`] = `
 Object {
   "layout": Object {
-    "activeMenu": "",
+    "activeMenu": "Monitor",
     "currentLocation": Object {
       "id": 2,
       "title": "london",
@@ -652,7 +652,7 @@ Object {
     "isLoading": false,
     "items": Array [
       Object {
-        "active": false,
+        "active": true,
         "children": Array [
           Object {
             "name": "Dashboard",

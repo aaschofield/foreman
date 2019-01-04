@@ -8,9 +8,12 @@ exports[`AuditsList rendering render resources list 1`] = `
     actions={
       <span
         className="gray-text"
-        title="14 days ago"
       >
-        30 Jul 15:02
+        <ShortDateTime
+          date="2018-08-13 00:34:55 -1100"
+          defaultValue="N/A"
+          seconds={false}
+        />
       </span>
     }
     additionalInfo={
@@ -18,20 +21,20 @@ exports[`AuditsList rendering render resources list 1`] = `
         <ListViewInfoItem
           className=""
           stacked={false}
-      >
+        >
           HOST
-      </ListViewInfoItem>,
+        </ListViewInfoItem>,
         <ListViewInfoItem
           className=""
           stacked={false}
-      >
+        >
           <SearchLink
-              id={234}
-              textValue="host-foo.example.com"
-              title="Filter audits for this resource only"
-              url="/audits?search=type+%3D+host+and+auditable_id+%3D+9"
+            id={234}
+            textValue="host-foo.example.com"
+            title="Filter audits for this resource only"
+            url="/audits?search=type+%3D+host+and+auditable_id+%3D+9"
           />
-      </ListViewInfoItem>,
+        </ListViewInfoItem>,
       ]
     }
     checkboxInput={null}
@@ -73,8 +76,6 @@ exports[`AuditsList rendering render resources list 1`] = `
       componentClass="div"
     >
       <ShowOrgsLocs
-        isLocEnabled={false}
-        isOrgEnabled={true}
         locs={
           Array [
             Object {

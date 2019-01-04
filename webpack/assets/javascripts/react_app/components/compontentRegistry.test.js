@@ -3,7 +3,7 @@ import componentRegistry from './componentRegistry';
 
 jest.unmock('./componentRegistry');
 
-class FakeComponent extends React.Component {}
+const FakeComponent = () => '';
 
 describe('Component registry', () => {
   it('should register a component', () => {
@@ -22,35 +22,79 @@ describe('Component registry', () => {
 
     componentRegistry.register({ name, type: FakeComponent });
     expect(() =>
-      componentRegistry.register({ name, type: FakeComponent })).toThrow('Component name already taken: TwiceComponent');
+      componentRegistry.register({ name, type: FakeComponent })
+    ).toThrow('Component name already taken: TwiceComponent');
   });
 
   it('should not register a component without a name', () => {
-    expect(() =>
-      componentRegistry.register({ type: FakeComponent })).toThrow('Component name or type is missing');
+    expect(() => componentRegistry.register({ type: FakeComponent })).toThrow(
+      'Component name or type is missing'
+    );
   });
 
   it('should not register a component without a type', () => {
-    expect(() =>
-      componentRegistry.register({ name: 'SadComponent' })).toThrow('Component name or type is missing');
+    expect(() => componentRegistry.register({ name: 'SadComponent' })).toThrow(
+      'Component name or type is missing'
+    );
   });
 
   it('should register multiple components', () => {
     const first = 'FirstComponent';
     const second = 'SecondComponent';
 
-    componentRegistry.registerMultiple([{ name: first, type: FakeComponent },
-      { name: second, type: FakeComponent }]);
+    componentRegistry.registerMultiple([
+      { name: first, type: FakeComponent },
+      { name: second, type: FakeComponent },
+    ]);
     expect(componentRegistry.getComponent(first)).toBeTruthy();
     expect(componentRegistry.getComponent(second)).toBeTruthy();
   });
 
-  it('should return component markup', () => {
-    const name = 'MarkupComponent';
+  describe('markup', () => {
+    it('should return component markup', () => {
+      const name = 'MarkupComponent';
 
-    componentRegistry.register({ name, type: FakeComponent, store: false });
-    const markup = componentRegistry.markup(name, { fakeData: true }, {});
+      componentRegistry.register({
+        name,
+        type: FakeComponent,
+        store: true,
+        data: true,
+      });
+      const markup = componentRegistry.markup(name, {
+        data: { fakeData: true },
+        store: {},
+        wrapper(component) {
+          return component;
+        },
+      });
 
-    expect(markup).toEqual(<FakeComponent data={{ fakeData: true }} store={undefined} />);
+      expect(markup).toEqual(<FakeComponent />);
+    });
+
+    it('should use default wrapper', () => {
+      const name = 'WrappedMarkupComponent';
+
+      componentRegistry.register({
+        name,
+        type: FakeComponent,
+        store: true,
+        data: true,
+      });
+      componentRegistry.defaultWrapper = jest.fn(
+        (component, data, store) => cmp => cmp
+      );
+
+      componentRegistry.markup(name, {
+        data: 'DATA',
+        store: 'STORE',
+      });
+
+      expect(componentRegistry.defaultWrapper).toBeCalledWith(
+        componentRegistry.getComponent(name),
+        'DATA',
+        'STORE',
+        false
+      );
+    });
   });
 });

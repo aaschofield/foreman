@@ -41,7 +41,18 @@ Until this is fixed in Foreman core the workaround is using [mocks](https://gith
 
 ### Using components outside of webpack
 
-Using components from core outside of webpack processed code it's currently **not possible**. In future the `componentRegistry` should be available in `Window.tfm` object, which will unlock the path and enable for example using React components in AngularJS in Katello.
+The component registry is available in `Window.tfm.componentRegistry`. That gives you access to the components even from js code that isn't processed by webpack.
+
+```js
+const MyComponent = Window.tfm.componentRegistry.getComponent(componentName).type;
+```
+
+Most of the components require to be wrapped with a [Higher-Order Component](https://reactjs.org/docs/higher-order-components.html) that provides some context like Redux store or Intl. `componentRegistry` publishes a wrapper factory that can create a wrapper function with HOCs according to your needs.
+
+```js
+const i18nWrapper = componentRegistry.wrapperFactory().with('i18n').wrapper;
+const MyComponentWithIntl = i18nWrapper(MyComponent);
+```
 
 
 # Using webpack in plugin
@@ -56,6 +67,11 @@ The webpack config is shared with core so there's no need for custom configurati
 
 Once all the above is set up then the script `npm run install` executed from root of the core's git checkout installs dependencies for plugins too.
 Also `npm run lint` behaves similarly.
+
+
+### Entry points
+
+The webpack config respects the main entry point defined in `package.json`. On top of that it loads all files matching `./webpack/*index.js`. That allows plugins to define multiple independent entry points. This can be useful in special use-cases. For example when you need to mix some parts of webpack processed code into pages that use asset pipeline only.
 
 
 ### Troubleshooting

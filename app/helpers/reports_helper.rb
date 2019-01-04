@@ -1,7 +1,9 @@
 require 'ostruct'
 module ReportsHelper
   def reported_at_column(record)
-    link_to date_time_relative(record.reported_at).html_safe, config_report_path(record)
+    link_to config_report_path(record) do
+      date_time_relative(record.reported_at)
+    end
   end
 
   def report_event_column(event, style = "")
@@ -66,5 +68,14 @@ module ReportsHelper
 
   def report_default_partial
     'output'.freeze
+  end
+
+  def config_report_content(log)
+    message = log.message.to_s
+    if message.start_with?("\n---")
+      filename = log.source.value.to_s.scan(/File\[(.*?)\]/).flatten.first rescue ""
+      return link_to(_('Show Diff'), '#', data: {diff: message, title: filename}, onclick: 'tfm.configReportsModalDiff.showDiff(this);')
+    end
+    message
   end
 end

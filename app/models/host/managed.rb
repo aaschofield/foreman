@@ -205,7 +205,7 @@ class Host::Managed < Host::Base
   validates :environment_id, :presence => true, :unless => Proc.new { |host| host.puppet_proxy_id.blank? }
   validates :organization_id, :presence => true, :if => Proc.new { |host| host.managed? && SETTINGS[:organizations_enabled] }
   validates :location_id,     :presence => true, :if => Proc.new { |host| host.managed? && SETTINGS[:locations_enabled] }
-  validate :compute_resource_in_taxonomy, :if => Proc.new { |host| Taxonomy.enabled_taxonomies.any? && host.managed? && host.compute_resource_id.present? }
+  validate :compute_resource_in_taxonomy, :if => Proc.new { |host| host.managed? && host.compute_resource_id.present? }
 
   if SETTINGS[:unattended]
     # define before orchestration is included so we can prepare object before VM is tried to be deleted
@@ -242,6 +242,7 @@ class Host::Managed < Host::Base
                           :if => Proc.new { |host| host.operatingsystem && host.medium }
     validate :provision_method_in_capabilities
     validate :short_name_periods
+    validate :check_interfaces
     before_validation :set_compute_attributes, :on => :create, :if => Proc.new { compute_attributes_empty? }
     validate :check_if_provision_method_changed, :on => :update, :if => Proc.new { |host| host.managed }
     validates :uuid, uniqueness: { :allow_blank => true }
@@ -310,11 +311,6 @@ class Host::Managed < Host::Base
       logger.warn "Failed to set Build on #{self}: #{self.errors.full_messages}"
       false
     end
-  end
-
-  # retuns fqdn of host puppetmaster
-  def pm_fqdn
-    (puppetmaster == "puppet") ? "puppet.#{domain.name}" : puppetmaster.to_s
   end
 
   def import_facts(facts, source_proxy = nil)
@@ -657,6 +653,11 @@ class Host::Managed < Host::Base
     host
   end
 
+  def check_interfaces
+    errors.add(:base, _("An interface marked as provision is missing")) if self.interfaces.detect(&:provision).nil?
+    errors.add(:base, _("An interface marked as primary is missing")) if self.interfaces.detect(&:primary).nil?
+  end
+
   def bmc_nic
     interfaces.bmc.first
   end
@@ -908,7 +909,8 @@ class Host::Managed < Host::Base
 
   def provision_method_in_capabilities
     return unless managed?
-    errors.add(:provision_method, _('is an unsupported provisioning method')) unless capabilities.map(&:to_s).include?(self.provision_method)
+    methods_available = capabilities.map(&:to_s)
+    errors.add(:provision_method, _('is an unsupported provisioning method, available: %s') % methods_available.join(',')) unless methods_available.include?(self.provision_method)
   end
 
   def check_if_provision_method_changed
@@ -925,10 +927,10 @@ class Host::Managed < Host::Base
   # but we should trigger it only for existing records and unless interfaces also changed (then validation is run
   # on them automatically)
   def trigger_nic_orchestration
-    self.primary_interface.valid? unless self.primary_interface.changed?
-
-    if self.primary_interface != self.provision_interface && !self.provision_interface.changed?
-      self.provision_interface.valid?
+    self.primary_interface.valid? if self.primary_interface && !self.primary_interface.changed?
+    unless self.provision_interface.nil?
+      return if self.primary_interface == self.provision_interface
+      self.provision_interface.valid? if self.provision_interface && !self.provision_interface.changed?
     end
   end
 
@@ -972,7 +974,7 @@ class Host::Managed < Host::Base
     association = self.class.reflect_on_association(association_name)
     raise ArgumentError, "Association #{association_name} not found" unless association
     associated_object_id = public_send(association.foreign_key)
-    if Taxonomy.enabled_taxonomies.present? && associated_object_id.present? &&
+    if associated_object_id.present? &&
       association.klass.with_taxonomy_scope(organization, location).find_by(id: associated_object_id).blank?
       errors.add(association.foreign_key, _("with id %{object_id} doesn't exist or is not assigned to proper organization and/or location") % { :object_id => associated_object_id })
       false

@@ -4,26 +4,23 @@ import { connect } from 'react-redux';
 import * as actions from './LayoutActions';
 import reducer from './LayoutReducer';
 import {
-  selectLayout,
   patternflyMenuItemsSelector,
+  selectActiveMenu,
   selectCurrentOrganization,
   selectCurrentLocation,
+  selectIsLoading,
 } from './LayoutSelectors';
 
 import Layout from './Layout';
 
 // map state to props
-const mapStateToProps = (state) => {
-  const layoutState = selectLayout(state);
-
-  return {
-    items: patternflyMenuItemsSelector(state),
-    isLoading: layoutState.isLoading,
-    activeMenu: layoutState.activeMenu,
-    currentOrganization: selectCurrentOrganization(state),
-    currentLocation: selectCurrentLocation(state),
-  };
-};
+const mapStateToProps = state => ({
+  items: patternflyMenuItemsSelector(state),
+  isLoading: selectIsLoading(state),
+  activeMenu: selectActiveMenu(state),
+  currentOrganization: selectCurrentOrganization(state),
+  currentLocation: selectCurrentLocation(state),
+});
 
 // map action dispatchers to props
 const mapDispatchToProps = dispatch => bindActionCreators(actions, dispatch);
@@ -32,4 +29,7 @@ const mapDispatchToProps = dispatch => bindActionCreators(actions, dispatch);
 export const reducers = { layout: reducer };
 
 // export connected component
-export default connect(mapStateToProps, mapDispatchToProps)(Layout);
+export default connect(
+  mapStateToProps,
+  mapDispatchToProps
+)(Layout);

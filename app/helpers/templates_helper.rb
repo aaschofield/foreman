@@ -6,18 +6,11 @@ module TemplatesHelper
   end
 
   def default_template_description
-    if locations_only?
-      _("Default templates are automatically added to new locations")
-    elsif organizations_only?
-      _("Default templates are automatically added to new organizations")
-    elsif locations_and_organizations?
-      _("Default templates are automatically added to new organizations and locations")
-    end
+    _("Default templates are automatically added to new organizations and locations")
   end
 
   def show_default?
-    rights = Taxonomy.enabled_taxonomies.select { |taxonomy| User.current.can?("create_#{taxonomy}".to_sym) }
-    rights.all? && rights.present?
+    User.current.can?(:create_oragnizations) && User.current.can?(:create_locations)
   end
 
   def safemode_methods
