@@ -335,6 +335,47 @@ class PluginTest < ActiveSupport::TestCase
     HostStatus.status_registry.delete status
   end
 
+  def test_register_ping_extension
+    foreman_ping_response = { database: { active: true, duration_ms: 0 } }
+    plugin_ping_response = { service: { active: true, duration_ms: 0 } }
+    Foreman::Plugin.register :foo do
+      name 'foo'
+      register_ping_extension { plugin_ping_response }
+    end
+    Ping.stubs(:ping_database).returns(foreman_ping_response[:database])
+    expected_result = {
+      'foreman': foreman_ping_response,
+      'foo': plugin_ping_response,
+    }
+    assert_equal expected_result, Ping.ping
+  end
+
+  def test_register_status_extension
+    foreman_database_response = { active: true, duration_ms: 0 }
+    plugin_status_response = { version: '1.0.0' }
+    Foreman::Plugin.register :foo do
+      name 'foo'
+      register_status_extension { plugin_status_response }
+    end
+    Ping.stubs(:statuses_smart_proxies).returns([])
+    Ping.stubs(:statuses_compute_resources).returns([])
+    Ping.stubs(:ping_database).returns(foreman_database_response)
+    expected_result = {
+      'foreman': {
+        version: SETTINGS[:version].full,
+        api: {
+          version: Apipie.configuration.default_version,
+        },
+        plugins: [Foreman::Plugin.find(:foo)],
+        smart_proxies: [],
+        compute_resources: [],
+        database: foreman_database_response,
+      },
+      'foo': plugin_status_response,
+    }
+    assert_equal expected_result, Ping.statuses
+  end
+
   def test_add_provision_method
     Foreman::Plugin.register :awesome_provision do
       name 'Awesome provision'
@@ -417,7 +458,7 @@ class PluginTest < ActiveSupport::TestCase
   def test_hosts_controller_action_scope
     mock_scope = ->(scope) { scope }
     Foreman::Plugin.register :test_hosts_controller_action_scope do
-      add_controller_action_scope HostsController, :test_action, &mock_scope
+      add_controller_action_scope 'HostsController', :test_action, &mock_scope
     end
     scopes = HostsController.scopes_for(:test_action)
     assert_equal mock_scope, scopes.last
@@ -429,7 +470,7 @@ class PluginTest < ActiveSupport::TestCase
       scope
     end
     Foreman::Plugin.register :test_hosts_controller_action_scope_added_to_local do
-      add_controller_action_scope HostsController, :test_action, &mock_scope
+      add_controller_action_scope 'HostsController', :test_action, &mock_scope
     end
     scopes = HostsController.scopes_for(:test_action)
     assert_equal 2, scopes.count
@@ -563,7 +604,8 @@ class PluginTest < ActiveSupport::TestCase
         FileUtils.touch File.join(root, 'app', 'assets', 'javascripts', 'test_outside.js')
         FileUtils.touch File.join(root, 'app', 'assets', 'javascripts', 'test_assets_from_root', 'test_assets_example.js')
 
-        Rails.logger.expects(:warn).with(regexp_matches(/test_outside\.js/))
+        Rails.logger.stubs(:debug)
+        Rails.logger.expects(:debug).with(regexp_matches(/test_outside\.js/))
         plugin = Foreman::Plugin.register(:test_assets_from_root) do
           path root
         end
@@ -623,6 +665,19 @@ class PluginTest < ActiveSupport::TestCase
         subject.unregister_report_scanner report_scanner
         refute subject.class.registered_report_scanners.include? report_scanner
       end
+    end
+  end
+
+  describe 'graphql type extensions' do
+    subject { Foreman::Plugin.register('test') {} }
+
+    it 'registers a graphql type extension' do
+      assert_empty subject.graphql_types_registry.type_block_extensions
+      subject.extend_graphql_type(type: Class.new) do
+        def foo
+        end
+      end
+      assert_not_empty subject.graphql_types_registry.type_block_extensions
     end
   end
 end

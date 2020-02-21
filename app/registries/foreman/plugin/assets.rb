@@ -31,7 +31,7 @@ module Foreman
       end
 
       def uses_webpack?
-        File.file?(File.join(path, 'webpack', 'index.js')) || webpack_manifest_path.present?
+        path && (File.file?(File.join(path, 'webpack', 'index.js')) || webpack_manifest_path.present?)
       end
 
       private
@@ -52,7 +52,7 @@ module Foreman
         end
 
         if outside_prefix.present?
-          Rails.logger.warn "Plugin #{id} has assets outside of its namespace, these will be ignored: #{outside_prefix.join(', ')}"
+          Rails.logger.debug "Plugin #{id} has assets outside of its namespace, these will be ignored: #{outside_prefix.join(', ')}"
         end
 
         new_assets

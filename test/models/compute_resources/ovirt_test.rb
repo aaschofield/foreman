@@ -19,6 +19,15 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
     assert_equal host, as_admin { cr.associated_host(vm) }
   end
 
+  test "#associated_host matches NIC mac with uppercase letters" do
+    host = FactoryBot.create(:host, :mac => 'ca:d0:e6:32:16:97')
+    cr = FactoryBot.build_stubbed(:ovirt_cr)
+    iface1 = mock('iface1', :mac => '36:48:c5:c9:86:f2')
+    iface2 = mock('iface2', :mac => 'CA:D0:E6:32:16:97')
+    vm = mock('vm', :interfaces => [iface1, iface2])
+    assert_equal host, as_admin { cr.associated_host(vm) }
+  end
+
   describe "destroy_vm" do
     it "handles situation when vm is not present" do
       cr = mock_cr_servers(Foreman::Model::Ovirt.new, empty_servers)
@@ -46,7 +55,7 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
     setup do
       operating_systems_xml = Nokogiri::XML(File.read('test/fixtures/ovirt_operating_systems.xml'))
       @ovirt_oses = operating_systems_xml.xpath('/operating_systems/operating_system').map do |os|
-        Fog::Compute::Ovirt::OperatingSystem.new({ :id => os[:id], :name => (os / 'name').text, :href => os[:href] })
+        Fog::Ovirt::Compute::OperatingSystem.new({ :id => os[:id], :name => (os / 'name').text, :href => os[:href] })
       end
       @os_hashes = @ovirt_oses.map do |ovirt_os|
         { :id => ovirt_os.id, :name => ovirt_os.name, :href => ovirt_os.href }
@@ -93,9 +102,12 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
   end
 
   describe 'APIv4 support' do
+    require 'fog/ovirt/models/compute/quota'
+
     before do
       @compute_resource = FactoryBot.build(:ovirt_cr)
-      @client_mock = mock.tap { |m| m.stubs(datacenters: [])}
+      @quota = Fog::Ovirt::Compute::Quota.new({ :id => '1', :name => "Default" })
+      @client_mock = mock.tap { |m| m.stubs(datacenters: [], quotas: [@quota])}
     end
 
     it 'passes api_version properly' do
@@ -103,6 +115,7 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
         options[:api_version].must_equal 'v4'
       end.returns(@client_mock)
       @compute_resource.use_v4 = true
+      @compute_resource.ovirt_quota = '1'
       @compute_resource.send(:client)
     end
 
@@ -125,25 +138,117 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
     end
   end
 
+  describe 'quota validation and name-id substitution' do
+    require 'fog/ovirt/models/compute/quota'
+
+    before do
+      @compute_resource = FactoryBot.build(:ovirt_cr)
+      @quota = Fog::Ovirt::Compute::Quota.new({ :id => '1', :name => 'Default' })
+      @client_mock = mock.tap { |m| m.stubs(datacenters: [], quotas: [@quota])}
+    end
+
+    test 'quota validation - id entered' do
+      @compute_resource.ovirt_quota = '1'
+      assert_equal('1', @compute_resource.validate_quota(@client_mock))
+    end
+
+    test 'quota validation - name entered' do
+      @compute_resource.ovirt_quota = 'Default'
+      assert_equal('1', @compute_resource.validate_quota(@client_mock))
+    end
+
+    test 'quota validation - nothing entered' do
+      assert_equal('1', @compute_resource.validate_quota(@client_mock))
+    end
+
+    test 'quota validation - name entered' do
+      @compute_resource.ovirt_quota = 'Default2'
+      assert_raise Foreman::Exception do
+        @compute_resource.validate_quota(@client_mock)
+      end
+    end
+  end
+
+  describe 'name-id substitution for attributes: network, storage_domain and cluster' do
+    let(:cr) do
+      mock_cr(FactoryBot.build(:ovirt_cr),
+        :clusters => [
+          stub(:id => 'c1', :name => 'cluster 1'),
+          stub(:id => 'c2', :name => 'cluster 2'),
+        ],
+        :networks => [
+          stub(:id => 'net1', :name => 'network 1'),
+          stub(:id => 'net2', :name => 'network 2'),
+        ],
+        :storage_domains => [
+          stub(:id => '312f6', :name => 'domain 1'),
+          stub(:id => '382ec', :name => 'domain 2'),
+        ]
+      )
+    end
+
+    test 'cluster validation - id entered' do
+      assert_equal('c2', cr.get_ovirt_id(cr.clusters, 'c2'))
+    end
+
+    test 'cluster validation - name entered' do
+      assert_equal('c2', cr.get_ovirt_id(cr.clusters, 'cluster 2'))
+    end
+
+    test 'cluster validation - not valid' do
+      assert_raise Foreman::Exception do
+        cr.get_ovirt_id(cr.clusters, 'c3')
+      end
+    end
+
+    test 'storage domain validation - id entered' do
+      assert_equal('312f6', cr.get_ovirt_id(cr.storage_domains, '312f6'))
+    end
+
+    test 'storage domain validation - name entered' do
+      assert_equal('382ec', cr.get_ovirt_id(cr.storage_domains, 'domain 2'))
+    end
+
+    test 'storage domain validation - not valid' do
+      assert_raise Foreman::Exception do
+        cr.get_ovirt_id(cr.storage_domains, 'domain 3')
+      end
+    end
+
+    test 'network validation - id entered' do
+      assert_equal('net1', cr.get_ovirt_id(cr.networks, 'net1'))
+    end
+
+    test 'network validation - name entered' do
+      assert_equal('net2', cr.get_ovirt_id(cr.networks, 'network 2'))
+    end
+
+    test 'network validation - not valid' do
+      assert_raise Foreman::Exception do
+        cr.get_ovirt_id(cr.networks, 'network 3')
+      end
+    end
+  end
+
   describe '#normalize_vm_attrs' do
     let(:cr) do
       mock_cr(FactoryBot.build(:ovirt_cr),
         :clusters => [
           stub(:id => 'c1', :name => 'cluster 1'),
-          stub(:id => 'c2', :name => 'cluster 2')
+          stub(:id => 'c2', :name => 'cluster 2'),
         ],
         :templates => [
           stub(:id => 'tpl1', :name => 'template 1'),
-          stub(:id => 'tpl2', :name => 'template 2')
+          stub(:id => 'tpl2', :name => 'template 2'),
         ],
         :networks => [
           stub(:id => 'net1', :name => 'network 1'),
-          stub(:id => 'net2', :name => 'network 2')
+          stub(:id => 'net2', :name => 'network 2'),
         ],
         :storage_domains => [
           stub(:id => '312f6', :name => 'domain 1'),
           stub(:id => '382ec', :name => 'domain 2'),
-          stub(:id => '3ea4f', :name => 'domain 3')
+          stub(:id => '3ea4f', :name => 'domain 3'),
         ]
       )
     end
@@ -154,7 +259,7 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
 
     test 'finds cluster_name' do
       vm_attrs = {
-        'cluster' => 'c2'
+        'cluster' => 'c2',
       }
       normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -167,7 +272,7 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
 
     test 'finds template_name' do
       vm_attrs = {
-        'template' => 'tpl2'
+        'template' => 'tpl2',
       }
       normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -179,25 +284,25 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
         'interfaces_attributes' => {
           '0' => {
             'name' => 'eth0',
-            'network' => 'net1'
+            'network' => 'net1',
           },
           '1' => {
             'name' => 'eth1',
-            'network' => 'net2'
-          }
-        }
+            'network' => 'net2',
+          },
+        },
       }
       expected_attrs = {
         '0' => {
           'network_id' => 'net1',
           'network_name' => 'network 1',
-          'name' => 'eth0'
+          'name' => 'eth0',
         },
         '1' => {
           'network_id' => 'net2',
           'network_name' => 'network 2',
-          'name' => 'eth1'
-        }
+          'name' => 'eth1',
+        },
       }
       normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -211,16 +316,16 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
             'size_gb' => '15',
             'storage_domain' => '312f6',
             'id' => '',
-            'preallocate' => '0'
+            'preallocate' => '0',
           },
           '1' => {
             'size_gb' => '5',
             'storage_domain' => '382ec',
             'id' => '',
             'preallocate' => '1',
-            'bootable' => 'true'
-          }
-        }
+            'bootable' => 'true',
+          },
+        },
       }
       expected_attrs = {
         '0' => {
@@ -228,15 +333,15 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
           'storage_domain_id' => '312f6',
           'storage_domain_name' => 'domain 1',
           'preallocate' => false,
-          'bootable' => nil
+          'bootable' => nil,
         },
         '1' => {
           'size' => 5.gigabyte.to_s,
           'storage_domain_id' => '382ec',
           'storage_domain_name' => 'domain 2',
           'preallocate' => true,
-          'bootable' => true
-        }
+          'bootable' => true,
+        },
       }
       normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -253,7 +358,7 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
         'template_id' => nil,
         'template_name' => nil,
         'interfaces_attributes' => {},
-        'volumes_attributes' => {}
+        'volumes_attributes' => {},
       }
 
       assert_equal(expected_attrs.keys.sort, normalized.keys.sort)
@@ -262,6 +367,50 @@ class Foreman::Model:: OvirtTest < ActiveSupport::TestCase
 
     test 'attribute names' do
       check_vm_attribute_names(cr)
+    end
+  end
+
+  describe '#display_type' do
+    let(:cr) { FactoryBot.build_stubbed(:ovirt_cr) }
+
+    test "default display type is 'vnc'" do
+      assert_nil cr.attrs[:display]
+      assert_equal 'vnc', cr.display_type
+    end
+
+    test "display type can be set" do
+      expected = 'spice'
+      cr.display_type = 'Spice'
+      assert_equal expected, cr.attrs[:display]
+      assert_equal expected, cr.display_type
+      assert cr.valid?
+    end
+
+    test "don't allow wrong display type to be set" do
+      cr.display_type = 'teletype'
+      refute cr.valid?
+    end
+  end
+
+  describe '#keyboard_layout' do
+    let(:cr) { FactoryBot.build_stubbed(:ovirt_cr) }
+
+    test "default keyboard layout is 'en-us'" do
+      assert_nil cr.attrs[:keyboard_layout]
+      assert_equal 'en-us', cr.keyboard_layout
+    end
+
+    test "keyboard layout can be set" do
+      expected = 'hu'
+      cr.keyboard_layout = 'hu'
+      assert_equal expected, cr.attrs[:keyboard_layout]
+      assert_equal expected, cr.keyboard_layout
+      assert cr.valid?
+    end
+
+    test "don't allow wrong keyboard layout to be set" do
+      cr.keyboard_layout = 'fake-layout'
+      refute cr.valid?
     end
   end
 end

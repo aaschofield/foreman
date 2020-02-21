@@ -1,4 +1,5 @@
 import {
+  VMWARE_CLUSTER_CHANGE,
   STORAGE_VMWARE_ADD_CONTROLLER,
   STORAGE_VMWARE_ADD_DISK,
   STORAGE_VMWARE_REMOVE_CONTROLLER,
@@ -6,18 +7,14 @@ import {
   STORAGE_VMWARE_REMOVE_DISK,
   STORAGE_VMWARE_UPDATE_DISK,
   STORAGE_VMWARE_INIT,
-  STORAGE_VMWARE_DATASTORES_REQUEST,
-  STORAGE_VMWARE_DATASTORES_SUCCESS,
-  STORAGE_VMWARE_DATASTORES_FAILURE,
-  STORAGE_VMWARE_STORAGEPODS_REQUEST,
-  STORAGE_VMWARE_STORAGEPODS_SUCCESS,
-  STORAGE_VMWARE_STORAGEPODS_FAILURE,
+  STORAGE_VMWARE_DATASTORES,
+  STORAGE_VMWARE_STORAGEPODS,
 } from '../../../consts';
+import { get } from '../../../API';
 import {
   defaultControllerAttributes,
   getDefaultDiskAttributes,
 } from './vmware.consts';
-import { ajaxRequestAction } from '../../common';
 
 export const updateDisk = (key, newValues) => ({
   type: STORAGE_VMWARE_UPDATE_DISK,
@@ -27,36 +24,55 @@ export const updateDisk = (key, newValues) => ({
   },
 });
 
-export const initController = (config, controllers, volumes) => dispatch => {
+export const initController = (
+  config,
+  cluster,
+  controllers,
+  volumes
+) => dispatch => {
   dispatch({
     type: STORAGE_VMWARE_INIT,
     payload: {
       config,
       controllers: controllers || defaultControllerAttributes,
       volumes: volumes || getDefaultDiskAttributes,
+      cluster,
     },
   });
+  if (cluster) {
+    dispatch(fetchDatastores(config.datastoresUrl, cluster));
+    dispatch(fetchStoragePods(config.storagePodsUrl, cluster));
+  }
 };
 
-export const fetchDatastores = url => dispatch => {
-  ajaxRequestAction({
-    dispatch,
-    requestAction: STORAGE_VMWARE_DATASTORES_REQUEST,
-    successAction: STORAGE_VMWARE_DATASTORES_SUCCESS,
-    failedAction: STORAGE_VMWARE_DATASTORES_FAILURE,
-    url,
+export const changeCluster = newCluster => (dispatch, getState) => {
+  const { config } = getState().hosts.storage.vmware;
+  if (newCluster === '') newCluster = null;
+
+  dispatch({
+    type: VMWARE_CLUSTER_CHANGE,
+    payload: {
+      cluster: newCluster,
+    },
   });
+  if (newCluster) {
+    dispatch(fetchDatastores(config.datastoresUrl, newCluster));
+    dispatch(fetchStoragePods(config.storagePodsUrl, newCluster));
+  }
 };
 
-export const fetchStoragePods = url => dispatch => {
-  ajaxRequestAction({
-    dispatch,
-    requestAction: STORAGE_VMWARE_STORAGEPODS_REQUEST,
-    successAction: STORAGE_VMWARE_STORAGEPODS_SUCCESS,
-    failedAction: STORAGE_VMWARE_STORAGEPODS_FAILURE,
+const fetchStorages = (url, cluster, key) =>
+  get({
+    key,
     url,
+    payload: { params: { cluster_id: cluster } },
   });
-};
+
+export const fetchDatastores = (url, cluster) =>
+  fetchStorages(url, cluster, STORAGE_VMWARE_DATASTORES);
+
+export const fetchStoragePods = (url, cluster) =>
+  fetchStorages(url, cluster, STORAGE_VMWARE_STORAGEPODS);
 
 export const addController = data => ({
   type: STORAGE_VMWARE_ADD_CONTROLLER,

@@ -8,7 +8,7 @@ class Puppetclass < ApplicationRecord
 
   validates_lengths_from_database
   before_destroy EnsureNotUsedBy.new(:hosts, :hostgroups)
-  has_many :environment_classes, :dependent => :destroy
+  has_many :environment_classes, :dependent => :destroy, :inverse_of => :puppetclass
   has_many :environments, -> { distinct }, :through => :environment_classes
   has_many :organizations, :through => :environments
   has_many :locations, :through => :environments
@@ -38,8 +38,8 @@ class Puppetclass < ApplicationRecord
 
   scoped_search :on => :name, :complete_value => :true
   scoped_search :relation => :environments, :on => :name, :complete_value => :true, :rename => "environment"
-  scoped_search :relation => :organizations, :on => :name, :complete_value => :true, :rename => "organization"
-  scoped_search :relation => :locations, :on => :name, :complete_value => :true, :rename => "location"
+  scoped_search :relation => :organizations, :on => :name, :complete_value => :true, :rename => "organization", :only_explicit => true
+  scoped_search :relation => :locations, :on => :name, :complete_value => :true, :rename => "location", :only_explicit => true
   scoped_search :relation => :hostgroups, :on => :name, :complete_value => :true, :rename => "hostgroup", :only_explicit => true
   scoped_search :relation => :config_groups, :on => :name, :complete_value => :true, :rename => "config_group", :only_explicit => true
   scoped_search :relation => :hosts, :on => :name, :complete_value => :true, :rename => "host", :ext_method => :search_by_host, :only_explicit => true

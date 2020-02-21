@@ -1,8 +1,17 @@
+/* eslint-disable jquery/no-val */
+/* eslint-disable jquery/no-find */
+/* eslint-disable jquery/no-text */
+/* eslint-disable jquery/no-ajax */
+/* eslint-disable jquery/no-each */
+
 import $ from 'jquery';
 import URI from 'urijs';
 import { translate as __ } from './react_app/common/I18n';
+import { deprecate } from './react_app/common/DeprecationService';
 
-import { showLoading, hideLoading } from './foreman_navigation';
+import { showLoading, hideLoading, visit } from './foreman_navigation';
+
+export * from './react_app/common/DeprecationService';
 
 export function showSpinner() {
   showLoading();
@@ -61,16 +70,6 @@ export function activateTooltips(elParam = 'body') {
   el.find('*[title]')
     .not('*[rel],.fa,.pficon')
     .tooltip({ container: 'body' });
-  $(document).on('page:restore', () => {
-    $('.tooltip.in').remove();
-  });
-}
-
-/* eslint-disable no-console, max-len */
-export function deprecate(oldMethod, newMethod, version = '1.22') {
-  console.warn(
-    `DEPRECATION WARNING: you are using deprecated ${oldMethod}, it will be removed in Foreman ${version}. Use ${newMethod} instead.`
-  );
 }
 
 export function initTypeAheadSelect(input) {
@@ -107,6 +106,7 @@ export function initTypeAheadSelect(input) {
 
 // handle table updates via turoblinks
 export function updateTable(element) {
+  deprecate('updateTable', 'react Table component', '2.1');
   const uri = new URI(window.location.href);
 
   const values = {};
@@ -127,23 +127,12 @@ export function updateTable(element) {
     .text()
     .trim();
   uri.setSearch(values);
-  /* eslint-disable no-undef */
-  Turbolinks.visit(uri.toString());
+
+  visit(uri.toString());
   return false;
 }
 
-export function deprecateObjectProperty(
-  obj,
-  oldProp,
-  newProp,
-  version = '1.20'
-) {
-  const oldPropPointer = obj[oldProp];
-
-  Object.defineProperty(obj, oldProp, {
-    get: () => {
-      deprecate(oldProp, newProp, version);
-      return oldPropPointer;
-    },
-  });
+// generates an absolute, needed in case of running Foreman from a subpath
+export function foremanUrl(path) {
+  return window.URL_PREFIX + path;
 }

@@ -2,11 +2,6 @@ class NXOS < Operatingsystem
   # We don't fetch any files here.
   PXEFILES = {}
 
-  # Simple output of the media url
-  def mediumpath(medium_provider)
-    medium_provider.medium_uri.to_s
-  end
-
   def template_kinds
     ["POAP"]
   end
@@ -15,11 +10,11 @@ class NXOS < Operatingsystem
     ["None"]
   end
 
-  def pxedir
+  def pxedir(medium_provider = nil)
     "boot/$arch/images"
   end
 
-  def url_for_boot(file)
+  def url_for_boot(medium_provider, file)
     raise ::Foreman::Exception.new(N_("Function not available for %s"), self.display_family)
   end
 

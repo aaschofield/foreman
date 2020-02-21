@@ -6,7 +6,7 @@ d-i debian-installer/locale string en_US
 # ... for wheezy and newer:
 d-i keyboard-configuration/xkb-keymap seen true
 
-  
+
 # Network configuration
 d-i netcfg/choose_interface select auto
 d-i netcfg/get_hostname string snapshothost
@@ -50,11 +50,12 @@ user-setup-udeb passwd/make-user boolean false
 
 
 
+
 # Install minimal task set (see tasksel --task-packages minimal)
 tasksel tasksel/first multiselect minimal, ssh-server, openssh-server
 
 # Install some base packages
-d-i pkgsel/include string  lsb-release
+d-i pkgsel/include string lsb-release wget
 d-i pkgsel/update-policy select unattended-upgrades
 d-i pkgsel/upgrade select none
 

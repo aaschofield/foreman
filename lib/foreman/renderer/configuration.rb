@@ -15,9 +15,12 @@ module Foreman
         :subnet_param, :subnet_has_param?,
         :global_setting,
         :default_template_url,
+        :plugin_present?,
         :medium_provider,
         :medium_uri,
         :load_hosts,
+        :load_users,
+        :user_auth_source_name,
         :all_host_statuses,
         :all_host_statuses_hash,
         :host_status,
@@ -27,7 +30,14 @@ module Foreman
         :rand_hex,
         :rand_name,
         :mac_name,
-        :host_kernel_release
+        :host_kernel_release,
+        :host_uptime_seconds,
+        :number_to_currency,
+        :number_to_human,
+        :number_to_percentage,
+        :number_with_delimiter,
+        :number_with_precision,
+        :number_to_human_size
       ]
 
       DEFAULT_ALLOWED_HOST_HELPERS = [
@@ -60,7 +70,7 @@ module Foreman
         :repos,
         :static,
         :template_name,
-        :xen
+        :xen,
       ]
 
       DEFAULT_ALLOWED_GLOBAL_SETTINGS = [
@@ -74,7 +84,7 @@ module Foreman
         :ignored_interface_identifiers,
         :remote_addr,
         :token_duration,
-        :dns_conflict_timeout,
+        :dns_timeout,
         :name_generator_type,
         :default_pxe_item_global,
         :default_pxe_item_local,
@@ -82,8 +92,7 @@ module Foreman
         :outofsync_interval,
         :default_puppet_environment,
         :puppetrun,
-        :puppet_server,
-        :update_ip_from_built_request
+        :update_ip_from_built_request,
       ]
 
       def initialize
@@ -94,7 +103,7 @@ module Foreman
       end
 
       attr_accessor :allowed_variables, :allowed_global_settings,
-                    :allowed_generic_helpers, :allowed_host_helpers
+        :allowed_generic_helpers, :allowed_host_helpers
 
       def allowed_helpers
         allowed_generic_helpers + allowed_host_helpers

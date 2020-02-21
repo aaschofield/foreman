@@ -162,8 +162,8 @@ class HostgroupsControllerTest < ActionController::TestCase
         hostgroup: {
           name: @hostgroup.name,
           environment_id: "",
-          puppetclass_ids: [@puppetclass.id]
-        }
+          puppetclass_ids: [@puppetclass.id],
+        },
       }
     end
 
@@ -198,7 +198,7 @@ class HostgroupsControllerTest < ActionController::TestCase
 
       params = {
         hostgroup_id: hostgroup.id,
-        hostgroup: hostgroup.attributes.merge(lk)
+        hostgroup: hostgroup.attributes.merge(lk),
       }
 
       # environment change calls puppetclass_parameters which caused the extra escaping
@@ -298,9 +298,9 @@ class HostgroupsControllerTest < ActionController::TestCase
     setup do
       @controller.prepend_view_path File.expand_path('../static_fixtures', __dir__)
       Pagelets::Manager.add_pagelet('hostgroups/_form', :main_tabs,
-                                    :name => 'TestTab',
-                                    :id => 'my-special-id',
-                                    :partial => 'views/test')
+        :name => 'TestTab',
+        :id => 'my-special-id',
+        :partial => 'views/test')
     end
 
     test '#new renders a pagelet tab' do

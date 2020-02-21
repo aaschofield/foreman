@@ -4,21 +4,17 @@ class FactValue < ApplicationRecord
 
   belongs_to :host, {:class_name => "Host::Base", :foreign_key => :host_id}
   belongs_to :fact_name
-  delegate :name, :short_name, :compose, :origin, :to => :fact_name
+  delegate :name, :short_name, :compose, :origin, :icon_path, :to => :fact_name
   has_many :hostgroup, :through => :host
 
   has_one :parent_fact_name, :through => :fact_name, :source => :parent, :class_name => 'FactName'
 
-  if SETTINGS[:locations_enabled]
-    has_one :location, :through => :host
-    scoped_search :relation => :location, :on => :name, :rename => :location, :complete_value => true, :only_explicit => true
-    scoped_search :relation => :location, :on => :id, :rename => :location_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
-  end
-  if SETTINGS[:organizations_enabled]
-    has_one :organization, :through => :host
-    scoped_search :relation => :organization, :on => :name, :rename => :organization, :complete_value => true, :only_explicit => true
-    scoped_search :relation => :organization, :on => :id, :rename => :organization_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
-  end
+  has_one :location, :through => :host
+  scoped_search :relation => :location, :on => :name, :rename => :location, :complete_value => true, :only_explicit => true
+  scoped_search :relation => :location, :on => :id, :rename => :location_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
+  has_one :organization, :through => :host
+  scoped_search :relation => :organization, :on => :name, :rename => :organization, :complete_value => true, :only_explicit => true
+  scoped_search :relation => :organization, :on => :id, :rename => :organization_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
 
   scoped_search :on => :value, :in_key => :fact_name, :on_key => :name, :rename => :facts, :complete_value => true, :only_explicit => true, :ext_method => :search_cast_facts
   scoped_search :on => :value, :default_order => true, :ext_method => :search_value_cast_facts
@@ -115,13 +111,13 @@ class FactValue < ApplicationRecord
   def self.search_cast_facts(key, operator, value)
     {
       :conditions => "#{sanitize_sql_for_conditions(['fact_names.name = ?', key.split('.')[1]])} AND #{cast_facts('fact_values', key, operator, value)}",
-      :include    => :fact_name
+      :include    => :fact_name,
     }
   end
 
   def self.search_value_cast_facts(key, operator, value)
     {
-      :conditions => cast_facts('fact_values', key, operator, value)
+      :conditions => cast_facts('fact_values', key, operator, value),
     }
   end
 end

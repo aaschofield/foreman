@@ -9,7 +9,7 @@ def valid_emails_list
     "#{RFauxFactory.gen_alphanumeric}+#{RFauxFactory.gen_alphanumeric}@example.com",
     "#{RFauxFactory.gen_alphanumeric}.#{RFauxFactory.gen_alphanumeric}@example.com",
     '"():;"@example.com',
-    '!#$%&*+-/=?^`{|}~@example.com'
+    '!#$%&*+-/=?^`{|}~@example.com',
   ]
 end
 
@@ -23,7 +23,7 @@ def invalid_emails_list
     'A@b@c@example.com',
     "#{RFauxFactory.gen_alpha 243}@example.com",
     "#{RFauxFactory.gen_html}@example.com",
-    's p a c e s@example.com'
+    's p a c e s@example.com',
   ]
 end
 
@@ -31,7 +31,7 @@ def test_roles
   [
     Role.find_by_name('Manager'),
     Role.find_by_name('View hosts'),
-    Role.find_by_name('Edit hosts')
+    Role.find_by_name('Edit hosts'),
   ]
 end
 
@@ -376,10 +376,10 @@ class UserTest < ActiveSupport::TestCase
   end
 
   test "user cannot assign role he has not assigned himself" do
-    extra_role      = Role.where(:name => "foobar").first_or_create
-    record          = users(:one)
-    record.role_ids = [extra_role.id]
+    extra_role = Role.where(:name => "foobar").first_or_create
     setup_user "edit"
+    record = users(:one)
+    record.role_ids = [extra_role.id]
     refute record.save
     refute record.valid?
     assert_includes record.errors.keys, :role_ids
@@ -687,29 +687,36 @@ class UserTest < ActiveSupport::TestCase
   end
 
   context "find_or_create_external_user" do
+    not_existing_user_login = 'not_existing_user'
+    not_existing_auth_source = 'new_external_source'
+
     context "internal or not existing AuthSource" do
       test 'existing user' do
         assert_difference('User.count', 0) do
-          assert User.find_or_create_external_user({:login => users(:one).login}, nil)
+          login = users(:one).login
+          assert_equal User.find_or_create_external_user({:login => login}, nil),
+            User.find_by_login(login)
         end
       end
 
       test 'not existing user without auth source specified' do
         assert_difference('User.count', 0) do
-          refute User.find_or_create_external_user({:login => 'not_existing_user'}, nil)
+          user = User.find_or_create_external_user({:login => not_existing_user_login}, nil)
+          assert user.nil?
         end
       end
 
       test 'not existing user with non existing auth source' do
         assert_difference('User.count', 1) do
           assert_difference('AuthSource.count', 1) do
-            assert User.find_or_create_external_user({:login => 'not_existing_user'},
-                                                     'new_external_source')
+            user = User.find_or_create_external_user({:login => not_existing_user_login},
+              not_existing_auth_source)
+            assert_equal user, User.find_by_login(not_existing_user_login)
+
+            new_source = AuthSourceExternal.find_by_name(not_existing_auth_source)
+            assert_equal new_source.name, user.auth_source.name
           end
         end
-        created_user = User.find_by_login('not_existing_user')
-        new_source = AuthSourceExternal.find_by_name('new_external_source')
-        assert_equal new_source.name, created_user.auth_source.name
       end
     end
 
@@ -721,23 +728,24 @@ class UserTest < ActiveSupport::TestCase
       test "not existing" do
         assert_difference('User.count', 1) do
           assert_difference('AuthSource.count', 0) do
-            assert User.find_or_create_external_user({:login => 'not_existing_user'},
-                                                     @apache_source.name)
+            assert_equal User.find_or_create_external_user(
+              {:login => not_existing_user_login}, @apache_source.name),
+              User.find_by_login(not_existing_user_login)
           end
         end
       end
 
       test "not existing with attributes" do
-        assert User.find_or_create_external_user({:login => 'not_existing_user',
-                                                  :mail => 'foobar@example.com',
-                                                  :firstname => 'Foo',
-                                                  :lastname => 'Bar'},
-                                                 @apache_source.name)
-        created_user = User.find_by_login('not_existing_user')
-        assert_equal @apache_source.name,  created_user.auth_source.name
+        created_user = User.find_or_create_external_user(
+          {:login => not_existing_user_login,
+           :mail => 'foobar@example.com',
+           :firstname => 'Foo',
+           :lastname => 'Bar'}, @apache_source.name)
+        assert_equal not_existing_user_login, created_user.login
+        assert_equal @apache_source.name, created_user.auth_source.name
         assert_equal 'foobar@example.com', created_user.mail
-        assert_equal 'Foo',                created_user.firstname
-        assert_equal 'Bar',                created_user.lastname
+        assert_equal 'Foo', created_user.firstname
+        assert_equal 'Bar', created_user.lastname
       end
 
       context 'with external user groups' do
@@ -749,11 +757,9 @@ class UserTest < ActiveSupport::TestCase
 
         test "existing user groups that are assigned" do
           @external.update(:usergroup => @usergroup, :name => @usergroup.name)
-          assert User.find_or_create_external_user({:login => "not_existing_user",
-                                                    :groups => [@external.name,
-                                                                "notexistentexternal"]},
-                                                   @apache_source.name)
-          created_user = User.find_by_login("not_existing_user")
+          created_user = User.find_or_create_external_user(
+            {:login => not_existing_user_login, :groups => [@external.name, 'notexistentexternal']},
+            @apache_source.name)
           assert_equal [@usergroup], created_user.usergroups
         end
       end
@@ -791,9 +797,9 @@ class UserTest < ActiveSupport::TestCase
         @ldap_server.locations = [taxonomies(:location1)]
         created_user = User.try_to_auto_create_user('foobar', 'fakepass')
         assert_equal @ldap_server.organizations.to_a,
-                     created_user.organizations.to_a
+          created_user.organizations.to_a
         assert_equal @ldap_server.locations.to_a,
-                     created_user.locations.to_a
+          created_user.locations.to_a
       end
     end
 
@@ -888,6 +894,24 @@ class UserTest < ActiveSupport::TestCase
     end
   end
 
+  test "my_locations includes locations set to 'all users'" do
+    user = FactoryBot.create(:user)
+    location = FactoryBot.create(:location)
+    refute_includes user.my_locations, location
+    location.ignore_types = ['User']
+    location.save!
+    assert_includes user.my_locations, location
+  end
+
+  test "my_organizations includes organizations set to 'all users'" do
+    user = FactoryBot.create(:user)
+    organization = FactoryBot.create(:organization)
+    refute_includes user.my_organizations, organization
+    organization.ignore_types = ['User']
+    organization.save!
+    assert_includes user.my_organizations, organization
+  end
+
   test "chaging hostgroup should update cache" do
     u = FactoryBot.create(:user)
     g1 = FactoryBot.create(:usergroup)
@@ -911,18 +935,16 @@ class UserTest < ActiveSupport::TestCase
     assert_empty u.cached_usergroups
   end
 
-  #  Uncomment after users get access to children taxonomies of their current taxonomies.
-  #
-  #  test 'default taxonomy inclusion validator takes into account inheritance' do
-  #    inherited_location     = Location.create(:parent => Location.first, :name => 'inherited_loc')
-  #    inherited_organization = Organization.create(:parent => Organization.first, :name => 'inherited_org')
-  #    users(:one).update_attribute(:locations, [Location.first])
-  #    users(:one).update_attribute(:organizations, [Organization.first])
-  #    users(:one).default_location     = Location.find_by_name('inherited_loc')
-  #    users(:one).default_organization = Organization.find_by_name('inherited_org')
-  #
-  #    assert users(:one).valid?
-  #  end
+  test 'default taxonomy inclusion validator takes into account inheritance' do
+    Location.create(:parent => Location.first, :name => 'inherited_loc')
+    Organization.create(:parent => Organization.first, :name => 'inherited_org')
+    users(:one).update_attribute(:locations, [Location.first])
+    users(:one).update_attribute(:organizations, [Organization.first])
+    users(:one).default_location     = Location.find_by_name('inherited_loc')
+    users(:one).default_organization = Organization.find_by_name('inherited_org')
+
+    assert users(:one).valid?
+  end
 
   test "#matching_password? succeeds if password matches" do
     u = FactoryBot.build_stubbed(:user)
@@ -930,10 +952,36 @@ class UserTest < ActiveSupport::TestCase
     assert u.matching_password?('password')
   end
 
+  test "#matching_password? succeeds if password matches with higher cost" do
+    Setting[:bcrypt_cost] = 15
+    user = FactoryBot.build_stubbed(:user)
+    assert_valid user
+    assert user.matching_password?('password')
+    Setting[:bcrypt_cost] = 10
+  end
+
   test "#matching_password? fails if password does not match" do
     u = FactoryBot.build_stubbed(:user)
     assert_valid u
     refute u.matching_password?('wrong password')
+  end
+
+  test "#matching_password? upgrades from SHA1 to BCrypt" do
+    hasher = Foreman::PasswordHash.new(:sha1)
+    u = FactoryBot.build_stubbed(:user)
+    u.password_salt = hasher.generate_salt(0)
+    u.password_hash = hasher.hash_secret('password', u.password_salt)
+    u.expects(:upgrade_password).with('password')
+    assert u.matching_password?('password')
+  end
+
+  test "#matching_password? does not upgrade from BCrypt to BCrypt for no reason" do
+    hasher = Foreman::PasswordHash.new(:bcrypt)
+    u = FactoryBot.build_stubbed(:user)
+    u.password_salt = hasher.generate_salt(5)
+    u.password_hash = hasher.hash_secret('password', u.password_salt)
+    u.expects(:upgrade_password).never
+    assert u.matching_password?('password')
   end
 
   test ".except_hidden doesn't return any hidden users" do
@@ -1048,6 +1096,23 @@ class UserTest < ActiveSupport::TestCase
       user.current_password = "password"
       user.password = "newpassword"
       assert user.save
+    end
+  end
+
+  test 'creating jwt secret for user' do
+    user = FactoryBot.create(:user)
+    jwt_secret = user.jwt_secret!
+
+    refute_nil jwt_secret
+    assert jwt_secret.persisted?
+  end
+
+  describe '#destroy' do
+    it 'works for user with two groups' do
+      user = users(:one)
+      FactoryBot.create_list(:user_usergroup_member, 2, member: user)
+      user.reload.destroy
+      assert user.destroyed?
     end
   end
 
@@ -1171,14 +1236,17 @@ class UserTest < ActiveSupport::TestCase
     end
 
     test 'should audit when a role is assigned to a user' do
+      # Ensure the default role is loaded when creating the audit, Rails 5.2.1 workaround (https://projects.theforeman.org/issues/25602)
+      @user.reload
+
       @user.role_ids = [@role.id]
       @user.save
 
       recent_audit = @user.audits.last
-      audited_changes = recent_audit.audited_changes[:role_ids]
+      audited_changes = recent_audit.audited_changes['role_ids']
 
       assert audited_changes, 'No audits found for user-roles'
-      assert_empty audited_changes.first
+      assert_equal [Role.default.id], audited_changes.first
       assert_equal [@role.id], audited_changes.last
     end
 
@@ -1189,7 +1257,7 @@ class UserTest < ActiveSupport::TestCase
       @user.save
 
       recent_audit = @user.audits.last
-      audited_changes = recent_audit.audited_changes[:role_ids]
+      audited_changes = recent_audit.audited_changes['role_ids']
 
       assert audited_changes, 'No audits found for user-roles'
       assert_equal [[@role.id, Role.default.id], []], audited_changes
@@ -1203,9 +1271,9 @@ class UserTest < ActiveSupport::TestCase
 
       recent_audit = @user.audits.last
 
-      assert recent_audit.audited_changes[:firstname]
-      assert recent_audit.audited_changes[:description]
-      assert_nil recent_audit.audited_changes[:roles]
+      assert recent_audit.audited_changes['firstname']
+      assert recent_audit.audited_changes['description']
+      assert_nil recent_audit.audited_changes['roles']
     end
   end
 

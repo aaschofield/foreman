@@ -3,8 +3,8 @@ class ApplicationController < ActionController::Base
 
   include Foreman::Controller::Flash
   include Foreman::Controller::Authorize
+  include Foreman::Controller::RequireSsl
 
-  force_ssl :if => :require_ssl?
   protect_from_forgery # See ActionController::RequestForgeryProtection for details
   rescue_from Exception, :with => :generic_exception if Rails.env.production?
   rescue_from ScopedSearch::QueryNotSupported, :with => :invalid_search_query
@@ -73,10 +73,6 @@ class ApplicationController < ActionController::Base
 
   def deny_access
     (User.current.logged? || request.xhr?) ? render_403 : require_login
-  end
-
-  def require_ssl?
-    SETTINGS[:require_ssl]
   end
 
   # This filter is called before FastGettext set_gettext_locale and sets user-defined locale
@@ -333,9 +329,9 @@ class ApplicationController < ActionController::Base
     return if ["locations", "organizations"].include?(controller_name)
 
     if User.current&.admin?
-      if SETTINGS[:locations_enabled] && Location.unconfigured?
+      if Location.unconfigured?
         redirect_to main_app.locations_path, :info => _("You must create at least one location before continuing.")
-      elsif SETTINGS[:organizations_enabled] && Organization.unconfigured?
+      elsif Organization.unconfigured?
         redirect_to main_app.organizations_path, :info => _("You must create at least one organization before continuing.")
       end
     end
@@ -366,8 +362,8 @@ class ApplicationController < ActionController::Base
     @organization ||= Organization.find_by_id(params[:organization_id]) if params[:organization_id]
     @location     ||= Location.find_by_id(params[:location_id])         if params[:location_id]
 
-    @organization ||= Organization.current if SETTINGS[:organizations_enabled]
-    @location     ||= Location.current if SETTINGS[:locations_enabled]
+    @organization ||= Organization.current
+    @location     ||= Location.current
   end
 
   # Called from ActionController::RequestForgeryProtection, overrides

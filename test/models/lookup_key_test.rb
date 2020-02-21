@@ -3,10 +3,10 @@ require 'test_helper'
 class LookupKeyTest < ActiveSupport::TestCase
   def setup
     @host1, @host2, @host3 = FactoryBot.create_list(:host, 3,
-                               :location      => taxonomies(:location1),
-                               :organization  => taxonomies(:organization1),
-                               :puppetclasses => [puppetclasses(:one)],
-                               :environment   => environments(:production))
+      :location      => taxonomies(:location1),
+      :organization  => taxonomies(:organization1),
+      :puppetclasses => [puppetclasses(:one)],
+      :environment   => environments(:production))
   end
 
   should validate_presence_of(:key)
@@ -57,7 +57,7 @@ class LookupKeyTest < ActiveSupport::TestCase
     @host3.environment = environments(:testing)
 
     default = "default"
-    key    = ""
+    key = ""
     value1 = ""
     value2 = ""
     puppetclass = Puppetclass.first
@@ -83,38 +83,10 @@ class LookupKeyTest < ActiveSupport::TestCase
     refute key.overridden?(@host1)
   end
 
-  def test_parameters_multiple_paths
-    @host1.hostgroup = hostgroups(:common)
-    @host2.hostgroup = hostgroups(:unusual)
-
-    default = "default"
-    key    = ""
-    value1 = ""
-    value2 = ""
-    puppetclass = Puppetclass.first
-
-    as_admin do
-      key    = VariableLookupKey.create!(:key => "dns", :path => "environment,hostgroup \n hostgroup", :puppetclass => puppetclass,
-                                 :default_value => default, :override => true)
-      value1 = LookupValue.create!(:value => "v1", :match => "hostgroup=Common", :lookup_key => key)
-      value2 = LookupValue.create!(:value => "v2", :match => "hostgroup=Unusual", :lookup_key => key)
-
-      @host1.puppetclasses << puppetclass
-      @host2.puppetclasses << puppetclass
-      @host3.puppetclasses << puppetclass
-    end
-
-    key.reload
-
-    assert_equal value1.value, HostInfoProviders::PuppetInfo.new(@host1).smart_variables['dns']
-    assert_equal value2.value, HostInfoProviders::PuppetInfo.new(@host2).smart_variables['dns']
-    assert_equal default, HostInfoProviders::PuppetInfo.new(@host3).smart_variables['dns']
-  end
-
   test 'default_value value should not be casted if override is false' do
     param = FactoryBot.build(:puppetclass_lookup_key, :as_smart_class_param,
-                              :override => false, :key_type => 'boolean',
-                              :default_value => 't', :puppetclass => puppetclasses(:one))
+      :override => false, :key_type => 'boolean',
+      :default_value => 't', :puppetclass => puppetclasses(:one))
     param.save
     assert_equal 't', param.default_value
     param.override = true
@@ -125,8 +97,8 @@ class LookupKeyTest < ActiveSupport::TestCase
   describe '#default_value_before_type_cast' do
     test 'nil value should remain nil' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'string',
-                                :default_value => nil, :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'string',
+        :default_value => nil, :puppetclass => puppetclasses(:one))
       param.valid?
       assert_nil param.default_value
       assert_nil param.default_value_before_type_cast
@@ -134,8 +106,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'boolean value should remain casted' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'boolean',
-                                :default_value => 'false', :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'boolean',
+        :default_value => 'false', :puppetclass => puppetclasses(:one))
       param.valid?
       assert_equal false, param.default_value
       assert_equal false, param.default_value_before_type_cast
@@ -143,8 +115,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'array value should be an unchanged string' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'array',
-                                :default_value => '["test"]', :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'array',
+        :default_value => '["test"]', :puppetclass => puppetclasses(:one))
       default = param.default_value
       param.valid?
       assert_equal ['test'], param.default_value
@@ -153,8 +125,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'JSON value should be an unchanged string' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'json',
-                                :default_value => '["test"]', :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'json',
+        :default_value => '["test"]', :puppetclass => puppetclasses(:one))
       default = param.default_value
       param.valid?
       assert_equal ['test'], param.default_value
@@ -163,8 +135,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'hash value should be an unchanged string' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'hash',
-                                :default_value => "foo: bar\n", :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'hash',
+        :default_value => "foo: bar\n", :puppetclass => puppetclasses(:one))
       param.valid?
       assert_equal({'foo' => 'bar'}, param.default_value)
       assert_equal "foo: bar\n", param.default_value_before_type_cast
@@ -172,8 +144,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'YAML value should be an unchanged string' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'yaml',
-                                :default_value => "- test\n", :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'yaml',
+        :default_value => "- test\n", :puppetclass => puppetclasses(:one))
       param.valid?
       assert_equal ['test'], param.default_value
       assert_equal "- test\n", param.default_value_before_type_cast
@@ -181,8 +153,8 @@ class LookupKeyTest < ActiveSupport::TestCase
 
     test 'uncast value containing ERB should be an unchanged string' do
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'array',
-                                :default_value => '["<%= @host.name %>"]', :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'array',
+        :default_value => '["<%= @host.name %>"]', :puppetclass => puppetclasses(:one))
       default = param.default_value
       param.valid?
       assert_equal '["<%= @host.name %>"]', param.default_value
@@ -192,22 +164,22 @@ class LookupKeyTest < ActiveSupport::TestCase
     test "when invalid, just returns the invalid value" do
       val = '{"foo" => "bar"}'
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'hash',
-                                :default_value => val, :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'hash',
+        :default_value => val, :puppetclass => puppetclasses(:one))
       refute param.valid?
       assert_equal val, param.default_value_before_type_cast
     end
 
     test "white space isn't stripped" do
-      val = <<EOF
+      val = <<~EOF
 
-this is a multiline value
-with leading and trailing whitespace
+        this is a multiline value
+        with leading and trailing whitespace
 
-EOF
+      EOF
       param = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'string',
-                                :default_value => val, :puppetclass => puppetclasses(:one))
+        :override => true, :key_type => 'string',
+        :default_value => val, :puppetclass => puppetclasses(:one))
       assert param.valid?
       assert_equal val, param.default_value_before_type_cast
     end
@@ -228,18 +200,6 @@ EOF
     assert_equal "-smart_variable", lookup_key.to_param
   end
 
-  test "when changed, an audit entry should be added" do
-    env = FactoryBot.create(:environment)
-    pc = FactoryBot.create(:puppetclass, :with_parameters, :environments => [env])
-    key = pc.class_params.first
-    assert_difference('Audit.count') do
-      key.override = true
-      key.default_value = "new default value"
-      key.save!
-    end
-    assert_equal pc.name, Audit.where(:auditable_type => 'PuppetclassLookupKey', :auditable_id => key.id).last.associated_name
-  end
-
   test "should create smart variable with the same name as class parameters" do
     env = FactoryBot.create(:environment)
     pc = FactoryBot.create(:puppetclass, :with_parameters, :environments => [env])
@@ -256,68 +216,68 @@ EOF
 
   test "should not be able to merge overrides for a string" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'string', :merge_overrides => true,
-                            :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'string', :merge_overrides => true,
+      :puppetclass => puppetclasses(:one))
     refute_valid key
     assert_equal key.errors[:merge_overrides].first, _("can only be set for array or hash")
   end
 
   test "should be able to merge overrides for a hash" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'hash', :merge_overrides => true,
-                            :default_value => {}, :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'hash', :merge_overrides => true,
+      :default_value => {}, :puppetclass => puppetclasses(:one))
     assert_valid key
   end
 
   test "should be able to merge overrides with default_value for a hash" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'hash', :merge_overrides => true, :merge_default => true,
-                            :default_value => {}, :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'hash', :merge_overrides => true, :merge_default => true,
+      :default_value => {}, :puppetclass => puppetclasses(:one))
     assert_valid key
   end
 
   test "should not be able to merge default when merge_override is false" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'hash', :merge_overrides => false, :merge_default => true,
-                            :default_value => {}, :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'hash', :merge_overrides => false, :merge_default => true,
+      :default_value => {}, :puppetclass => puppetclasses(:one))
     refute_valid key
     assert_equal "can only be set when merge overrides is set", key.errors[:merge_default].first
   end
 
   test "should not be able to avoid duplicates for a hash" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'hash', :merge_overrides => true, :avoid_duplicates => true,
-                            :default_value => {}, :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'hash', :merge_overrides => true, :avoid_duplicates => true,
+      :default_value => {}, :puppetclass => puppetclasses(:one))
     refute_valid key
     assert_equal key.errors[:avoid_duplicates].first, _("can only be set for arrays that have merge_overrides set to true")
   end
 
   test "should be able to merge overrides for a array" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
-                            :default_value => [], :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
+      :default_value => [], :puppetclass => puppetclasses(:one))
     assert_valid key
   end
 
   test "should not be able to avoid duplicates when merge_override is false" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'array', :merge_overrides => false, :avoid_duplicates => true,
-                            :default_value => [], :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'array', :merge_overrides => false, :avoid_duplicates => true,
+      :default_value => [], :puppetclass => puppetclasses(:one))
     refute_valid key
     assert_equal key.errors[:avoid_duplicates].first, _("can only be set for arrays that have merge_overrides set to true")
   end
 
   test "array key is valid even with string value containing erb" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
-                            :default_value => '<%= [1,2,3] %>', :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
+      :default_value => '<%= [1,2,3] %>', :puppetclass => puppetclasses(:one))
     assert key.valid?
   end
 
   test "array key is invalid with string value without erb" do
     key = FactoryBot.build_stubbed(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
-                            :default_value => 'whatever', :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
+      :default_value => 'whatever', :puppetclass => puppetclasses(:one))
     refute key.valid?
     assert_include key.errors.keys, :default_value
   end
@@ -340,8 +300,8 @@ EOF
   context "when key is a boolean and default_value is a string" do
     def setup
       @key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                               :override => true, :key_type => 'boolean',
-                               :default_value => 'whatever', :puppetclass => puppetclasses(:one), :omit => true)
+        :override => true, :key_type => 'boolean',
+        :default_value => 'whatever', :puppetclass => puppetclasses(:one), :omit => true)
     end
 
     test "default_value is not validated if omit is true" do
@@ -356,9 +316,9 @@ EOF
 
   test "override params are reset after override changes back to false" do
     @key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                              :override => true, :key_type => 'array',
-                              :default_value => '[]', :puppetclass => puppetclasses(:one),
-                              :omit => true)
+      :override => true, :key_type => 'array',
+      :default_value => '[]', :puppetclass => puppetclasses(:one),
+      :omit => true)
     override_params = [:merge_overrides, :merge_default, :avoid_duplicates]
 
     override_params.each { |param| @key.send("#{param}=", true) }
@@ -414,32 +374,32 @@ EOF
     invalid_parameters_data = [
       {
         :sc_type => 'boolean',
-        :value => RFauxFactory.gen_alphanumeric
+        :value => RFauxFactory.gen_alphanumeric,
       },
       {
         :sc_type => 'integer',
-        :value => RFauxFactory.gen_utf8
+        :value => RFauxFactory.gen_utf8,
       },
       {
         :sc_type => 'real',
-        :value => RFauxFactory.gen_utf8
+        :value => RFauxFactory.gen_utf8,
       },
       {
         :sc_type => 'array',
-        :value => '0'
+        :value => '0',
       },
       {
         :sc_type => 'hash',
-        :value => 'a:test'
+        :value => 'a:test',
       },
       {
         :sc_type => 'yaml',
-        :value => '{a:test}'
+        :value => '{a:test}',
       },
       {
         :sc_type => 'json',
-        :value => RFauxFactory.gen_alpha
-      }
+        :value => RFauxFactory.gen_alpha,
+      },
     ]
     lookup_key = lookup_keys(:five)
     invalid_parameters_data.each do |data|
@@ -454,36 +414,36 @@ EOF
     valid_parameters_data = [
       {
         :sc_type => 'string',
-        :value => RFauxFactory.gen_utf8
+        :value => RFauxFactory.gen_utf8,
       },
       {
         :sc_type => 'boolean',
-        :value => ['0', '1'].sample
+        :value => ['0', '1'].sample,
       },
       {
         :sc_type => 'integer',
-        :value => rand(1000..1 << 64)
+        :value => rand(1000..1 << 64),
       },
       {
         :sc_type => 'real',
-        :value => -123.0
+        :value => -123.0,
       },
       {
         :sc_type => 'array',
-        :value => "[#{RFauxFactory.gen_alpha}, #{RFauxFactory.gen_numeric_string.to_i}, #{RFauxFactory.gen_boolean}]"
+        :value => "[#{RFauxFactory.gen_alpha}, #{RFauxFactory.gen_numeric_string.to_i}, #{RFauxFactory.gen_boolean}]",
       },
       {
         :sc_type => 'hash',
-        :value => "{{'#{RFauxFactory.gen_alpha}': '#{RFauxFactory.gen_alpha}'}}"
+        :value => "{{'#{RFauxFactory.gen_alpha}': '#{RFauxFactory.gen_alpha}'}}",
       },
       {
         :sc_type => 'yaml',
-        :value => 'name=>XYZ'
+        :value => 'name=>XYZ',
       },
       {
         :sc_type => 'json',
-        :value => '{"name": "XYZ"}'
-      }
+        :value => '{"name": "XYZ"}',
+      },
     ]
     lookup_key = lookup_keys(:five)
     valid_parameters_data.each do |data|

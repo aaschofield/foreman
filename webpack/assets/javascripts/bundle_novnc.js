@@ -1,4 +1,9 @@
+/* eslint-disable jquery/no-data */
+/* eslint-disable jquery/no-attr */
+
 import RFB from '@novnc/novnc/core/rfb';
+import $ from 'jquery';
+import { sprintf, translate as __ } from './react_app/common/I18n';
 
 let rfb;
 const StatusLevelLookup = {
@@ -29,7 +34,7 @@ function showStatus(state, message) {
 function securityFailed(e) {
   let msg = '';
   if ('reason' in e.detail) {
-    msg = window.Jed.sprintf(
+    msg = sprintf(
       __('New connection has been rejected with reason: %'),
       e.detail.reason
     );

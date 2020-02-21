@@ -1,22 +1,22 @@
 require "fileutils"
 
 namespace :db do
-  desc <<-END_DESC
-Make a dump of your database
+  desc <<~END_DESC
+    Make a dump of your database
 
-Foreman will make a dump of your database at the provided location, or it will put it in #{File.expand_path('../../db', __dir__)} if no destination file is provided.
-A valid config/database.yml file with the database details is needed to perform this operation.
+    Foreman will make a dump of your database at the provided location, or it will put it in #{File.expand_path('../../db', __dir__)} if no destination file is provided.
+    A valid config/database.yml file with the database details is needed to perform this operation.
 
-Available conditions:
-  * destination => path to dump output file (defaults to #{File.expand_path('../../db', __dir__)}/foreman.EPOCH.sql)
-  * tables => optional comma separated list of tables (you can use regex to match multiple)
-              Specifies the list of tables to include in the dump.
-              This option works for postgres and mysql only.
-  Example:
-    rake db:dump destination=/mydir/dumps/foreman.sql RAILS_ENV=production # puts production dump in /mydir/dumps/foreman.sql
-    rake db:dump tables="hostgro.*"# will match ["hostgroup_classes", "hostgroups"]
+    Available conditions:
+      * destination => path to dump output file (defaults to #{File.expand_path('../../db', __dir__)}/foreman.EPOCH.sql)
+      * tables => optional comma separated list of tables (you can use regex to match multiple)
+                  Specifies the list of tables to include in the dump.
+                  This option works for postgres only.
+      Example:
+        rake db:dump destination=/mydir/dumps/foreman.sql RAILS_ENV=production # puts production dump in /mydir/dumps/foreman.sql
+        rake db:dump tables="hostgro.*"# will match ["hostgroup_classes", "hostgroups"]
 
-END_DESC
+  END_DESC
 
   task :dump => :environment do
     config      = Rails.configuration.database_configuration[Rails.env]
@@ -43,8 +43,6 @@ END_DESC
     end
     puts "Your backup is going to be created in: #{backup_name}"
     case config['adapter']
-    when 'mysql', 'mysql2'
-      mysql_dump(backup_name, config, tables)
     when 'postgresql'
       postgres_dump(backup_name, config, tables)
     when 'sqlite3'
@@ -54,16 +52,6 @@ END_DESC
     end
 
     puts "Completed."
-  end
-
-  def mysql_dump(name, config, tables = [])
-    cmd = "mysqldump --opt #{config['database']} -u #{config['username']} "
-    cmd += " -p#{config['password']} " if config['password'].present?
-    cmd += " -h #{config['host']} "    if config['host'].present?
-    cmd += " -P #{config['port']} "    if config['port'].present?
-    cmd += " #{tables.join(' ')} " if tables.present?
-    cmd += " > #{name}"
-    system(cmd)
   end
 
   def postgres_dump(name, config, tables = [])
@@ -91,18 +79,18 @@ END_DESC
     end.flatten
   end
 
-  desc <<-END_DESC
-Import a database dump
+  desc <<~END_DESC
+    Import a database dump
 
-Foreman will import a database from the provided location.
-A valid config/database.yml file with the database details is needed to perform this operation.
+    Foreman will import a database from the provided location.
+    A valid config/database.yml file with the database details is needed to perform this operation.
 
-Available conditions:
-  * file => database dump file path
+    Available conditions:
+      * file => database dump file path
 
-  Example:
-    rake db:import_dump file=/mydir/dumps/foreman.db RAILS_ENV=production # imports /mydir/dumps/foreman.db as the production db
-END_DESC
+      Example:
+        rake db:import_dump file=/mydir/dumps/foreman.db RAILS_ENV=production # imports /mydir/dumps/foreman.db as the production db
+  END_DESC
 
   task :import_dump => :environment do
     unless ENV['file']
@@ -118,8 +106,6 @@ END_DESC
     input = STDIN.gets.chomp
     abort("Bye!") unless input.downcase == "y"
     case config['adapter']
-    when 'mysql', 'mysql2'
-      mysql_import(ENV['file'], config)
     when 'postgresql'
       postgres_import(ENV['file'], config)
     when 'sqlite3'
@@ -129,15 +115,6 @@ END_DESC
     end
 
     puts "Completed."
-  end
-
-  def mysql_import(file, config)
-    cmd = "mysql #{config['database']} -u #{config['username']} "
-    cmd += " -p#{config['password']} " if config['password'].present?
-    cmd += " -h #{config['host']} "    if config['host'].present?
-    cmd += " -P #{config['port']} "    if config['port'].present?
-    cmd += " < #{file}"
-    system(cmd)
   end
 
   def postgres_import(file, config)

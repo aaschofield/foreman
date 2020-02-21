@@ -42,11 +42,13 @@ module Foreman #:nodoc:
     @report_scanner_registry = Plugin::ReportScannerRegistry.new
     @report_origin_registry = Plugin::ReportOriginRegistry.new
     @medium_providers = Plugin::MediumProvidersRegistry.new
+    @graphql_types_registry = Plugin::GraphqlTypesRegistry.new
 
     class << self
       attr_reader   :registered_plugins
       attr_accessor :tests_to_skip, :report_scanner_registry,
-                    :report_origin_registry, :medium_providers
+        :report_origin_registry, :medium_providers,
+        :graphql_types_registry
       private :new
 
       def def_field(*names)
@@ -111,15 +113,20 @@ module Foreman #:nodoc:
       def with_webpack
         all.select(&:uses_webpack?)
       end
+
+      def with_global_js
+        with_webpack.select { |plugin| plugin.global_js_files.present? }
+      end
     end
 
     prepend Foreman::Plugin::Assets
     prepend Foreman::Plugin::SearchOverrides
+    prepend Foreman::Plugin::GlobalJs
 
     def_field :name, :description, :url, :author, :author_url, :version, :path
     attr_reader :id, :logging, :provision_methods, :compute_resources, :to_prepare_callbacks,
-                :facets, :rbac_registry, :dashboard_widgets, :info_providers, :smart_proxy_references,
-                :renderer_variable_loaders
+      :facets, :rbac_registry, :dashboard_widgets, :info_providers, :smart_proxy_references,
+      :renderer_variable_loaders, :host_ui_description, :ping_extension, :status_extension
 
     # Lists plugin's roles:
     # Foreman::Plugin.find('my_plugin').registered_roles
@@ -142,6 +149,8 @@ module Foreman #:nodoc:
       @rabl_template_extensions = {}
       @smart_proxy_references = []
       @renderer_variable_loaders = []
+      @ping_extension = nil
+      @status_extension = nil
     end
 
     def report_scanner_registry
@@ -466,12 +475,12 @@ module Foreman #:nodoc:
       @smart_proxies.fetch(klass.name, {})
     end
 
-    def add_controller_action_scope(controller_class, action, &block)
-      controller_actions = @controller_action_scopes[controller_class.name] || {}
+    def add_controller_action_scope(controller_name, action, &block)
+      controller_actions = @controller_action_scopes[controller_name] || {}
       actions_list = controller_actions[action] || []
       actions_list << block
       controller_actions[action] = actions_list
-      @controller_action_scopes[controller_class.name] = controller_actions
+      @controller_action_scopes[controller_name] = controller_actions
     end
 
     def action_scopes_hash_for(controller_class)
@@ -518,6 +527,34 @@ module Foreman #:nodoc:
     def register_renderer_variable_loader(loader_name)
       @renderer_variable_loaders << loader_name
     end
+
+    def register_ping_extension(&block)
+      @ping_extension = block
+    end
+
+    def register_status_extension(&block)
+      @status_extension = block
+    end
+
+    delegate :graphql_types_registry, to: :class
+
+    def extend_graphql_type(type:, with_module: nil, &block)
+      graphql_types_registry.register_extension(type: type, with_module: with_module, &block)
+    end
+
+    def register_graphql_query_field(field_name, type, field_type)
+      graphql_types_registry.register_plugin_query_field(field_name, type, field_type)
+    end
+
+    def register_graphql_mutation_field(field_name, mutation_class)
+      graphql_types_registry.register_plugin_mutation_field(field_name, mutation_class)
+    end
+
+    def describe_host(&block)
+      @host_ui_description = UI.describe_host(&block)
+    end
+
+    delegate :subscribe, to: ActiveSupport::Notifications
 
     private
 

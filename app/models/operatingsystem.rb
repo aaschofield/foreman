@@ -36,10 +36,11 @@ class Operatingsystem < ApplicationRecord
             :uniqueness => { :scope => [:major, :minor], :message => N_("Operating system version already exists")}
   validates :description, :uniqueness => true, :allow_blank => true
   validates :password_hash, :inclusion => { :in => PasswordCrypt::ALGORITHMS }
+  validates :release_name, :presence => true, :if => Proc.new { |os| os.family == 'Debian' }
   before_validation :downcase_release_name, :set_title, :stringify_major_and_minor
   validates :title, :uniqueness => true, :presence => true
 
-  before_save :set_family
+  before_validation :set_family
 
   default_scope -> { order(:title) }
 
@@ -72,8 +73,10 @@ class Operatingsystem < ApplicationRecord
                'NXOS'      => %r{NX-OS}i,
                'Xenserver' => %r{XenServer}i }
 
+  graphql_type '::Types::Operatingsystem'
+
   class Jail < Safemode::Jail
-    allow :name, :media_url, :major, :minor, :family, :to_s, :repos, :==, :release, :release_name, :kernel, :initrd, :pxe_type, :medium_uri, :boot_files_uri, :password_hash
+    allow :name, :media_url, :major, :minor, :family, :to_s, :==, :release, :release_name, :kernel, :initrd, :pxe_type, :boot_files_uri, :password_hash, :mediumpath
   end
 
   def self.title_name
@@ -118,24 +121,6 @@ class Operatingsystem < ApplicationRecord
     families.map do |f|
       OpenStruct.new(:name => f.constantize.new.display_family, :value => f)
     end
-  end
-
-  # DEPRECATED - This will be removed in 1.22.
-  #
-  # This method is deprecated in favor of the additional media features of
-  # medium providers.
-  #
-  # Operating system family can override this method to provide an array of
-  # hashes, each describing a repository. For example, to describe a yum repo,
-  # the following structure can be returned by the method:
-  # [{ :baseurl => "https://dl.thesource.com/get/it/here",
-  #    :name => "awesome",
-  #    :description => "awesome product repo"",
-  #    :enabled => 1,
-  #    :gpgcheck => 1
-  #  }]
-  def repos(host)
-    []
   end
 
   # The OS is usually represented as the concatenation of the OS and the revision
@@ -186,13 +171,6 @@ class Operatingsystem < ApplicationRecord
     Net::DHCP::Record
   end
 
-  # Compatibility method, don't want to break all templates that use it.
-  def medium_uri(host)
-    Foreman::Deprecation.deprecation_warning("1.22", "medium_uri is now accessible through @medium_provider.medium_uri in templates")
-    @medium_provider = Foreman::Plugin.medium_providers.find_provider(host)
-    @medium_provider.medium_uri
-  end
-
   # sets the prefix for the tfp files based on medium unique identifier
   def pxe_prefix(medium_provider)
     unless medium_provider.is_a? MediumProviders::Provider
@@ -201,19 +179,17 @@ class Operatingsystem < ApplicationRecord
     "boot/#{medium_provider.unique_id}"
   end
 
-  def pxe_files(medium_provider, _arch = nil, host = nil)
-    # Try to maintain backwards compatibility, if medium_provider could be constructed - do it with a warning.
-    if host
-      Foreman::Deprecation.deprecation_warning("1.22", "Please provide a medium provider. It can be found as @medium_provider in templates, or Foreman::Plugin.medium_providers.find_provider(host)")
-      medium_provider = Foreman::Plugin.medium_providers.find_provider(host)
-    end
-
+  def pxe_files(medium_provider)
     unless medium_provider.is_a? MediumProviders::Provider
       raise Foreman::Exception.new(N_('Please provide a medium provider. It can be found as @medium_provider in templates, or Foreman::Plugin.medium_providers.find_provider(host)'))
     end
     boot_files_uri(medium_provider).collect do |img|
       { pxe_prefix(medium_provider).to_sym => img.to_s}
     end
+  end
+
+  def pxedir(medium_provider = nil)
+    ""
   end
 
   def kernel(medium_provider)
@@ -250,8 +226,18 @@ class Operatingsystem < ApplicationRecord
     return default_boot_filename if host.nil? || host.pxe_loader.nil?
     return host.foreman_url('iPXE') if host.pxe_loader == 'iPXE Embedded'
     architecture = host.arch.nil? ? '' : host.arch.bootfilename_efi
-    boot_uri = URI.parse(host.subnet.httpboot? ? host.subnet.httpboot.url : Setting[:unattended_url])
-    self.class.all_loaders_map(architecture, "#{boot_uri.host}:#{boot_uri.port}")[host.pxe_loader]
+    if host.subnet&.httpboot?
+      if host.pxe_loader =~ /UEFI HTTPS/
+        port = host.subnet.httpboot.setting(:HTTPBoot, 'https_port') || raise(::Foreman::Exception.new(N_("HTTPS boot requires proxy with httpboot feature and https_port exposed setting")))
+      else
+        port = host.subnet.httpboot.setting(:HTTPBoot, 'http_port') || raise(::Foreman::Exception.new(N_("HTTP boot requires proxy with httpboot feature and http_port exposed setting")))
+      end
+      hostname = URI.parse(host.subnet.httpboot.url).hostname
+      self.class.all_loaders_map(architecture, "#{hostname}:#{port}")[host.pxe_loader]
+    else
+      raise(::Foreman::Exception.new(N_("HTTP UEFI boot requires proxy with httpboot feature"))) if host.pxe_loader =~ /UEFI HTTP/
+      self.class.all_loaders_map(architecture)[host.pxe_loader]
+    end
   end
 
   # Does this OS family use release_name in its naming scheme
@@ -282,10 +268,14 @@ class Operatingsystem < ApplicationRecord
     description
   end
 
-  def deduce_family
-    self.family || self.class.families.find do |f|
+  def self.deduce_family(name)
+    families.find do |f|
       name =~ FAMILIES[f]
     end
+  end
+
+  def deduce_family
+    self.family || self.class.deduce_family(name)
   end
 
   def boot_files_uri(medium_provider, &block)
@@ -298,7 +288,7 @@ class Operatingsystem < ApplicationRecord
 
   def boot_file_sources(medium_provider, &block)
     @boot_file_sources ||= self.family.constantize::PXEFILES.transform_values do |img|
-      "#{medium_provider.medium_uri(pxedir, &block)}/#{img}"
+      "#{medium_provider.medium_uri(pxedir(medium_provider), &block)}/#{img}"
     end
   end
 
@@ -306,6 +296,10 @@ class Operatingsystem < ApplicationRecord
     options = []
     options << params['kernelcmd'] if params['kernelcmd']
     options
+  end
+
+  def mediumpath(medium_provider)
+    medium_provider.medium_uri.to_s
   end
 
   private

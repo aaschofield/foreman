@@ -13,6 +13,7 @@ module Hostext
 
       scoped_search :on => :name,          :complete_value => true, :default_order => true
       scoped_search :on => :last_report,   :complete_value => true, :only_explicit => true
+      scoped_search :on => :created_at,    :complete_value => true, :only_explicit => true
       scoped_search :on => :comment,       :complete_value => true
       scoped_search :on => :enabled,       :complete_value => {:true => true, :false => false}, :rename => :'status.enabled'
       scoped_search :on => :managed,       :complete_value => {:true => true, :false => false}
@@ -55,8 +56,8 @@ module Hostext
       scoped_search :relation => :operatingsystem, :on => :name,        :complete_value => true, :rename => :os
       scoped_search :relation => :operatingsystem, :on => :description, :complete_value => true, :rename => :os_description
       scoped_search :relation => :operatingsystem, :on => :title,       :complete_value => true, :rename => :os_title
-      scoped_search :relation => :operatingsystem, :on => :major,       :complete_value => true, :rename => :os_major, :only_explicit => true
-      scoped_search :relation => :operatingsystem, :on => :minor,       :complete_value => true, :rename => :os_minor, :only_explicit => true
+      scoped_search :relation => :operatingsystem, :on => :major,       :complete_value => true, :rename => :os_major, :only_explicit => true, :ext_method => :search_by_os_major
+      scoped_search :relation => :operatingsystem, :on => :minor,       :complete_value => true, :rename => :os_minor, :only_explicit => true, :ext_method => :search_by_os_minor
       scoped_search :relation => :operatingsystem, :on => :id,          :complete_enabled => false, :rename => :os_id, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
 
       scoped_search :relation => :primary_interface, :on => :ip, :complete_value => true
@@ -65,16 +66,16 @@ module Hostext
 
       scoped_search :relation => :puppetclasses, :on => :name, :complete_value => true, :rename => :class, :only_explicit => true, :operators => ['= ', '~ '], :ext_method => :search_by_puppetclass
       scoped_search :relation => :fact_values, :on => :value, :in_key => :fact_names, :on_key => :name, :rename => :facts, :complete_value => true, :only_explicit => true, :ext_method => :search_cast_facts
-      scoped_search :relation => :search_parameters, :on => :value, :on_key => :name, :complete_value => true, :rename => :params, :ext_method => :search_by_params, :only_explicit => true
+      scoped_search :relation => :search_parameters, :on => :name, :complete_value => true, :rename => :params_name, :only_explicit => true
+      scoped_search :relation => :search_parameters, :on => :searchable_value, :in_key => :search_parameters, :on_key => :name, :complete_value => true, :rename => :params, :ext_method => :search_by_params, :only_explicit => true, :operators => ['= ', '~ ']
 
-      if SETTINGS[:locations_enabled]
-        scoped_search :relation => :location, :on => :title, :rename => :location, :complete_value => true, :only_explicit => true
-        scoped_search :on => :location_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
-      end
-      if SETTINGS[:organizations_enabled]
-        scoped_search :relation => :organization, :on => :title, :rename => :organization, :complete_value => true, :only_explicit => true
-        scoped_search :on => :organization_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
-      end
+      scoped_search :relation => :reported_data, :on => :boot_time, :rename => 'boot_time', :only_explicit => true
+
+      scoped_search :relation => :location, :on => :title, :rename => :location, :complete_value => true, :only_explicit => true
+      scoped_search :on => :location_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
+      scoped_search :relation => :organization, :on => :title, :rename => :organization, :complete_value => true, :only_explicit => true
+      scoped_search :on => :organization_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
+
       scoped_search :relation => :config_groups, :on => :name, :complete_value => true, :rename => :config_group, :only_explicit => true, :operators => ['= ', '~ '], :ext_method => :search_by_config_group
 
       if SETTINGS[:unattended]
@@ -94,8 +95,6 @@ module Hostext
       scoped_search :relation => :search_users, :on => :lastname,  :complete_value => true, :only_explicit => true, :rename => :'user.lastname', :operators => ['= ', '~ '], :ext_method => :search_by_user
       scoped_search :relation => :search_users, :on => :mail,      :complete_value => true, :only_explicit => true, :rename => :'user.mail',     :operators => ['= ', '~ '], :ext_method => :search_by_user
       scoped_search :relation => :usergroups,   :on => :name,      :complete_value => true, :only_explicit => true, :rename => :'usergroup.name', :aliases => [:usergroup]
-
-      cattr_accessor :fact_values_table_counter
     end
 
     module ClassMethods
@@ -109,11 +108,35 @@ module Hostext
         end
         key_name = User.connection.quote_column_name(clean_key)
         condition = sanitize_sql_for_conditions(["#{key_name} #{operator} ?", value_to_sql(operator, value)])
-        users = User.where(condition)
-        hosts = users.map(&:hosts).flatten
-        opts  = hosts.empty? ? "< 0" : "IN (#{hosts.map(&:id).join(',')})"
 
-        {:conditions => " hosts.id #{opts} " }
+        user_ids = User.where(condition).reorder(nil).pluck(:id)
+
+        return { conditions: '1 = 0' } if user_ids.empty?
+
+        usergroup_ids = CachedUsergroupMember.where(user_id: user_ids)
+                                             .reorder(nil)
+                                             .distinct
+                                             .pluck(:usergroup_id)
+
+        sql = <<-SQL
+          hosts.owner_id IS NOT NULL
+            AND
+          (
+            (
+              hosts.owner_type = 'User'
+                AND
+              hosts.owner_id IN (?)
+            )
+              OR
+            (
+              hosts.owner_type = 'Usergroup'
+                AND
+              hosts.owner_id IN (?)
+            )
+          )
+        SQL
+
+        { conditions: sanitize_sql_array([sql, user_ids, usergroup_ids]) }
       end
 
       def search_by_puppetclass(key, operator, value)
@@ -148,28 +171,25 @@ module Hostext
 
       def search_by_params(key, operator, value)
         key_name = key.sub(/^.*\./, '')
-        condition = sanitize_sql_for_conditions(["name = ? and value #{operator} ?", key_name, value_to_sql(operator, value)])
+        condition = sanitize_sql_for_conditions(["name = ? and searchable_value #{operator} ?", key_name, value_to_sql(operator, value)])
         p = Parameter.where(condition).reorder(:priority)
         return {:conditions => '1 = 0'} if p.blank?
 
-        max         = p.first.priority
-        condition   = sanitize_sql_for_conditions(["name = ? and NOT(value #{operator} ?) and priority > ?", key_name, value_to_sql(operator, value), max])
-        n           = Parameter.where(condition).reorder(:priority)
+        max = p.first.priority
+        condition = sanitize_sql_for_conditions(["name = ? and NOT(searchable_value #{operator} ?) and priority > ?", key_name, value_to_sql(operator, value), max])
+        n = Parameter.where(condition).reorder(:priority)
 
         conditions = param_conditions(p)
         negate = param_conditions(n)
 
         conditions += " AND " unless conditions.blank? || negate.blank?
         conditions += " NOT(#{negate})" if negate.present?
-        {
-          :joins =>  :primary_interface,
-          :conditions => conditions
-        }
+        {:joins => :primary_interface, :conditions => conditions}
       end
 
       def search_by_config_group(key, operator, value)
         conditions = sanitize_sql_for_conditions(["config_groups.name #{operator} ?", value_to_sql(operator, value)])
-        host_ids      = Host::Managed.where(conditions).joins(:config_groups).distinct.pluck('hosts.id')
+        host_ids = Host::Managed.where(conditions).joins(:config_groups).distinct.pluck('hosts.id')
         hostgroup_ids = Hostgroup.unscoped.with_taxonomy_scope.where(conditions).joins(:config_groups).distinct.map(&:subtree_ids).flatten.uniq
 
         opts = ''
@@ -195,11 +215,40 @@ module Hostext
       end
 
       def search_cast_facts(key, operator, value)
-        table_id = self.fact_values_table_counter = (self.fact_values_table_counter || 0) + 1
+        in_query = FactValue.joins(:fact_name).select(:host_id).
+                    where("#{FactName.table_name}.name = ?", key.split('.', 2).last).
+                    where(cast_facts(FactValue.table_name, key, operator, value)).to_sql
         {
-          :joins => %{ INNER JOIN fact_values fact_values_#{table_id} ON (hosts.id = fact_values_#{table_id}.host_id) INNER JOIN fact_names fact_names_#{table_id} ON (fact_names_#{table_id}.id = fact_values_#{table_id}.fact_name_id)},
-          :conditions => "#{sanitize_sql_for_conditions(["fact_names_#{table_id}.name = ?", key.split('.')[1]])} AND #{cast_facts("fact_values_#{table_id}", key, operator, value)}"
+          :conditions => "#{Host::Managed.table_name}.id in (#{in_query})",
         }
+      end
+
+      def search_by_os_major(key, operator, value)
+        condition = sanitize_sql_for_conditions(["CAST(major AS DECIMAL) #{operator} ?", value_to_sql(operator, value.to_f)])
+        operatingsystem_ids = Operatingsystem.select(:id).where(condition).pluck('operatingsystems.id').join(',')
+        {:conditions => "hosts.operatingsystem_id IN (#{operatingsystem_ids})"}
+      end
+
+      def search_by_os_minor(key, operator, value)
+        y, z = value.split(".")
+        z ||= 0
+        operatingsystem_ids = []
+        Operatingsystem.all.find_each do |os|
+          os_y, os_z = os.minor.split('.')
+          os_z ||= 0
+          operator_addition1 = (operator.length == 1) ? "=" : ""
+          operator_addition2 = (operator == "=") ? "=" : ""
+          if os_y.to_i.public_send(operator + operator_addition1, y.to_i)
+            if os_y == y
+              if os_z.to_i.public_send(operator + operator_addition2, z.to_i)
+                operatingsystem_ids.append(os.id)
+              end
+            else
+              operatingsystem_ids.append(os.id)
+            end
+          end
+        end
+        {:conditions => "hosts.operatingsystem_id IN (#{operatingsystem_ids.join(',')})"}
       end
 
       private

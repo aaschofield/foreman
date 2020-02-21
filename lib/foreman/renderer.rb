@@ -28,17 +28,16 @@ module Foreman
         file
       end
 
-      def get_source(klass: Foreman::Renderer::Source::Database, template:, **args)
+      def get_source(klass: nil, template:, **args)
+        klass ||= Foreman::Renderer::Source::Database
         klass.new(template)
       end
 
-      # rubocop:disable Metrics/ParameterLists
       def get_scope(source: nil, klass: nil, host: nil, params: {}, variables: {}, mode: REAL_MODE, template: nil, template_input_values: {})
         source ||= get_source(template: template)
         klass ||= template&.default_render_scope_class || Foreman::Renderer::Scope::Provisioning
         klass.new(source: source, host: host, params: params, variables: variables, mode: mode, template_input_values: template_input_values)
       end
-      # rubocop:enable Metrics/ParameterLists
 
       def renderer
         Setting[:safemode_render] ? Foreman::Renderer::SafeModeRenderer : Foreman::Renderer::UnsafeModeRenderer

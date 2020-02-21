@@ -13,15 +13,6 @@ trap "rm -rf $REPO" EXIT
 git clone -q -b $(git symbolic-ref -q HEAD --short) \
   https://github.com/theforeman/community-templates $REPO/ct
 
-# add underscore prefix to snippets
-if [ -d $REPO/ct/provisioning_templates/snippet/ ];
-then
-  for i in $REPO/ct/provisioning_templates/snippet/*;
-  do
-    mv $i $REPO/ct/provisioning_templates/snippet/_$(basename $i)
-  done
-fi
-
 # move into destination dir if run from Foreman root
 [ -d app/views/unattended ] && cd app/views/unattended
 
@@ -31,6 +22,7 @@ rsync -r \
   --exclude '.*' \
   --exclude test \
   --exclude Rakefile \
+  --exclude Gemfile \
   --exclude 'job_templates/' \
   $REPO/ct/ ./
 
@@ -40,5 +32,5 @@ git status -- app/views/unattended
 
 if [ $(git status --porcelain -u -- app/views/unattended | grep -c '^\?') -gt 0 ]; then
   echo
-  echo "Warning: new files copied, add them to db/seeds.d/"
+  echo "Warning: new files copied, update template snapshot tests using 'RAILS_ENV=test rake snapshots:generate' "
 fi

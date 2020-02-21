@@ -4,13 +4,13 @@ class AwsServerTest < ActiveSupport::TestCase
   setup { Fog.mock! }
   teardown { Fog.unmock! }
 
-  let(:server) { Fog::Compute::AWS::Server.new }
+  let(:server) { Fog::AWS::Compute::Server.new }
   let(:instance_id) { "i-#{Fog::Mock.random_hex(8)}" }
 
   test "#to_s and #name return name from tags" do
     server.expects(:tags).at_least_once.returns(
       {
-        'Name' => 'test.example.com'
+        'Name' => 'test.example.com',
       }
     )
     assert_equal 'test.example.com', server.to_s

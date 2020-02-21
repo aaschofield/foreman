@@ -14,18 +14,16 @@ class Template < ApplicationRecord
   validate :template_changes, :if => ->(template) { (template.locked? || template.locked_changed?) && template.persisted? && !Foreman.in_rake? }
   validate :inputs_unchanged_when_locked, :if => ->(template) { (template.locked? || template.locked_changed?) && template.persisted? && !Foreman.in_rake? }
   validate do
-    begin
-      validate_unique_inputs!
-    rescue Foreman::Exception => e
-      errors.add :base, e.message
-    end
+    validate_unique_inputs!
+  rescue Foreman::Exception => e
+    errors.add :base, e.message
   end
 
   before_destroy :check_if_template_is_locked
 
   before_save :remove_trailing_chars
 
-  attr_exportable :name, :snippet, :template_inputs, :model => ->(template) { template.class.to_s }
+  attr_exportable :name, :description, :snippet, :template_inputs, :model => ->(template) { template.class.to_s }
 
   class Jail < Safemode::Jail
     allow :name
@@ -50,16 +48,11 @@ class Template < ApplicationRecord
   end
 
   def metadata
-    "<%#\n#{to_export(false).to_yaml.sub(/\A---$/, '').strip}\n%>\n"
+    "<%#\n#{to_export(false).to_yaml.sub(/\A---$/, '').strip}\n-%>\n"
   end
 
   def to_erb
-    if self.template.start_with?('<%#')
-      metadata + template_without_metadata
-    else
-      lines = template_without_metadata.split("\n")
-      [ lines[0], metadata.chomp, lines[1..-1] ].flatten.join("\n")
-    end
+    metadata + template_without_metadata
   end
 
   def template_without_metadata
@@ -93,6 +86,7 @@ class Template < ApplicationRecord
     Foreman::Logging.logger('app').debug "setting attributes for #{self.name} with id: #{self.id || 'N/A'}"
     self.snippet = !!@importing_metadata[:snippet]
     self.default = options[:default] unless options[:default].nil?
+    self.description = @importing_metadata[:description]
     handle_lock_on_import(options)
 
     import_taxonomies(options)
@@ -167,8 +161,8 @@ class Template < ApplicationRecord
     self.class.log_render_results?
   end
 
-  def render(host: nil, params: {}, variables: {}, mode: Foreman::Renderer::REAL_MODE, template_input_values: {})
-    source = Foreman::Renderer.get_source(template: self, host: host)
+  def render(host: nil, params: {}, variables: {}, mode: Foreman::Renderer::REAL_MODE, template_input_values: {}, source_klass: nil)
+    source = Foreman::Renderer.get_source(template: self, host: host, klass: source_klass)
     scope = Foreman::Renderer.get_scope(host: host, params: params, variables: variables, mode: mode, template: self, source: source, template_input_values: template_input_values)
     Foreman::Renderer.render(source, scope)
   end

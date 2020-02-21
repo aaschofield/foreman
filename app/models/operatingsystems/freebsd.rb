@@ -8,16 +8,16 @@ class Freebsd < Operatingsystem
 
   # Simple output of the media url
   def mediumpath(medium_provider)
-    medium_provider.to_s do |vars|
+    medium_provider.medium_uri do |vars|
       transform_vars(vars)
-    end
+    end.to_s
   end
 
   def pxe_type
     "memdisk"
   end
 
-  def pxedir
+  def pxedir(medium_provider = nil)
     "boot/$arch/images"
   end
 
@@ -26,9 +26,9 @@ class Freebsd < Operatingsystem
   end
 
   def initrd(medium_provider)
-    medium_provider.interpolate_vars("boot/FreeBSD-$arch-$release-mfs.img") do |vars|
+    medium_provider.interpolate_vars("boot/FreeBSD-$arch-$version-mfs.img") do |vars|
       transform_vars(vars)
-    end
+    end.to_s
   end
 
   def display_family

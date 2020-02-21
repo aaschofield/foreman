@@ -15,6 +15,9 @@ require 'webmock/minitest'
 require 'webmock'
 require 'robottelo/reporter/attributes'
 
+# FactoryBot 5 changed the default to 'true'
+FactoryBot.use_parent_strategy = false
+
 # Do not allow network connections and external processes
 WebMock.disable_net_connect!(allow_localhost: true)
 
@@ -44,8 +47,8 @@ def valid_name_list
   [
     RFauxFactory.gen_alpha(1),
     RFauxFactory.gen_alpha(255),
-    *RFauxFactory.gen_strings(1..255, exclude: [:html]).values,
-    RFauxFactory.gen_html(rand((1..230)))
+    *RFauxFactory.gen_strings(1..255, exclude: [:html]).values.map {|x| x.truncate_bytes(255, omission: '')},
+    RFauxFactory.gen_html(rand((1..230))),
   ]
 end
 
@@ -56,7 +59,7 @@ def invalid_name_list
     ' ',
     '  ',
     "\t",
-    *RFauxFactory.gen_strings(256).values
+    *RFauxFactory.gen_strings(256).values,
   ]
 end
 
@@ -150,6 +153,32 @@ class ActionController::TestCase
   end
 end
 
+class GraphQLQueryTestCase < ActiveSupport::TestCase
+  let(:variables) { {} }
+  let(:context_user) { FactoryBot.create(:user, :admin) }
+  let(:context) {{ current_user: context_user }}
+  let(:result) { ForemanGraphqlSchema.execute(query, variables: variables, context: context) }
+
+  def assert_record(expected, actual, type_name: nil)
+    assert_not_nil expected
+    type_name ||= ForemanGraphqlSchema.resolve_type(nil, expected, nil)&.name || expected.class.name
+    assert_equal Foreman::GlobalId.encode(type_name, expected.id), actual['id']
+  end
+
+  def assert_collection(expected, actual, type_name: nil)
+    assert expected.any?
+    assert_equal expected.count, actual['totalCount']
+
+    expected_global_ids = expected.map do |r|
+      t_name = type_name || ForemanGraphqlSchema.resolve_type(nil, r, nil)&.name || r.class.name
+      Foreman::GlobalId.encode(t_name, r.id)
+    end
+    actual_global_ids = actual['edges'].map { |e| e['node']['id'] }
+
+    assert_same_elements expected_global_ids, actual_global_ids
+  end
+end
+
 def clear_plugins
   @klass = Foreman::Plugin
   @plugins_backup = @klass.registered_plugins
@@ -167,4 +196,21 @@ def with_auditing(klass)
   yield
 ensure
   klass.disable_auditing unless auditing_was_enabled
+end
+
+def json_response
+  ActiveSupport::JSON.decode(response.body)
+end
+
+def json_data(key)
+  data = json_response.fetch('data', {})
+  data.fetch(key, {})
+end
+
+def json_errors
+  json_response.fetch('errors', [])
+end
+
+def json_error_messages
+  json_errors.map { |e| e.fetch('message') }
 end

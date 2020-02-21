@@ -69,7 +69,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
       @proxy = smart_proxies(:puppetmaster)
       classes = {
         'ignored-class' => {},
-        'not-ignored-class' => {}
+        'not-ignored-class' => {},
       }
       @proxy_api = ProxyAPI::Puppet.new(:url => @proxy.url)
       @proxy_api.stubs(:classes).returns(classes)
@@ -117,7 +117,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
       @proxy = smart_proxies(:puppetmaster)
       classes = {
         'ignored-class' => {},
-        'not-ignored-class' => {}
+        'not-ignored-class' => {},
       }
       @proxy_api = ProxyAPI::Puppet.new(:url => @proxy.url)
       @proxy_api.stubs(:classes).returns(classes)
@@ -185,7 +185,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
     lk = FactoryBot.build(:puppetclass_lookup_key, :as_smart_class_param, :default_value => 'first', :puppetclass => pc)
 
     updated = get_an_instance.send(:update_classes_in_foreman, env.name,
-                                  {pc.name => {'updated' => [lk.key]}})
+      {pc.name => {'updated' => [lk.key]}})
     assert_not_nil updated
   end
 
@@ -194,7 +194,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
     pc = FactoryBot.create(:puppetclass, :environments => [env])
 
     get_an_instance.send(:update_classes_in_foreman, env.name,
-                        {pc.name => {'new' => {'test_nil_param' => nil}}})
+      {pc.name => {'new' => {'test_nil_param' => nil}}})
     lk = PuppetclassLookupKey.where(:key => 'test_nil_param').first
     refute lk.override
     refute lk.required
@@ -205,11 +205,11 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
     pc = FactoryBot.create(:puppetclass, :environments => envs)
 
     get_an_instance.send(:update_classes_in_foreman, envs.first.name,
-                         {pc.name => {'new' => {'2_env_param' => 'first'}}})
+      {pc.name => {'new' => {'2_env_param' => 'first'}}})
     assert_equal 'first', PuppetclassLookupKey.where(:key => '2_env_param').first.default_value
 
     get_an_instance.send(:update_classes_in_foreman, envs.last.name,
-                        {pc.name => {'updated' => {'2_env_param' => 'last'}}})
+      {pc.name => {'updated' => {'2_env_param' => 'last'}}})
     assert_equal 'last', PuppetclassLookupKey.where(:key => '2_env_param').first.default_value
   end
 
@@ -222,7 +222,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
     test 'from one environment' do
       lks = FactoryBot.create_list(:puppetclass_lookup_key, 2, :as_smart_class_param, :puppetclass => @pc)
       get_an_instance.send(:update_classes_in_foreman, @envs.first.name,
-                           {@pc.name => {'obsolete' => [lks.first.key]}})
+        {@pc.name => {'obsolete' => [lks.first.key]}})
       assert_equal [@envs.last], lks.first.environments
       assert_equal @envs.to_a.sort, lks.last.environments.to_a.sort
     end
@@ -230,7 +230,7 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
     test 'when overridden' do
       lks = FactoryBot.create_list(:puppetclass_lookup_key, 2, :as_smart_class_param, :with_override, :puppetclass => @pc)
       get_an_instance.send(:update_classes_in_foreman, @envs.first.name,
-                           {@pc.name => {'obsolete' => [lks.first.key]}})
+        {@pc.name => {'obsolete' => [lks.first.key]}})
       assert_equal [@envs.last], lks.first.environments
       assert_equal @envs.to_a.sort, lks.last.environments.sort
     end
@@ -239,9 +239,9 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
       lks = FactoryBot.create_list(:puppetclass_lookup_key, 2, :as_smart_class_param, :with_override, :puppetclass => @pc)
       lval = lks.first.lookup_values.first
       get_an_instance.send(:update_classes_in_foreman, @envs.first.name,
-                           {@pc.name => {'obsolete' => [lks.first.key]}})
+        {@pc.name => {'obsolete' => [lks.first.key]}})
       get_an_instance.send(:update_classes_in_foreman, @envs.last.name,
-                           {@pc.name => {'obsolete' => [lks.first.key]}})
+        {@pc.name => {'obsolete' => [lks.first.key]}})
       refute PuppetclassLookupKey.find_by_id(lks.first.id)
       refute LookupValue.find_by_id(lval.id)
       assert_equal @envs.to_a.sort, lks.last.environments.to_a.sort
@@ -249,10 +249,10 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
   end
 
   test "should detect correct environments for import" do
-    org_a = FactoryBot.build(:organization, :name => "OrgA")
-    loc_a = FactoryBot.build(:location, :name => "LocA")
-    org_b = FactoryBot.build(:organization, :name => "OrgB")
-    loc_b = FactoryBot.build(:location, :name => "LocB")
+    org_a = FactoryBot.create(:organization, :name => "OrgA")
+    loc_a = FactoryBot.create(:location, :name => "LocA")
+    org_b = FactoryBot.create(:organization, :name => "OrgB")
+    loc_b = FactoryBot.create(:location, :name => "LocB")
     b_role = roles(:manager).clone :name => 'b_role'
     b_role.add_permissions! [:destroy_external_parameters, :edit_external_parameters, :create_external_parameters, :view_external_parameters]
     a_user = FactoryBot.create(:user, :organizations => [org_a], :locations => [loc_a], :roles => [roles(:manager)], :login => 'a_user')
@@ -287,8 +287,8 @@ class PuppetClassImporterTest < ActiveSupport::TestCase
       "apache::service" => {
         "name"   => "service",
         "params" => { "port" => "80", "version" => "2.0" },
-        "module" => "apache"
-      }
+        "module" => "apache",
+      },
     }]
     Hash[pcs.map { |k| [k.keys.first, Foreman::ImporterPuppetclass.new(k.values.first)] }]
   end

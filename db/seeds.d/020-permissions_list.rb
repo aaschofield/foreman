@@ -23,6 +23,8 @@ class PermissionsList
         ['ComputeResource', 'create_compute_resources'],
         ['ComputeResource', 'edit_compute_resources'],
         ['ComputeResource', 'destroy_compute_resources'],
+        ['ComputeResource', 'power_vm_compute_resources'],
+        ['ComputeResource', 'destroy_vm_compute_resources'],
         ['ComputeResource', 'view_compute_resources_vms'],
         ['ComputeResource', 'create_compute_resources_vms'],
         ['ComputeResource', 'edit_compute_resources_vms'],
@@ -184,7 +186,8 @@ class PermissionsList
         ['User', 'view_users'],
         ['User', 'create_users'],
         ['User', 'edit_users'],
-        ['User', 'destroy_users']
+        ['User', 'destroy_users'],
+        [nil, 'view_statuses'],
       ]
     end
   end

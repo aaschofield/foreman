@@ -100,6 +100,7 @@ const userChildren = [
     url: '/architectures',
   },
 ];
+
 const infrastructureChildren = [
   {
     type: 'item',
@@ -113,20 +114,28 @@ const infrastructureChildren = [
   },
 ];
 
+const namelessChildren = [
+  {
+    type: 'item',
+    url: '/nameless',
+  },
+  {
+    type: 'divider',
+  },
+];
+
 const hashItemsA = [
   {
     type: 'sub_menu',
     name: 'Monitor',
     icon: 'fa fa-tachometer',
     children: monitorChildren,
-    active: false,
   },
   {
     type: 'sub_menu',
     name: 'Hosts',
     icon: 'fa fa-server',
     children: hostsChildren,
-    active: false,
   },
 ];
 
@@ -136,18 +145,23 @@ const hashItemsB = [
     name: 'User',
     icon: 'fa fa-wrench',
     children: userChildren,
-    active: false,
   },
   {
     type: 'sub_menu',
     name: 'Infrastructure',
     icon: 'pficon pficon-network',
     children: infrastructureChildren,
-    active: false,
   },
 ];
 
-export const serverItems = [...hashItemsA, ...hashItemsB];
+export const hashItemNameless = [
+  {
+    type: 'sub_menu',
+    name: 'Empty',
+    icon: 'pficon pficon-unplugged',
+    children: namelessChildren,
+  },
+];
 
 const logo =
   '/assets/header_logo-c9614c16f2ee399ae9cb7f36ec94b9a26bf8cf9eabaa7fe6099bf80d1f7940db.svg';
@@ -158,6 +172,7 @@ const user = {
       login: 'admin',
       firstname: 'Admin',
       lastname: 'User',
+      name: 'Admin User',
     },
   },
   user_dropdown: [
@@ -176,6 +191,15 @@ const organizations = {
     { id: 1, title: 'org1', href: '/organizations/1-org1/select' },
     { id: 2, title: 'org2', href: '/organizations/2-org2/select' },
   ],
+  many_organizations: [
+    { id: 1, title: 'org1', href: '/organizations/1-org1/select' },
+    { id: 2, title: 'org2', href: '/organizations/2-org2/select' },
+    { id: 3, title: 'org3', href: '/organizations/3-org3/select' },
+    { id: 4, title: 'org4', href: '/organizations/4-org4/select' },
+    { id: 5, title: 'org5', href: '/organizations/5-org5/select' },
+    { id: 6, title: 'org6', href: '/organizations/6-org6/select' },
+    { id: 7, title: 'org7', href: '/organizations/7-org7/select' },
+  ],
 };
 
 const locations = {
@@ -192,6 +216,7 @@ const serverUser = {
     user: {
       firstname: 'G',
       lastname: 'L',
+      name: 'G L',
     },
   },
   user_dropdown: [
@@ -211,6 +236,9 @@ const serverUser = {
 export const layoutMock = {
   items: PFitems,
   activeMenu: 'Monitor',
+  history: {
+    push: jest.fn(),
+  },
   data: {
     menu: [...hashItemsA, ...hashItemsB],
     locations,
@@ -220,6 +248,7 @@ export const layoutMock = {
     notification_url: '/notification_recipients',
     taxonomies: { locations: true, organizations: true },
     user,
+    stop_impersonation_url: '/users/stop_impersonation',
   },
 };
 

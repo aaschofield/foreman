@@ -34,16 +34,16 @@ module Foreman
             'Found more than one provider for %{entity}. Valid providers: %{providers}' %
             {
               entity: entity,
-              providers: providers.map { |provider| provider.class.friendly_name }
+              providers: providers.map { |provider| provider.class.friendly_name },
             })
         end
 
         unless valid_providers.present?
-          logger.error(
+          logger.warn(
             'Could not find a provider for %{entity}. Providers returned %{errors}' %
             {
               entity: entity,
-              errors: provider_instances.map { |provider| [provider.class.friendly_name, provider.errors] }.to_h
+              errors: provider_instances.map { |provider| [provider.class.friendly_name, provider.errors] }.to_h,
             })
         end
 

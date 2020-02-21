@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <%#
 kind: provision
 name: AutoYaST SLES default
@@ -11,7 +10,7 @@ oses:
   os_minor = @host.operatingsystem.minor.to_i
   # safemode renderer does not support unary negation
   pm_set = @host.puppetmaster.empty? ? false : true
-  aio_enabled = host_param_true?('enable-puppetlabs-puppet5-repo') || host_param_true?('enable-puppetlabs-pc1-repo') || host_param_true?('enable-puppet4') || host_param_true?('enable-puppet5')
+  aio_enabled = host_param_true?('enable-puppetlabs-puppet5-repo') || host_param_true?('enable-puppet5')
   puppet_enabled = pm_set || host_param_true?('force-puppet')
   salt_enabled = host_param('salt_master') ? true : false
   sles_minor_string = (os_minor == 0) ? '' : "_SP#{os_minor}"
@@ -20,6 +19,7 @@ oses:
   primary_interface_identifier = @host.primary_interface.identifier.blank? ? 'eth0' : @host.primary_interface.identifier
   primary_interface_subnet = @host.primary_interface.subnet
 -%>
+<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE profile>
 <profile xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns">
   <general>
@@ -37,11 +37,10 @@ oses:
 <% if @host.domain -%>
       <domain><%= @host.domain -%></domain>
 <% end -%>
-<% if primary_interface_subnet.dns_primary.present? -%>
+<% unless primary_interface_subnet.dns_servers.empty? -%>
       <nameservers config:type="list">
-        <nameserver><%= primary_interface_subnet.dns_primary -%></nameserver>
-<% if primary_interface_subnet.dns_secondary.present? -%>
-        <nameserver><%= primary_interface_subnet.dns_secondary -%></nameserver>
+<% primary_interface_subnet.dns_servers.each do |nameserver| -%>
+        <nameserver><%= nameserver %></nameserver>
 <% end -%>
       </nameservers>
 <% end -%>
@@ -92,6 +91,19 @@ oses:
     </routing>
 <% end -%>
   </networking>
+<% if os_major >= 15 -%>
+  <ntp-client>
+    <ntp_policy>auto</ntp_policy>
+    <ntp_servers config:type="list">
+      <ntp_server>
+        <address><%= host_param('ntp-server') || '0.opensuse.pool.ntp.org' %></address>
+        <iburst config:type="boolean">false</iburst>
+        <offline config:type="boolean">true</offline>
+      </ntp_server>
+    </ntp_servers>
+    <ntp_sync>15</ntp_sync>
+  </ntp-client>
+<% else -%>
   <ntp-client>
     <configure_dhcp config:type="boolean">false</configure_dhcp>
     <peers config:type="list">
@@ -105,6 +117,7 @@ oses:
     <start_at_boot config:type="boolean">true</start_at_boot>
     <start_in_chroot config:type="boolean">true</start_in_chroot>
   </ntp-client>
+<% end -%>
 <% if ! @dynamic -%>
   <%= @host.diskLayout %>
 <% end -%>
@@ -118,9 +131,18 @@ oses:
     </services>
   </runlevel>
   <software>
+<% if os_major >= 15 -%>
+    <products config:type="list">
+      <product>SLES</product>
+    </products>
+    <patterns config:type="list">
+      <pattern>enhanced_base</pattern>
+    </patterns>
+<% else -%>
     <patterns config:type="list">
       <pattern>Minimal</pattern>
     </patterns>
+<% end -%>
     <packages config:type="list">
       <package>lsb-release</package>
       <package>openssh</package>
@@ -200,7 +222,7 @@ cp /etc/resolv.conf /mnt/etc
 <%= snippet 'redhat_register' %>
 <% end -%>
 
-/usr/bin/curl -o /dev/null -k '<%= foreman_url('built') %>'
+<%= snippet 'built' %>
 
 rm /etc/resolv.conf
 ]]>
@@ -217,10 +239,32 @@ rm /etc/resolv.conf
   </timezone>
   <add-on>
     <add_on_products config:type="list">
+<% if os_major >= 15 && host_param('sle-module-basesystem-url') -%>
+      <listentry>
+        <media_url><%= host_param('sle-module-basesystem-url') %></media_url>
+        <product_dir>/Module-Basesystem</product_dir>
+        <product>sle-module-basesystem</product>
+      </listentry>
+  <% if os_minor >= 1 && host_param('sle-module-basesystem-url') -%>
+      <listentry>
+        <media_url><%= host_param('sle-module-basesystem-url') %></media_url>
+        <product_dir>/Module-Python2</product_dir>
+        <product>sle-module-python2</product>
+      </listentry>
+  <% end -%>
+<% end -%>
 <% if puppet_enabled -%>
-<% if host_param_true?('enable-puppetlabs-pc1-repo') -%>
+<% if host_param_true?('enable-puppetlabs-puppet6-repo') || host_param_true?('enable-puppetlabs-puppet5-repo') -%>
+<%
+  puppet_repo_url_base = 'http://yum.puppet.com'
+  if host_param_true?('enable-puppetlabs-puppet6-repo')
+    puppet_repo_url = "#{puppet_repo_url_base}/puppet6/sles/#{os_major}/#{@host.architecture}/"
+  elsif host_param_true?('enable-puppetlabs-puppet5-repo')
+    puppet_repo_url = "#{puppet_repo_url_base}/puppet5/sles/#{os_major}/#{@host.architecture}/"
+  end
+%>
     <listentry>
-        <media_url><![CDATA[http://yum.puppetlabs.com/sles/<%= os_major %>/PC1/<%= @host.architecture %>/]]></media_url>
+        <media_url><![CDATA[<%= puppet_repo_url %>]]></media_url>
         <name>puppet</name>
         <product>puppet</product>
         <product_dir>/</product_dir>

@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { ListView, Row } from 'patternfly-react';
 import SearchLink from './SearchLink';
+import ShowInlineRequestUuid from './ShowInlineRequestUuid';
 import ShowOrgsLocs from './ShowOrgsLocs';
 import ActionLinks from './ActionLinks';
 import ExpansiveView from './ExpansiveView';
@@ -34,7 +35,11 @@ const renderAdditionalInfoItems = items =>
 
 const renderTimestamp = date => (
   <span className="gray-text">
-    <ShortDateTime date={date} defaultValue={__('N/A')} />
+    <ShortDateTime
+      date={date}
+      defaultValue={__('N/A')}
+      showRelativeTimeTooltip
+    />
   </span>
 );
 
@@ -52,11 +57,13 @@ const renderResourceLink = (auditTitle, auditTitleUrl, id) => {
   return auditTitle;
 };
 
-const AuditsList = ({ data: { audits } }) => (
-  <ListView>
-    {audits.map(
-      (
-        {
+const AuditsList = ({ data: { audits }, fetchAndPush }) => {
+  const initExpanded = audits.length === 1;
+
+  return (
+    <ListView>
+      {audits.map(
+        ({
           id,
           created_at: createdAt,
           audited_type_name: auditedTypeName,
@@ -69,64 +76,73 @@ const AuditsList = ({ data: { audits } }) => (
           affected_organizations: affectedOrganizations,
           affected_locations: affectedLocations,
           allowed_actions: allowedActions,
+          request_uuid: requestUuid,
           comment,
           audited_changes_with_id_to_label: auditedChangesWithIdToLabel,
           details,
-        },
-        index
-      ) => (
-        <ListView.Item
-          id={id}
-          key={id}
-          className={
-            remoteAddress
-              ? 'main-info-minimize-padding'
-              : 'main-info-maximize-padding'
-          }
-          actions={renderTimestamp(createdAt)}
-          additionalInfo={renderAdditionalInfoItems([
-            auditedTypeName.toUpperCase(),
-            renderResourceLink(auditTitle, auditTitleUrl, id),
-          ])}
-          heading={
-            <UserDetails
-              isAuditLogin={isAuditLogin(auditedChanges)}
-              userInfo={userInfo}
-              remoteAddress={remoteAddress}
-            />
-          }
-          description={description(actionDisplayName)}
-          stacked={false}
-          hideCloseIcon
-        >
-          <Row>
-            <ShowOrgsLocs
-              orgs={affectedOrganizations}
-              locs={affectedLocations}
-            />
-            <ActionLinks allowedActions={allowedActions} />
-          </Row>
+        }) => (
+          <ListView.Item
+            id={id}
+            key={id}
+            className={
+              remoteAddress
+                ? 'main-info-minimize-padding'
+                : 'main-info-maximize-padding'
+            }
+            actions={renderTimestamp(createdAt)}
+            additionalInfo={renderAdditionalInfoItems([
+              auditedTypeName.toUpperCase(),
+              renderResourceLink(auditTitle, auditTitleUrl, id),
+            ])}
+            heading={
+              <UserDetails
+                isAuditLogin={isAuditLogin(auditedChanges)}
+                userInfo={userInfo}
+                remoteAddress={remoteAddress}
+              />
+            }
+            description={description(actionDisplayName)}
+            stacked={false}
+            hideCloseIcon
+            initExpanded={initExpanded}
+          >
+            <Row>
+              <ShowOrgsLocs
+                orgs={affectedOrganizations}
+                locs={affectedLocations}
+              />
+              <ActionLinks allowedActions={allowedActions} />
+            </Row>
 
-          <ExpansiveView
-            {...{
-              actionDisplayName,
-              details,
-              comment,
-              auditTitle,
-              auditedChanges,
-              auditedChangesWithIdToLabel,
-            }}
-          />
-        </ListView.Item>
-      )
-    )}
-  </ListView>
-);
+            <Row>
+              <ShowInlineRequestUuid
+                fetchAndPush={fetchAndPush}
+                requestUuid={requestUuid}
+                id={id}
+              />
+            </Row>
 
+            <ExpansiveView
+              {...{
+                actionDisplayName,
+                details,
+                comment,
+                auditTitle,
+                auditedChanges,
+                auditedChangesWithIdToLabel,
+              }}
+            />
+          </ListView.Item>
+        )
+      )}
+    </ListView>
+  );
+};
 AuditsList.propTypes = {
   data: PropTypes.shape({
     audits: PropTypes.array.isRequired,
   }).isRequired,
+  fetchAndPush: PropTypes.func.isRequired,
 };
 
 export default AuditsList;

@@ -111,6 +111,19 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
     assert_not_empty available_images
   end
 
+  test "should get available virtual machines" do
+    vm = Object.new
+    vm.stubs(:name).returns('some_vm')
+    vm.stubs(:id).returns('123456')
+
+    Foreman::Model::EC2.any_instance.stubs(:available_virtual_machines).returns([vm])
+
+    get :available_virtual_machines, params: { :id => compute_resources(:ovirt).to_param }
+    assert_response :success
+    available_virtual_machines = ActiveSupport::JSON.decode(@response.body)
+    assert_not_empty available_virtual_machines
+  end
+
   test "should get available networks" do
     network = Object.new
     network.stubs(:name).returns('test_network')
@@ -172,6 +185,18 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
     assert Foreman.is_uuid?(show_response["datacenter"])
   end
 
+  test "should update with datacenter name" do
+    compute_resource = compute_resources(:ovirt)
+    Foreman::Model::Ovirt.any_instance.stubs(:datacenters).returns([["test", Foreman.uuid]])
+    Foreman::Model::Ovirt.any_instance.stubs(:test_connection).returns(true)
+
+    attrs = { :datacenter => 'test' }
+    post :update, params: { :id => compute_resource.id, :compute_resource => attrs }
+    assert_response :created
+    show_response = ActiveSupport::JSON.decode(@response.body)
+    assert Foreman.is_uuid?(show_response["datacenter"])
+  end
+
   context 'cache refreshing' do
     test 'should refresh cache if supported' do
       put :refresh_cache, params: { :id => compute_resources(:vmware).to_param }
@@ -180,7 +205,7 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
 
     test 'should fail if unsupported' do
       put :refresh_cache, params: { :id => compute_resources(:ovirt).to_param }
-      assert_response :unprocessable_entity
+      assert_response :error
     end
   end
 
@@ -258,30 +283,52 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
     end
   end
 
-  test "should get specific vmware storage domain" do
-    storage_domain = Object.new
-    storage_domain.stubs(:name).returns('test_vmware_cluster')
-    storage_domain.stubs(:id).returns('my11-test35-uuid99')
+  test "should get specific vmware storage domain - the deprecated way" do
+    storage_domain = OpenStruct.new(id: 'my11-test35-uuid99', name: 'test_vmware_datastore')
 
-    Foreman::Model::Vmware.any_instance.expects(:available_storage_domains).with('test_vmware_cluster').returns([storage_domain])
+    Foreman::Model::Vmware.any_instance.expects(:storage_domain).with('test_vmware_datastore').returns(storage_domain)
 
-    get :available_storage_domains, params: { :id => compute_resources(:vmware).to_param, :storage_domain => 'test_vmware_cluster' }
+    Foreman::Deprecation.expects(:api_deprecation_warning)
+
+    get :available_storage_domains, params: { :id => compute_resources(:vmware).to_param, :storage_domain => 'test_vmware_datastore' }
     assert_response :success
     available_storage_domains = ActiveSupport::JSON.decode(@response.body)
     assert_equal storage_domain.id, available_storage_domains['results'].first.try(:[], 'id')
   end
 
-  test "should get specific vmware storage pod" do
-    storage_pod = Object.new
-    storage_pod.stubs(:name).returns('test_vmware_pod')
-    storage_pod.stubs(:id).returns('group-p123456')
+  test "should get specific vmware storage domain" do
+    storage_domain = OpenStruct.new(id: 'my11-test35-uuid99', name: 'test_vmware_datastore')
 
-    Foreman::Model::Vmware.any_instance.expects(:available_storage_pods).with('test_vmware_pod').returns([storage_pod])
+    Foreman::Model::Vmware.any_instance.expects(:storage_domain).with('test_vmware_datastore').returns(storage_domain)
+
+    get :storage_domain, params: { :id => compute_resources(:vmware).to_param, :storage_domain_id => 'test_vmware_datastore' }
+    assert_response :success
+    storage_domain_response = ActiveSupport::JSON.decode(@response.body)
+    assert_equal storage_domain.id, storage_domain_response.try(:[], 'id')
+  end
+
+  test "should get specific vmware storage pod - the deprecated way" do
+    storage_pod = OpenStruct.new(id: 'group-p123456', name: 'test_vmware_pod')
+
+    Foreman::Model::Vmware.any_instance.expects(:storage_pod).with('test_vmware_pod').returns(storage_pod)
+
+    Foreman::Deprecation.expects(:api_deprecation_warning)
 
     get :available_storage_pods, params: { :id => compute_resources(:vmware).to_param, :storage_pod => 'test_vmware_pod' }
     assert_response :success
     available_storage_pods = ActiveSupport::JSON.decode(@response.body)
     assert_equal storage_pod.id, available_storage_pods['results'].first.try(:[], 'id')
+  end
+
+  test "should get specific vmware storage pod" do
+    storage_pod = OpenStruct.new(id: 'group-p123456', name: 'test_vmware_pod')
+
+    Foreman::Model::Vmware.any_instance.expects(:storage_pod).with('test_vmware_pod').returns(storage_pod)
+
+    get :storage_pod, params: { :id => compute_resources(:vmware).to_param, :storage_pod_id => 'test_vmware_pod' }
+    assert_response :success
+    storage_pod_response = ActiveSupport::JSON.decode(@response.body)
+    assert_equal storage_pod.id, storage_pod_response.try(:[], 'id')
   end
 
   test "should associate hosts that match" do
@@ -393,6 +440,11 @@ class Api::V2::ComputeResourcesControllerTest < ActionController::TestCase
   test "should not create with same name" do
     post :create, params: { :compute_resource => { :name => compute_resources(:mycompute).name, :provider => 'libvirt' } }
     assert_response :unprocessable_entity, "Can create libvirt compute resource with the name of already existing resource"
+  end
+
+  test "should not update with unknown provider" do
+    post :create, params: { :compute_resource => { :name => compute_resources(:mycompute).name, :provider => 'unknown' } }
+    assert_response :unprocessable_entity, "unknown provider"
   end
 
   test "should not update with already taken name" do

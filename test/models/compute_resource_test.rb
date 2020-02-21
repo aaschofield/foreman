@@ -75,7 +75,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
   end
 
   test "libvirt: 'G' suffix should be appended to libvirt volume capacity if none was specified" do
-    volume = OpenStruct.new(:capacity => 10)
+    volume = OpenStruct.new(:capacity => 10, :allocation => '10')
     volume.stubs(:save!).returns(true)
 
     result = Foreman::Model::Libvirt.new.send(:create_volumes, {:prefix => 'test', :volumes => [volume]})
@@ -84,7 +84,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
   end
 
   test "libvirt: no exceptions should be raised if a 'G' suffix was specified for volume capacity" do
-    volume = OpenStruct.new(:capacity => "10G")
+    volume = OpenStruct.new(:capacity => "10G", :allocation => "10G")
     volume.stubs(:save!).returns(true)
 
     assert_nothing_raised { Foreman::Model::Libvirt.new.send(:create_volumes, {:prefix => 'test', :volumes => [volume]}) }
@@ -132,7 +132,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
       {
         'EC2' => 'Foreman::Model::EC2',
         'Libvirt' => 'Best::Provider::Libvirt',  # prefer plugin classes
-        'MyBest' => 'Best::Provider::MyBest'
+        'MyBest' => 'Best::Provider::MyBest',
       },
       ComputeResource.providers
     )
@@ -145,7 +145,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
       {
         'EC2' => 'Foreman::Model::EC2',
         'Libvirt' => 'Best::Provider::Libvirt',  # prefer plugin classes
-        'MyBest' => 'Best::Provider::MyBest'
+        'MyBest' => 'Best::Provider::MyBest',
       },
       ComputeResource.all_providers
     )
@@ -224,6 +224,12 @@ class ComputeResourceTest < ActiveSupport::TestCase
     assert_equal host, as_admin { cr.send(:associate_by, 'mac', '00:22:33:44:55:1a') }
   end
 
+  test "#associate_by returns host by MAC attribute with upper case MAC" do
+    host = FactoryBot.create(:host, :mac => '00:22:33:44:C8:1A')
+    cr = FactoryBot.build_stubbed(:compute_resource)
+    assert_equal host, as_admin { cr.send(:associate_by, 'mac', '00:22:33:44:c8:1a') }
+  end
+
   test "#associated_by returns read/write host" do
     FactoryBot.create(:host, :mac => '00:22:33:44:55:1a')
     cr = FactoryBot.build_stubbed(:compute_resource)
@@ -259,7 +265,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
     before do
       plain_attrs = {
         :id => 'abc',
-        :cpus => 5
+        :cpus => 5,
       }
       @vm = mock()
       @vm.stubs(:attributes).returns(plain_attrs)
@@ -274,7 +280,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
 
       @volumes = [
         vol1,
-        vol2
+        vol2,
       ]
     end
 
@@ -285,8 +291,8 @@ class ComputeResourceTest < ActiveSupport::TestCase
         :cpus => 5,
         :volumes_attributes => {
           "0" => { :vol => 1 },
-          "1" => { :vol => 2 }
-        }
+          "1" => { :vol => 2 },
+        },
       }
       attrs = @cr.vm_compute_attributes_for('abc')
 
@@ -295,7 +301,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
 
     test "returns correct vm attributes when vm does not respond to volumes" do
       expected_attrs = {
-        :cpus => 5
+        :cpus => 5,
       }
       attrs = @cr.vm_compute_attributes_for('abc')
 
@@ -307,7 +313,7 @@ class ComputeResourceTest < ActiveSupport::TestCase
 
       expected_attrs = {
         :cpus => 5,
-        :volumes_attributes => {}
+        :volumes_attributes => {},
       }
       attrs = @cr.vm_compute_attributes_for('abc')
 

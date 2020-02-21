@@ -2,9 +2,9 @@ module ComputeResourcesVmsHelper
   def vm_power_actions(host, vm)
     button_group(
       if vm
-        html_opts = vm.ready? ? {:confirm => _('Are you sure?'), :class => "btn btn-danger"} : {:class => "btn btn-success"}
+        html_opts = vm.ready? ? {:data => {:confirm => _('Are you sure?')}, :class => "btn btn-danger"} : {:class => "btn btn-success"}
         link_to_if_authorized _("Power%s") % state(vm.ready?), hash_for_power_host_path(:power_action => vm.ready? ? :stop : :start).merge(:auth_object => host, :permission => 'power_hosts'),
-        html_opts.merge(:method => :put)
+          html_opts.merge(:method => :put)
       else
         link_to(_("Unknown Power State"), '#', :disabled => true, :class => "btn btn-warning")
       end
@@ -14,7 +14,7 @@ module ComputeResourcesVmsHelper
   def vm_console(host, vm)
     if vm&.ready?
       link_to_if_authorized(_("Console"), hash_for_console_host_path().merge(:auth_object => host, :permission => 'console_hosts'),
-                            { :class => "btn btn-info" })
+        { :class => "btn btn-info" })
     else
       link_to(_("Console"), '#', {:disabled => true, :class => "btn btn-info"})
     end
@@ -51,7 +51,7 @@ module ComputeResourcesVmsHelper
   def spice_data_attributes(console)
     options = {
       :port     => console[:proxy_port],
-      :password => console[:password]
+      :password => console[:password],
     }
     if supports_spice_xpi?
       options.merge!(
@@ -65,16 +65,16 @@ module ComputeResourcesVmsHelper
     options
   end
 
-  def libvirt_networks(compute)
-    networks   = compute.networks
+  def libvirt_networks(compute_resource)
+    networks   = compute_resource.networks
     select     = []
     select << [_('Physical (Bridge)'), :bridge]
     select << [_('Virtual (NAT)'), :network] if networks.any?
     select
   end
 
-  def vsphere_networks(compute_resource)
-    networks = compute_resource.networks
+  def vsphere_networks(compute_resource, cluster_id = nil)
+    networks = compute_resource.networks(cluster_id: cluster_id)
     networks.map do |net|
       net_id = net.id
       net_name = net.name
@@ -84,9 +84,9 @@ module ComputeResourcesVmsHelper
   end
 
   def available_actions(vm, authorizer = nil)
-    return default_available_actions(vm, authorizer) unless defined? Fog::Compute::OpenStack::Server
+    return default_available_actions(vm, authorizer) unless defined? Fog::OpenStack::Compute::Server
     case vm
-    when Fog::Compute::OpenStack::Server
+    when Fog::OpenStack::Compute::Server
       openstack_available_actions(vm, authorizer)
     else
       default_available_actions(vm, authorizer)
@@ -171,8 +171,15 @@ module ComputeResourcesVmsHelper
   end
 
   def vsphere_resource_pools(form, compute_resource, disabled = false)
-    resource_pools = compute_resource.available_resource_pools(:cluster_id => form.object.cluster) rescue []
-    selectable_f form, :resource_pool, resource_pools, { }, :class => "col-md-2", :label => _('Resource pool'), :disabled => disabled
+    if form.object.cluster
+      options = {}
+      resource_pools = compute_resource.available_resource_pools(:cluster_id => form.object.cluster) rescue []
+    else
+      disabled = true
+      options = { include_blank: _('Please select a cluster') }
+      resource_pools = []
+    end
+    selectable_f form, :resource_pool, resource_pools, options, :class => "col-md-2", :label => _('Resource pool'), :disabled => disabled
   end
 
   def vms_table
@@ -193,6 +200,10 @@ module ComputeResourcesVmsHelper
     params['start'].to_i + 1 + [@vms.length, params['length'].to_i].min
   end
 
+  def ovirt_storage_domains_for_select(compute_resource)
+    compute_resource.storage_domains.map { |sd| OpenStruct.new({ id: sd.id, label: "#{sd.name} (" + _("Available") + ": #{sd.available.to_i / 1.gigabyte} GiB, " + _("Used") + ": #{sd.used.to_i / 1.gigabyte} GiB)" }) }
+  end
+
   def ovirt_vms_data
     data = @vms.map do |vm|
       [
@@ -201,8 +212,8 @@ module ComputeResourcesVmsHelper
         number_to_human_size(vm.memory),
         "<span #{vm_power_class(vm.ready?)}>#{vm_state(vm)}</span>",
         action_buttons(vm_power_action(vm, authorizer),
-                       vm_import_action(vm),
-                       display_delete_if_authorized(hash_for_compute_resource_vm_path(:compute_resource_id => @compute_resource, :id => vm.id).merge(:auth_object => @compute_resource, :authorizer => authorizer)))
+          vm_import_action(vm),
+          display_delete_if_authorized(hash_for_compute_resource_vm_path(:compute_resource_id => @compute_resource, :id => vm.id).merge(:auth_object => @compute_resource, :authorizer => authorizer))),
       ]
     end
     JSON.fast_generate(data).html_safe
@@ -212,9 +223,9 @@ module ComputeResourcesVmsHelper
     display_delete_if_authorized(hash_for_compute_resource_vm_path(:compute_resource_id => @compute_resource, :id => vm.identity).merge(:auth_object => @compute_resource, :authorizer => authorizer), :class => 'btn btn-danger')
   end
 
-  def vsphere_scsi_controllers(compute)
+  def vsphere_scsi_controllers(compute_resource)
     scsi_controllers = {}
-    compute.scsi_controller_types.each { |type| scsi_controllers[type[:key]] = type[:title] }
+    compute_resource.scsi_controller_types.each { |type| scsi_controllers[type[:key]] = type[:title] }
     scsi_controllers
   end
 
@@ -233,13 +244,25 @@ module ComputeResourcesVmsHelper
 
   def vm_import_action(vm, html_options = {})
     return unless Host.for_vm(@compute_resource, vm).empty?
-    display_link_if_authorized(
-      _("Import"),
+
+    import_managed_link = display_link_if_authorized(
+      _("Import as managed Host"),
       hash_for_import_compute_resource_vm_path(
         :compute_resource_id => @compute_resource,
-        :id => vm.identity),
-        html_options
+        :id => vm.identity,
+        :type => 'managed'),
+      html_options
     )
+    import_unmanaged_link = display_link_if_authorized(
+      _("Import as unmanaged Host"),
+      hash_for_import_compute_resource_vm_path(
+        :compute_resource_id => @compute_resource,
+        :id => vm.identity,
+        :type => 'unmanaged'),
+      html_options
+    )
+
+    import_managed_link + import_unmanaged_link
   end
 
   def vm_associate_action(vm)
@@ -251,9 +274,9 @@ module ComputeResourcesVmsHelper
       ).merge(
         :auth_object => @compute_resource,
         :permission => 'edit_compute_resources'),
-        :title => _("Associate VM to a Foreman host"),
-        :method => :put,
-        :class => "btn btn-default"
+      :title => _("Associate VM to a Foreman host"),
+      :method => :put,
+      :class => "btn btn-default"
     )
   end
 
@@ -266,7 +289,7 @@ module ComputeResourcesVmsHelper
         :id => vm.identity
       ),
       {
-        :class => "btn btn-info"
+        :class => "btn btn-info",
       }
     )
   end

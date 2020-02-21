@@ -6,6 +6,8 @@ class ComputeResource < ApplicationRecord
   include Parameterizable::ByIdName
   encrypts :password
 
+  ALLOWED_KEYBOARD_LAYOUTS = %w(ar de-ch es fo fr-ca hu ja mk no pt-br sv da en-gb et fr fr-ch is lt nl pl ru th de en-us fi fr-be hr it lv nl-be pt sl tr)
+
   validates_lengths_from_database
 
   serialize :attrs, Hash
@@ -38,6 +40,8 @@ class ComputeResource < ApplicationRecord
     end
   }
 
+  graphql_type '::Types::ComputeResource'
+
   def self.supported_providers
     {
       'Libvirt'   => 'Foreman::Model::Libvirt',
@@ -46,7 +50,7 @@ class ComputeResource < ApplicationRecord
       'Vmware'    => 'Foreman::Model::Vmware',
       'Openstack' => 'Foreman::Model::Openstack',
       'Rackspace' => 'Foreman::Model::Rackspace',
-      'GCE'       => 'Foreman::Model::GCE'
+      'GCE'       => 'Foreman::Model::GCE',
     }
   end
 
@@ -169,8 +173,8 @@ class ComputeResource < ApplicationRecord
   end
 
   # return a list of virtual machines
-  def vms(opts = {})
-    client.servers
+  def vms(attrs = {})
+    client.servers(attrs)
   end
 
   def supports_vms_pagination?
@@ -247,6 +251,14 @@ class ComputeResource < ApplicationRecord
     false
   end
 
+  def storage_domain(storage_domain)
+    raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
+  end
+
+  def storage_pod(storage_pod)
+    raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
+  end
+
   def available_zones
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
@@ -255,7 +267,11 @@ class ComputeResource < ApplicationRecord
     []
   end
 
-  def available_networks
+  def available_virtual_machines
+    raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
+  end
+
+  def available_networks(cluster_id = nil)
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
@@ -279,11 +295,11 @@ class ComputeResource < ApplicationRecord
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
-  def available_storage_domains(storage_domain = nil)
+  def available_storage_domains(cluster_id = nil)
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
-  def available_storage_pods(storage_pod = nil)
+  def available_storage_pods(cluster_id = nil)
     raise ::Foreman::Exception.new(N_("Not implemented for %s"), provider_friendly_name)
   end
 
@@ -314,13 +330,26 @@ class ComputeResource < ApplicationRecord
     self.attrs[:setpw] = nil
   end
 
-  # this method is overwritten for Libvirt & VMWare
+  # this method is overwritten for Libvirt, oVirt & VMWare
   def display_type=(_)
   end
 
-  # this method is overwritten for Libvirt & VMWare
+  # this method is overwritten for Libvirt, oVirt & VMWare
   def display_type
     nil
+  end
+
+  # this method is overwritten for oVirt
+  def keyboard_layout=(_)
+  end
+
+  # this method is overwritten for oVirt
+  def keyboard_layout
+    nil
+  end
+
+  def keyboard_layouts
+    ALLOWED_KEYBOARD_LAYOUTS
   end
 
   def compute_profile_for(id)
@@ -345,6 +374,7 @@ class ComputeResource < ApplicationRecord
     vm_attrs = vm_attrs.reject {|k, v| k == :id }
 
     vm_attrs = set_vm_volumes_attributes(vm, vm_attrs)
+    vm_attrs = set_vm_interfaces_attributes(vm, vm_attrs)
     vm_attrs
   end
 
@@ -415,6 +445,7 @@ class ComputeResource < ApplicationRecord
   end
 
   def associate_by(name, attributes)
+    attributes = Array.wrap(attributes).map { |mac| Net::Validations.normalize_mac(mac) } if name == 'mac'
     Host.authorized(:view_hosts, Host).joins(:primary_interface).
       where(:nics => {:primary => true}).
       where("nics.#{name}" => attributes).
@@ -438,5 +469,9 @@ class ComputeResource < ApplicationRecord
 
   def ensure_provider_not_changed
     errors.add(:provider, _("cannot be changed")) if self.type_changed?
+  end
+
+  def set_vm_interfaces_attributes(_vm, vm_attrs)
+    vm_attrs
   end
 end

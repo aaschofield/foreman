@@ -79,18 +79,18 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
   end
 
   test "destroy should fail with assoicated hosts" do
-    config_template = templates(:pxekickstart)
-    delete :destroy, params: { :id => config_template.to_param }, session: set_session_user
+    provisioning_template = templates(:pxekickstart)
+    delete :destroy, params: { :id => provisioning_template.to_param }, session: set_session_user
     assert_redirected_to provisioning_templates_url
-    assert ProvisioningTemplate.unscoped.exists?(config_template.id)
+    assert ProvisioningTemplate.unscoped.exists?(provisioning_template.id)
   end
 
   test "destroy" do
-    config_template = templates(:pxekickstart)
-    config_template.os_default_templates.clear
-    delete :destroy, params: { :id => config_template.to_param }, session: set_session_user
+    provisioning_template = templates(:pxekickstart)
+    provisioning_template.os_default_templates.clear
+    delete :destroy, params: { :id => provisioning_template.to_param }, session: set_session_user
     assert_redirected_to provisioning_templates_url
-    assert !ProvisioningTemplate.unscoped.exists?(config_template.id)
+    assert !ProvisioningTemplate.unscoped.exists?(provisioning_template.id)
   end
 
   test "audit comment" do
@@ -119,13 +119,17 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
       TemplateKind::PXE.each do |kind|
         next if kind == 'iPXE'
         ["chainload", "discovery"].each do |snippet_type|
-          snippet = File.read(File.expand_path(File.dirname(__FILE__) + "/../../app/views/unattended/provisioning_templates/snippet/_#{kind.downcase}_#{snippet_type}.erb"))
+          snippet = File.read(File.expand_path(File.dirname(__FILE__) + "/../../app/views/unattended/provisioning_templates/snippet/#{kind.downcase}_#{snippet_type}.erb"))
           ProvisioningTemplate.create!(:name => "#{kind.downcase}_#{snippet_type}", :template => snippet, :snippet => true)
         end
+
         template = File.read(File.expand_path(File.dirname(__FILE__) + "/../../app/views/unattended/provisioning_templates/#{kind}/#{kind.downcase}_global_default.erb"))
         template_kind = TemplateKind.find_by :name => kind
         ProvisioningTemplate.find_or_create_by(:name => "#{kind} global default").update(:template => template, :template_kind => template_kind)
       end
+      mac = File.read(File.expand_path(File.dirname(__FILE__) + "/../../app/views/unattended/provisioning_templates/snippet/pxegrub2_mac.erb"))
+      ProvisioningTemplate.create!(:name => "pxegrub2_mac", :template => mac, :snippet => true)
+
       ProxyAPI::TFTP.any_instance.stubs(:fetch_boot_file).returns(true)
       Setting[:unattended_url] = "http://foreman.unattended.url"
       @request.env['HTTP_REFERER'] = provisioning_templates_path
@@ -180,7 +184,7 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
       hg = FactoryBot.build(:hostgroup, :name => "hg", :operatingsystem => operatingsystems(:centos5_3), :architecture => architectures(:x86_64), :medium => media(:one))
       FactoryBot.create(:template_combination, :provisioning_template => templates(:mystring2), :hostgroup => hg)
       ProxyAPI::TFTP.any_instance.stubs(:create_default).returns(true)
-      Redhat.any_instance.expects(:pxe_files) do |_, __, host|
+      Redhat.any_instance.expects(:pxe_files) do |_medium_provider, _arch, host|
         host.name == "hg"
       end.at_least(1)
       get :build_pxe_default, session: set_session_user
@@ -194,14 +198,14 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
 
     # works for given host
     post :preview, params: { :preview_host_id => host.id, :template => '<%= @host.name -%>', :id => template }, session: set_session_user
-    assert_equal host.hostname.to_s, @response.body
+    assert_equal host.hostname.to_s.to_json, @response.body
 
     # without host specified it uses first one
     post :preview, params: { :template => '<%= 1+1 -%>', :id => template }, session: set_session_user
-    assert_equal '2', @response.body
+    assert_equal '2'.to_json, @response.body
 
     post :preview, params: { :template => '<%= 1+1 -%>' }, session: set_session_user
-    assert_equal '2', @response.body
+    assert_equal '2'.to_json, @response.body
 
     post :preview, params: { :template => '<%= 1+ -%>', :id => template }, session: set_session_user
     assert_includes @response.body, 'parse error on value'
@@ -215,12 +219,12 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
         :name => 'foo',
         :template => '#nocontent',
         :template_kind_id => TemplateKind.find_by_name('iPXE').id,
-        :template_combinations_attributes => { '3923' => template_combination }
+        :template_combinations_attributes => { '3923' => template_combination },
       }
       assert_difference('TemplateCombination.unscoped.count', 1) do
         assert_difference('ProvisioningTemplate.unscoped.count', 1) do
           post :create, params: {
-            :provisioning_template => provisioning_template
+            :provisioning_template => provisioning_template,
           }, session: set_session_user
         end
       end
@@ -242,10 +246,10 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
               '0' => {
                 :id => @template_combination.id,
                 :environment_id => new_environment.id,
-                :hostgroup_id => @template_combination.hostgroup.id
-              }
-            }
-          }
+                :hostgroup_id => @template_combination.hostgroup.id,
+              },
+            },
+          },
         }, session: set_session_user
         assert_response :found
         as_admin do
@@ -262,10 +266,10 @@ class ProvisioningTemplatesControllerTest < ActionController::TestCase
               :template_combinations_attributes => {
                 '0' => {
                   :id => @template_combination.id,
-                  :_destroy => 1
-                }
-              }
-            }
+                  :_destroy => 1,
+                },
+              },
+            },
           }, session: set_session_user
         end
         assert_response :found

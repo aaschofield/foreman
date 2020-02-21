@@ -6,7 +6,7 @@ class Api::V2::SmartProxiesControllerTest < ActionController::TestCase
   include SmartProxiesControllerSharedTest
 
   setup do
-    ProxyAPI::Features.any_instance.stubs(:features => Feature.name_map.keys)
+    stub_smart_proxy_v2_features
   end
 
   test "should get index" do
@@ -224,8 +224,8 @@ class Api::V2::SmartProxiesControllerTest < ActionController::TestCase
         Environment.destroy_all
         assert_difference('Puppetclass.unscoped.count', 1) do
           post :import_puppetclasses,
-               params: { :id => smart_proxies(:puppetmaster).id }.merge(dryrun_param),
-               session: set_session_user
+            params: { :id => smart_proxies(:puppetmaster).id }.merge(dryrun_param),
+            session: set_session_user
         end
       end
       assert_response :success

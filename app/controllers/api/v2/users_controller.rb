@@ -37,6 +37,13 @@ module Api
       def show
       end
 
+      api :GET, "/current_user", N_("Show the currently logged-in user")
+
+      def show_current
+        @user = User.current
+        render :show
+      end
+
       def_param_group :user_params do
         param :login, String, :required => true
         param :firstname, String, :required => false
@@ -45,8 +52,8 @@ module Api
         param :description, String, :required => false
         param :admin, :bool, :required => false, :desc => N_("is an admin account")
         param :password, String, :desc => N_("Required unless user is in an external authentication source")
-        param :default_location_id, Integer if SETTINGS[:locations_enabled]
-        param :default_organization_id, Integer if SETTINGS[:organizations_enabled]
+        param :default_location_id, Integer
+        param :default_organization_id, Integer
         param :auth_source_id, Integer, :required => true
         param :timezone, ActiveSupport::TimeZone.all.map(&:name), :required => false, :desc => N_("User's timezone")
         param :locale, FastGettext.available_locales, :required => false, :desc => N_("User's preferred locale")

@@ -27,7 +27,7 @@ end
 def entry_name(plugin_name, entry)
   prefix = File.basename(entry).gsub(/[_]?index.js$/, '')
   if prefix != ''
-    "#{plugin_name}_#{prefix}"
+    "#{plugin_name}:#{prefix}"
   else
     plugin_name
   end
@@ -40,7 +40,7 @@ specs.each do |dep|
   # skip other rails engines that are not plugins
   # TODO: Consider using the plugin registration api?
   next unless dep.name =~ plugin_name_regexp
-  next if dep.name =~ /.*_core$/
+  next if dep.name =~ /.*[_-]core$/
   dep = dep.to_spec if gemfile_in
 
   path = "#{dep.to_spec.full_gem_path}/webpack"

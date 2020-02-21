@@ -158,7 +158,7 @@ class MigratePermissions < ActiveRecord::Migration[4.2]
       user.roles = clones = user.roles.map { |r| clone_role(r, user) }
       say "... done"
 
-      filters                     = Hash.new { |h, k| h[k] = '' }
+      filters = Hash.new { |h, k| h[k] = '' }
 
       # compute resources
       filters[:compute_resources] = search = user.compute_resources.distinct.map { |cr| "id = #{cr.id}" }.join(' or ')
@@ -206,8 +206,6 @@ class MigratePermissions < ActiveRecord::Migration[4.2]
 
   def convert_filters_to_search(filters, user)
     search = ''
-    orgs = []
-    locs = []
 
     # owner_type
     if user.filter_on_owner
@@ -243,8 +241,8 @@ class MigratePermissions < ActiveRecord::Migration[4.2]
     end
 
     # taxonomies
-    orgs = user.organizations if SETTINGS[:organizations_enabled]
-    locs = user.locations     if SETTINGS[:locations_enabled]
+    orgs = user.organizations
+    locs = user.locations
 
     [ search, orgs, locs ]
   end

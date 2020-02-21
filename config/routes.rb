@@ -14,7 +14,41 @@ Foreman::Application.routes.draw do
     end
   end
 
-  get '(:controller)/help', :action => 'welcome', :as => "help"
+  welcoming_controllers = [
+    'architectures',
+    'auth_source_ldaps',
+    'bookmarks',
+    'common_parameters',
+    'compute_profiles',
+    'compute_resources',
+    'config_groups',
+    'config_reports',
+    'domains',
+    'environments',
+    'fact_values',
+    'hostgroups',
+    'hosts',
+    'http_proxies',
+    'locations',
+    'media',
+    'models',
+    'operatingsystems',
+    'organizations',
+    'provisioning_templates',
+    'ptables',
+    'puppetclass_lookup_keys',
+    'realms',
+    'report_templates',
+    'smart_proxies',
+    'subnets',
+    'trends',
+    'usergroups',
+  ]
+
+  welcoming_controllers.each do |welcoming_controller|
+    get "#{welcoming_controller}/help", :action => :welcome, :controller => welcoming_controller
+  end
+
   constraints(:id => /[^\/]+/) do
     resources :hosts do
       member do
@@ -29,7 +63,6 @@ Foreman::Application.routes.draw do
         put 'toggle_manage'
         post 'environment_selected'
         put 'power'
-        get 'power', :to => 'hosts#get_power_state'
         get 'console'
         get 'overview'
         get 'bmc'
@@ -106,7 +139,7 @@ Foreman::Application.routes.draw do
         resources :facts, :only => :index, :controller => :fact_values
         resources :puppetclasses, :only => :index
 
-        get 'parent_facts/:parent_fact/facts', :to => 'fact_values#index', :as => 'parent_fact_facts', :parent_fact => /[\w.:_-]+/
+        get 'parent_facts/*parent_fact/facts', :to => 'fact_values#index', :as => 'parent_fact_facts', :parent_fact => /[\/\w.:_-]+/
       end
     end
 
@@ -122,13 +155,6 @@ Foreman::Application.routes.draw do
         collection do
           get 'auto_complete_search'
         end
-      end
-    end
-
-    resources :variable_lookup_keys, :except => [:show] do
-      resources :lookup_values, :only => [:index, :create, :update, :destroy]
-      collection do
-        get 'auto_complete_search'
       end
     end
 
@@ -264,17 +290,18 @@ Foreman::Application.routes.draw do
     end
   end
 
-  resources :audits do
-    collection do
-      get 'auto_complete_search'
-    end
-  end
+  resources :audits, :only => [:index], constraints: ->(req) { req.format == :json }
+  match '/audits/auto_complete_search' => 'audits#auto_complete_search', :via => [:get]
+  match '/audits' => 'react#index', :via => [:get]
 
   resources :usergroups, :except => [:show] do
     collection do
       get 'auto_complete_search'
     end
   end
+
+  get 'menu', :to => 'user_menus#menu'
+
   resources :users, :except => [:show] do
     collection do
       get 'login'
@@ -284,6 +311,10 @@ Foreman::Application.routes.draw do
       get 'extlogin'
       get 'extlogout'
       get 'auto_complete_search'
+      delete 'stop_impersonation'
+    end
+    member do
+      post 'impersonate'
     end
     resources :ssh_keys, :only => [:new, :create, :destroy]
   end
@@ -308,11 +339,14 @@ Foreman::Application.routes.draw do
 
   resources :permissions, :only => [:index]
 
-  resources :auth_source_ldaps, :except => [:show] do
+  resources :auth_source_ldaps, :except => [:show, :index] do
     collection do
       put 'test_connection'
     end
   end
+
+  resources :auth_sources, :only => [:show, :index]
+  resources :auth_source_externals, :only => [:update, :edit]
 
   put 'users/(:id)/test_mail', :to => 'users#test_mail', :as => 'test_mail_user'
 
@@ -332,6 +366,7 @@ Foreman::Application.routes.draw do
         get 'generate'
         post 'schedule_report'
         post 'preview'
+        get 'report_data'
       end
       collection do
         post 'preview'
@@ -470,11 +505,12 @@ Foreman::Application.routes.draw do
     end
   end
 
-  resources :statistics, :only => [:index, :show]
+  resources :statistics, :only => [:index, :show], constraints: ->(req) { req.format == :json }
+  match 'statistics' => 'react#index', :via => :get
 
   root :to => 'dashboard#index'
   get 'dashboard', :to => 'dashboard#index', :as => "dashboard"
-  get 'dashboard/auto_complete_search', :to => 'hosts#auto_complete_search', :as => "auto_complete_search_dashboards"
+  get 'dashboard/auto_complete_search', :to => 'hosts#auto_complete_search', :as => "auto_complete_search_dashboard"
   get 'status', :to => 'home#status', :as => "status"
 
   # get only for alterator unattended scripts
@@ -488,50 +524,49 @@ Foreman::Application.routes.draw do
   # get for all unattended scripts
   get 'unattended/(:kind/(:id(:format)))', :controller => 'unattended', :action => 'host_template', :format => 'text'
 
+  get 'userdata/meta-data', controller: 'userdata', action: 'metadata', format: 'text'
+  get 'userdata/user-data', controller: 'userdata', action: 'userdata', format: 'text'
+
   resources :tasks, :only => [:show]
 
-  if SETTINGS[:locations_enabled]
-    resources :locations, :except => [:show] do
-      resources :hosts, :only => :index
-      member do
-        get 'select'
-        get "clone" => 'locations#clone_taxonomy'
-        get 'nest'
-        post 'import_mismatches'
-        get 'step2'
-        get 'assign_hosts'
-        post 'assign_all_hosts'
-        put 'assign_selected_hosts'
-        post 'parent_taxonomy_selected'
-      end
-      collection do
-        get 'auto_complete_search'
-        get 'clear'
-        get  'mismatches'
-        post 'import_mismatches'
-      end
+  resources :locations, :except => [:show] do
+    resources :hosts, :only => :index
+    member do
+      get 'select'
+      get "clone" => 'locations#clone_taxonomy'
+      get 'nest'
+      post 'import_mismatches'
+      get 'step2'
+      get 'assign_hosts'
+      post 'assign_all_hosts'
+      put 'assign_selected_hosts'
+      post 'parent_taxonomy_selected'
+    end
+    collection do
+      get 'auto_complete_search'
+      get 'clear'
+      get  'mismatches'
+      post 'import_mismatches'
     end
   end
 
-  if SETTINGS[:organizations_enabled]
-    resources :organizations, :except => [:show] do
-      member do
-        get 'select'
-        get "clone" => 'organizations#clone_taxonomy'
-        get 'nest'
-        post 'import_mismatches'
-        get 'step2'
-        get 'assign_hosts'
-        post 'assign_all_hosts'
-        put 'assign_selected_hosts'
-        post 'parent_taxonomy_selected'
-      end
-      collection do
-        get 'auto_complete_search'
-        get 'clear'
-        get  'mismatches'
-        post 'import_mismatches'
-      end
+  resources :organizations, :except => [:show] do
+    member do
+      get 'select'
+      get "clone" => 'organizations#clone_taxonomy'
+      get 'nest'
+      post 'import_mismatches'
+      get 'step2'
+      get 'assign_hosts'
+      post 'assign_all_hosts'
+      put 'assign_selected_hosts'
+      post 'parent_taxonomy_selected'
+    end
+    collection do
+      get 'auto_complete_search'
+      get 'clear'
+      get  'mismatches'
+      post 'import_mismatches'
     end
   end
 
@@ -550,4 +585,10 @@ Foreman::Application.routes.draw do
       delete 'group/:group' => 'notification_recipients#destroy_group'
     end
   end
+
+  if Rails.env.development? && defined?(::GraphiQL::Rails::Engine)
+    mount GraphiQL::Rails::Engine, at: '/graphiql', graphql_path: '/api/graphql'
+  end
+
+  match 'host_wizard' => 'react#index', :via => :get
 end

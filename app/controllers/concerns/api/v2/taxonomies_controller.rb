@@ -4,10 +4,9 @@ module Api::V2::TaxonomiesController
   included do
     include ParameterAttributes
 
-    before_action :rename_config_template, :only => %w{update create}
     before_action :find_optional_nested_object
     before_action :find_taxonomy, :only => %w(show update destroy settings
-                                              domain_ids subnet_ids hostgroup_ids config_template_ids ptable_ids compute_resource_ids
+                                              domain_ids subnet_ids hostgroup_ids ptable_ids compute_resource_ids
                                               medium_ids smart_proxy_ids environment_ids user_ids organization_ids realm_ids)
     before_action :params_match_database, :only => %w(create update)
     before_action :process_parameter_attributes, :only => %w(update)
@@ -23,7 +22,6 @@ module Api::V2::TaxonomiesController
       param :smart_proxy_ids, Array, N_("Smart proxy IDs"), :required => false
       param :compute_resource_ids, Array, N_("Compute resource IDs"), :required => false
       param :medium_ids, Array, N_("Medium IDs"), :required => false
-      param :config_template_ids, Array, N_("Provisioning template IDs"), :required => false # FIXME: deprecated
       param :ptable_ids, Array, N_("Partition template IDs"), :required => false
       param :provisioning_template_ids, Array, N_("Provisioning template IDs"), :required => false
       param :domain_ids, Array, N_("Domain IDs"), :required => false
@@ -33,6 +31,9 @@ module Api::V2::TaxonomiesController
       param :subnet_ids, Array, N_("Subnet IDs"), :required => false
       param :parent_id, :number, :desc => N_('Parent ID'), :required => false
       param :ignore_types, Array, N_("List of resources types that will be automatically associated"), :required => false
+      resource_name = (param_name == :location) ? 'organization' : 'location'
+      resource_ids = "#{resource_name}_ids".to_sym
+      param resource_ids, Array, N_("Associated %{resource} IDs") % { resource: _(resource_name) }, :required => false
     end
   end
 
@@ -93,13 +94,6 @@ module Api::V2::TaxonomiesController
 
   private
 
-  def rename_config_template
-    if params[taxonomy_single] && params[taxonomy_single][:config_template_ids].present?
-      params[taxonomy_single][:provisioning_template_ids] = params[taxonomy_single].delete(:config_template_ids)
-      Foreman::Deprecation.api_deprecation_warning('Config templates were renamed to provisioning templates')
-    end
-  end
-
   def params_match_database
     # change params[:select_all_types] to params[:ignore_types] to match database
     if params[taxonomy_single].try(:[], :select_all_types)
@@ -135,5 +129,9 @@ module Api::V2::TaxonomiesController
 
   def resource_params
     public_send("#{taxonomy_single}_params".to_sym)
+  end
+
+  update_api(:index) do
+    add_scoped_search_description_for(controller_name.classify.constantize)
   end
 end

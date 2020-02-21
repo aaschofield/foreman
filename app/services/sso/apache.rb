@@ -6,12 +6,13 @@ module SSO
     ENV_TO_ATTR_MAPPING = {
       'REMOTE_USER_EMAIL'     => :mail,
       'REMOTE_USER_FIRSTNAME' => :firstname,
-      'REMOTE_USER_LASTNAME'  => :lastname
+      'REMOTE_USER_LASTNAME'  => :lastname,
     }
 
     def available?
       return false unless Setting['authorize_login_delegation']
       return false if controller.api_request? && !(Setting['authorize_login_delegation_api'])
+      return false if http_token.present?
       return false if controller.api_request? && request.env[CAS_USERNAME].blank?
       true
     end
@@ -54,7 +55,8 @@ module SSO
     end
 
     def logout_url
-      Setting['login_delegation_logout_url'] || controller.extlogout_users_path
+      return Setting['login_delegation_logout_url'] if Setting['login_delegation_logout_url'].present?
+      controller.extlogout_users_path
     end
 
     def expiration_url

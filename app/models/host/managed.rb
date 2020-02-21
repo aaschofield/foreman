@@ -16,6 +16,7 @@ class Host::Managed < Host::Base
   include HostInfoExtensions
   include HostParams
   include Facets::ManagedHostExtensions
+  include Foreman::ObservableModel
 
   has_many :host_classes, :foreign_key => :host_id
   has_many :puppetclasses, :through => :host_classes, :dependent => :destroy
@@ -37,6 +38,18 @@ class Host::Managed < Host::Base
       output = [current_user_result] + output
     end
     output
+  end
+
+  set_crud_hooks :host do |h|
+    { id: h.id, hostname: h.hostname }
+  end
+
+  set_hook :build_entered, if: -> { saved_change_to_build? && build? } do |h|
+    { id: h.id, hostname: h.hostname }
+  end
+
+  set_hook :build_exited, if: -> { saved_change_to_build? && !build? } do |h|
+    { id: h.id, hostname: h.hostname }
   end
 
   # Define custom hook that can be called in model by magic methods (before, after, around)
@@ -81,15 +94,18 @@ class Host::Managed < Host::Base
   smart_proxy_reference :realm => [:realm_proxy_id]
   smart_proxy_reference :self => [:puppet_proxy_id, :puppet_ca_proxy_id]
 
+  graphql_type '::Types::Host'
+
   class Jail < ::Safemode::Jail
-    allow :name, :diskLayout, :puppetmaster, :puppet_ca_server, :operatingsystem, :os, :environment, :ptable, :hostgroup,
+    allow :id, :name, :diskLayout, :puppetmaster, :puppet_ca_server, :operatingsystem, :os, :environment, :ptable, :hostgroup,
       :url_for_boot, :hostgroup, :compute_resource, :domain, :ip, :ip6, :mac, :shortname, :architecture,
       :model, :certname, :capabilities, :provider, :subnet, :subnet6, :token, :location, :organization, :provision_method,
       :image_build?, :pxe_build?, :otp, :realm, :nil?, :indent, :primary_interface,
       :provision_interface, :interfaces, :bond_interfaces, :bridge_interfaces, :interfaces_with_identifier,
       :managed_interfaces, :facts, :facts_hash, :root_pass, :sp_name, :sp_ip, :sp_mac, :sp_subnet, :use_image,
       :multiboot, :jumpstart_path, :install_path, :miniroot, :medium, :bmc_nic, :templates_used, :owner, :owner_type,
-      :ssh_authorized_keys, :pxe_loader, :global_status, :get_status, :puppetca_token
+      :ssh_authorized_keys, :pxe_loader, :global_status, :get_status, :puppetca_token, :last_report, :build?, :smart_proxies, :host_param,
+      :virtual, :ram, :sockets, :cores, :params
   end
 
   scope :recent, lambda { |interval = Setting[:outofsync_interval]|
@@ -203,8 +219,8 @@ class Host::Managed < Host::Base
   alias_attribute :arch, :architecture
 
   validates :environment_id, :presence => true, :unless => Proc.new { |host| host.puppet_proxy_id.blank? }
-  validates :organization_id, :presence => true, :if => Proc.new { |host| host.managed? && SETTINGS[:organizations_enabled] }
-  validates :location_id,     :presence => true, :if => Proc.new { |host| host.managed? && SETTINGS[:locations_enabled] }
+  validates :organization_id, :presence => true, :if => Proc.new { |host| host.managed? }
+  validates :location_id,     :presence => true, :if => Proc.new { |host| host.managed? }
   validate :compute_resource_in_taxonomy, :if => Proc.new { |host| host.managed? && host.compute_resource_id.present? }
 
   if SETTINGS[:unattended]
@@ -231,9 +247,9 @@ class Host::Managed < Host::Base
     validates :architecture_id, :presence => true, :if => Proc.new {|host| host.managed}
     validates :root_pass, :length => {:minimum => 8, :message => _('should be 8 characters or more')},
                           :presence => {:message => N_('should not be blank - consider setting a global or host group default')},
-                          :if => Proc.new { |host| host.managed && host.pxe_build? && build? }
+                          :if => Proc.new { |host| host.managed && !host.image_build? && build? }
     validates :ptable_id, :presence => {:message => N_("can't be blank unless a custom partition has been defined")},
-                          :if => Proc.new { |host| host.managed && host.disk.empty? && !Foreman.in_rake? && host.pxe_build? && host.build? }
+                          :if => Proc.new { |host| host.managed && host.disk.empty? && !Foreman.in_rake? && !host.image_build? && host.build? }
     validates :provision_method, :inclusion => {:in => Proc.new { self.provision_methods }, :message => N_('is unknown')}, :if => Proc.new {|host| host.managed?}
     validates :medium_id, :presence => true,
                           :if => Proc.new { |host| host.validate_media? }
@@ -278,6 +294,12 @@ class Host::Managed < Host::Base
     ActiveModel::Name.new(Host)
   end
 
+  # Permissions introduced by plugins for this class can cause resource <-> permission
+  # names mapping to fail randomly so as a safety precaution, we specify the name more explicitly.
+  def self.find_permission_name(action)
+    "#{action}_hosts"
+  end
+
   def clear_reports
     # Remove any reports that may be held against this host
     Report.where("host_id = #{id}").delete_all
@@ -292,6 +314,7 @@ class Host::Managed < Host::Base
     return unless respond_to?(:old) && old && build? && !old.build?
     clear_facts
     clear_reports
+    self.reported_data_facet.destroy
     self.build_errors = nil
   end
 
@@ -341,14 +364,13 @@ class Host::Managed < Host::Base
                               Foreman::Renderer::Source::String.new(name: 'Custom disk layout',
                                                                     content: disk.tr("\r", ''))
                             elsif ptable.present?
-                              Foreman::Renderer::Source::String.new(name: ptable.name,
-                                                                    content: ptable.layout.tr("\r", ''))
+                              Foreman::Renderer::Source::Database.new(ptable)
                             end
   end
 
   # returns the host correct disk layout, custom or common
   def diskLayout
-    raise Foreman::Renderer::Errors::RenderingError, 'Neither disk nor partition table defined for host' unless disk_layout_source
+    raise Foreman::Exception, 'Neither disk nor partition table defined for host' unless disk_layout_source
     scope = Foreman::Renderer.get_scope(host: self, source: disk_layout_source)
     Foreman::Renderer.render(disk_layout_source, scope)
   end
@@ -386,11 +408,6 @@ class Host::Managed < Host::Base
     hostgroup.all_config_groups
   end
 
-  # returns the list of puppetclasses a host is in.
-  def puppetclasses_names
-    all_puppetclasses.collect {|c| c.name}
-  end
-
   def attributes_to_import_from_facts
     attrs = [:architecture, :hostgroup]
     if !Setting[:ignore_facts_for_operatingsystem] || (Setting[:ignore_facts_for_operatingsystem] && operatingsystem.blank?)
@@ -405,6 +422,7 @@ class Host::Managed < Host::Base
 
   def populate_fields_from_facts(parser, type, source_proxy)
     super
+    set_reported_data(parser)
     update_os_from_facts if operatingsystem_id_changed?
     populate_facet_fields(parser, type, source_proxy)
   end
@@ -469,11 +487,9 @@ class Host::Managed < Host::Base
     data = group("#{Host.table_name}.#{association}_id").reorder('').count
     associations = association.to_s.camelize.constantize.where(:id => data.keys).all
     data.each do |k, v|
-      begin
-        output << {:label => associations.detect {|a| a.id == k }.to_label, :data => v } unless v == 0
-      rescue
-        logger.info "skipped #{k} as it has has no label"
-      end
+      output << {:label => associations.detect {|a| a.id == k }.to_label, :data => v } unless v == 0
+    rescue
+      logger.info "skipped #{k} as it has has no label"
     end
     output
   end
@@ -491,7 +507,7 @@ class Host::Managed < Host::Base
   def self.provision_methods
     {
       'build' => N_('Network Based'),
-      'image' => N_('Image Based')
+      'image' => N_('Image Based'),
     }.merge(registered_provision_methods)
   end
 
@@ -508,7 +524,7 @@ class Host::Managed < Host::Base
   end
 
   def can_be_built?
-    managed? && SETTINGS[:unattended] && pxe_build? && !build?
+    managed? && SETTINGS[:unattended] && !image_build? && !build?
   end
 
   def hostgroup_inherited_attributes
@@ -564,7 +580,7 @@ class Host::Managed < Host::Base
       inherited_attrs.concat(%w{operatingsystem_id architecture_id compute_resource_id})
       inherited_attrs << "subnet_id" unless compute_provides?(:ip)
       inherited_attrs << "subnet6_id" unless compute_provides?(:ip6)
-      inherited_attrs.concat(%w{medium_id ptable_id pxe_loader}) if pxe_build?
+      inherited_attrs.concat(%w{medium_id ptable_id pxe_loader}) unless image_build?
     end
     inherited_attrs
   end
@@ -730,7 +746,7 @@ class Host::Managed < Host::Base
   end
 
   def validate_media?
-    managed && pxe_build? && build?
+    managed && !image_build? && build?
   end
 
   def build_status_checker
@@ -828,7 +844,13 @@ class Host::Managed < Host::Base
 
   def local_boot_template_name(kind)
     key = "local_boot_#{kind}"
-    host_params[key] || Setting[key]
+    host_params[key] || host_params[key.downcase] || Setting[key]
+  end
+
+  # Permissions introduced by plugins for this class can cause resource <-> permission
+  # names mapping to fail randomly so as a safety precaution, we specify the name more explicitly.
+  def permission_name(action)
+    "#{action}_hosts"
   end
 
   private
@@ -836,12 +858,6 @@ class Host::Managed < Host::Base
   def update_os_from_facts
     operatingsystem.architectures << architecture if operatingsystem && architecture && !operatingsystem.architectures.include?(architecture)
     self.medium = nil if medium&.operatingsystems&.exclude?(operatingsystem)
-  end
-
-  # Permissions introduced by plugins for this class can cause resource <-> permission
-  # names mapping to fail randomly so as a safety precaution, we specify the name more explicitly.
-  def permission_name(action)
-    "#{action}_hosts"
   end
 
   def compute_profile_present?
@@ -879,7 +895,7 @@ class Host::Managed < Host::Base
   # checks if the host association is a valid association for this host
   def ensure_associations
     status = true
-    if SETTINGS[:unattended] && managed? && os && pxe_build?
+    if SETTINGS[:unattended] && managed? && os && !image_build?
       %w{ptable medium architecture}.each do |e|
         value = self.send(e.to_sym)
         next if value.blank?

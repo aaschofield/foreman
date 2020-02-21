@@ -87,8 +87,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
   end
 
   # NOTES: for tests below testing ajax POST to method parameters
-  # puppetclass(:two) has TWO overridable lookup keys:  1) special_info and 2) custom_class_param
-  # special_info is a smart_variable that is added independant of environment
+  # puppetclass(:two) has an overridable lookup key custom_class_param.
   # custom_class_param is a smart_class_param for production environment only AND is marked as :override => TRUE
   test 'puppetclass lookup keys are added to partial _class_parameters on EXISTING host form through ajax POST to parameters' do
     host = FactoryBot.create(:host, :environment => environments(:production))
@@ -98,8 +97,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
                                 :host => existing_host_attributes }, session: set_session_user
     assert_response :success
     lookup_keys_added = overridable_lookup_keys(puppetclass, host)
-    assert_equal 2, lookup_keys_added.count
-    assert lookup_keys_added.map(&:key).include?("special_info")
+    assert_equal 1, lookup_keys_added.count
     assert lookup_keys_added.map(&:key).include?("custom_class_param")
   end
 
@@ -114,8 +112,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
     assert_response :success
     as_admin do
       lookup_keys_added = overridable_lookup_keys(puppetclass, assigns(:obj))
-      assert_equal 1, lookup_keys_added.count
-      assert lookup_keys_added.map(&:key).include?("special_info")
+      assert_equal 0, lookup_keys_added.count
       refute lookup_keys_added.map(&:key).include?("custom_class_param")
     end
   end
@@ -130,8 +127,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
     assert_response :success
     as_admin do
       lookup_keys_added = overridable_lookup_keys(puppetclass, hostgroup)
-      assert_equal 2, lookup_keys_added.count
-      assert lookup_keys_added.map(&:key).include?("special_info")
+      assert_equal 1, lookup_keys_added.count
       assert lookup_keys_added.map(&:key).include?("custom_class_param")
     end
   end
@@ -145,8 +141,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
     assert_response :success
     as_admin do
       lookup_keys_added = overridable_lookup_keys(puppetclass, host)
-      assert_equal 2, lookup_keys_added.count
-      assert lookup_keys_added.map(&:key).include?("special_info")
+      assert_equal 1, lookup_keys_added.count
       assert lookup_keys_added.map(&:key).include?("custom_class_param")
     end
   end
@@ -161,8 +156,7 @@ class PuppetclassesControllerTest < ActionController::TestCase
     assert_response :success
     as_admin do
       lookup_keys_added = overridable_lookup_keys(puppetclass, hostgroup)
-      assert_equal 2, lookup_keys_added.count
-      assert lookup_keys_added.map(&:key).include?("special_info")
+      assert_equal 1, lookup_keys_added.count
       assert lookup_keys_added.map(&:key).include?("custom_class_param")
     end
   end
@@ -216,8 +210,8 @@ class PuppetclassesControllerTest < ActionController::TestCase
 
   test 'user with edit_puppetclasses permission should succeed in overriding all parameters' do
     env = FactoryBot.create(:environment,
-                             :organizations => [users(:one).organizations.first],
-                             :locations => [users(:one).locations.first])
+      :organizations => [users(:one).organizations.first],
+      :locations => [users(:one).locations.first])
     pc = FactoryBot.create(:puppetclass, :with_parameters, :environments => [env])
     setup_user "edit", "puppetclasses"
     refute pc.class_params.first.override
@@ -228,8 +222,8 @@ class PuppetclassesControllerTest < ActionController::TestCase
 
   test 'user without edit_puppetclasses permission should fail in overriding all parameters' do
     env = FactoryBot.create(:environment,
-                             :organizations => [users(:one).organizations.first],
-                             :locations => [users(:one).locations.first])
+      :organizations => [users(:one).organizations.first],
+      :locations => [users(:one).locations.first])
     pc = FactoryBot.create(:puppetclass, :with_parameters, :environments => [env])
     setup_user "view", "puppetclasses"
     refute pc.class_params.first.override

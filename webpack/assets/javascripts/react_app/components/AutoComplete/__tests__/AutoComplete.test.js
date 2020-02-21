@@ -1,12 +1,14 @@
 import React from 'react';
-import { mount } from 'enzyme';
-import AutoComplete from '../index';
+import { mount } from '@theforeman/test';
+import lodash from 'lodash';
+import AutoComplete from '../AutoComplete';
 import { AutoCompleteProps } from '../AutoComplete.fixtures';
 import { testComponentSnapshotsWithFixtures } from '../../../common/testHelpers';
-import { KEYCODES } from '../AutoCompleteConstants';
+import { KEYCODES } from '../../../common/keyCodes';
+import { TRIGGERS } from '../AutoCompleteConstants';
 import { noop } from '../../../common/helpers';
 
-jest.mock('lodash/debounce', () => jest.fn(fn => fn));
+lodash.debounce = jest.fn(fn => fn);
 
 const getProps = () => ({
   ...AutoCompleteProps,
@@ -43,6 +45,21 @@ describe('AutoComplete', () => {
 
     it('pressing "forward-slash" should trigger focus', () => {
       const props = getProps();
+      const component = mount(<AutoComplete {...props} useKeyShortcuts />);
+      const instance = component.instance();
+      const typeahead = instance._typeahead.current.getInstance();
+      typeahead.focus = jest.fn();
+      expect(typeahead.focus.mock.calls).toHaveLength(0);
+      instance.windowKeyPressHandler({
+        charCode: KEYCODES.FWD_SLASH,
+        preventDefault: noop,
+        target: { tagName: 'BODY' },
+      });
+      expect(typeahead.focus.mock.calls).toHaveLength(1);
+    });
+
+    it('pressing "forward-slash" inside an input should not trigger focus', () => {
+      const props = getProps();
       const component = mount(<AutoComplete {...props} />);
       const instance = component.instance();
       const typeahead = instance._typeahead.current.getInstance();
@@ -51,8 +68,9 @@ describe('AutoComplete', () => {
       instance.windowKeyPressHandler({
         charCode: KEYCODES.FWD_SLASH,
         preventDefault: noop,
+        target: { tagName: 'INPUT' },
       });
-      expect(typeahead.focus.mock.calls).toHaveLength(1);
+      expect(typeahead.focus.mock.calls).toHaveLength(0);
     });
 
     it('pressing "ESC" should trigger blur', () => {
@@ -116,7 +134,7 @@ describe('AutoComplete', () => {
     });
 
     it('menu should be hidden if no results', () => {
-      const props = { ...getProps() };
+      const props = getProps();
       const component = mount(<AutoComplete {...props} results={[]} />);
       const mainInput = component.find('.rbt-input-main').first();
       mainInput.simulate('focus', { target: { value: '' } });
@@ -124,6 +142,14 @@ describe('AutoComplete', () => {
       component.setProps({ results: props.results });
       mainInput.simulate('focus', { target: { value: '' } });
       expect(component.find('.rbt-menu').exists()).toBeTruthy();
+    });
+
+    it('component update with trigger "RESET" should call handleClear which should reset the input and call getResults', () => {
+      const props = { ...getProps() };
+      const component = mount(<AutoComplete {...props} />);
+      expect(props.getResults.mock.calls).toHaveLength(0);
+      component.setProps({ trigger: TRIGGERS.RESET });
+      expect(props.getResults.mock.calls).toHaveLength(1);
     });
   });
 });

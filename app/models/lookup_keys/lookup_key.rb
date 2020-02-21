@@ -3,13 +3,14 @@ class LookupKey < ApplicationRecord
   include Authorizable
   include HiddenValue
   include Classification
+  include KeyType
 
-  KEY_TYPES = [N_("string"), N_("boolean"), N_("integer"), N_("real"), N_("array"), N_("hash"), N_("yaml"), N_("json")]
   VALIDATOR_TYPES = [N_("regexp"), N_("list") ]
 
   KEY_DELM = ","
   EQ_DELM  = "="
   VALUE_REGEX = /\A[^#{KEY_DELM}]+#{EQ_DELM}[^#{KEY_DELM}]+(#{KEY_DELM}[^#{KEY_DELM}]+#{EQ_DELM}[^#{KEY_DELM}]+)*\Z/
+  MATCHERS_INHERITANCE = ['hostgroup', 'organization', 'location'].freeze
 
   validates_lengths_from_database
 
@@ -17,14 +18,13 @@ class LookupKey < ApplicationRecord
 
   has_many :lookup_values, :dependent => :destroy, :inverse_of => :lookup_key
   accepts_nested_attributes_for :lookup_values,
-                                :reject_if => :reject_invalid_lookup_values,
-                                :allow_destroy => true
+    :reject_if => :reject_invalid_lookup_values,
+    :allow_destroy => true
 
   alias_attribute :value, :default_value
 
   validates :key, :presence => true
   validates :validator_type, :inclusion => { :in => VALIDATOR_TYPES, :message => N_("invalid")}, :allow_blank => true, :allow_nil => true
-  validates :key_type, :inclusion => {:in => KEY_TYPES, :message => N_("invalid")}, :allow_blank => true, :allow_nil => true
   validates_associated :lookup_values
 
   before_validation :sanitize_path
@@ -52,7 +52,6 @@ class LookupKey < ApplicationRecord
   # new methods for API instead of revealing db names
   alias_attribute :parameter, :key
   alias_attribute :variable, :key
-  alias_attribute :parameter_type, :key_type
   alias_attribute :variable_type, :key_type
   alias_attribute :override_value_order, :path
   alias_attribute :override_values, :lookup_values
@@ -107,21 +106,7 @@ class LookupKey < ApplicationRecord
 
   def default_value_before_type_cast
     return self[:default_value] if errors[:default_value].present?
-    value_before_type_cast default_value
-  end
-
-  def value_before_type_cast(val)
-    return val if val.nil? || val.contains_erb?
-    if key_type.present?
-      case key_type.to_sym
-        when :json, :array
-          val = JSON.dump(val)
-        when :yaml, :hash
-          val = YAML.dump val
-          val.sub!(/\A---\s*$\n/, '')
-      end
-    end
-    val
+    LookupKey.format_value_before_type_cast(default_value, key_type)
   end
 
   def path_elements

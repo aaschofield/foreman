@@ -5,10 +5,10 @@ module DashboardHelper
 
   def dashboard_actions
     [
-      _("Generated at %s") % date_time_absolute(Time.zone.now),
+      content_tag(:span, (_("Generated at %s") % date_time_absolute(Time.zone.now)).html_safe),
       select_action_button(
         _('Manage'), {},
-        link_to_function(_('Save positions'), "save_position('#{save_positions_widgets_path}')"),
+        link_to_function(_('Save positions'), "tfm.dashboard.savePosition('#{save_positions_widgets_path}')"),
         link_to(_('Reset to default'), reset_default_widgets_path, :method => :put),
         content_tag(:li, '', :class => 'divider'),
         content_tag(:li, _("Add widgets"), :class => 'nav-header'),
@@ -17,7 +17,7 @@ module DashboardHelper
         end
       ),
       auto_refresh_button(:defaults_to => false),
-      documentation_button
+      documentation_button,
     ]
   end
 
@@ -32,7 +32,7 @@ module DashboardHelper
     return link_to(_('Nothing to add'), '#') unless removed_widgets.present?
     removed_widgets.sort_by {|w| w[:name] }.each do |removed_widget|
       concat(link_to_function(_(removed_widget[:name]),
-                              "add_widget('#{removed_widget[:name]}')"))
+        "tfm.dashboard.addWidget('#{removed_widget[:name]}')"))
     end
   end
 
@@ -61,7 +61,6 @@ module DashboardHelper
       [_('Pending changes'), report[:pending_hosts_enabled], report_color[:pending_hosts_enabled]],
       [_('Out of sync'), report[:out_of_sync_hosts_enabled], report_color[:out_of_sync_hosts_enabled]],
       [_('No report'), report[:reports_missing], report_color[:reports_missing]],
-      [_('Notification disabled'), report[:disabled_hosts], report_color[:disabled_hosts]]
     ].to_json
   end
 
@@ -110,7 +109,7 @@ module DashboardHelper
       :pending_hosts_enabled => "#80699B",
       :out_of_sync_hosts_enabled => "#3D96AE",
       :reports_missing => "#DB843D",
-      :disabled_hosts => "#92A8CD"
+      :disabled_hosts => "#92A8CD",
     }
   end
 
@@ -125,8 +124,8 @@ module DashboardHelper
       tooltip = _("Auto refresh off")
     end
     link_to(icon_text("refresh"),
-            {:auto_refresh => ((on == "on") ? "0" : "1")},
-            { :'data-original-title' => tooltip, :rel => 'twipsy', :class => "#{on} auto-refresh btn btn-group btn-default"})
+      {:auto_refresh => ((on == "on") ? "0" : "1")},
+      { :'data-original-title' => tooltip, :rel => 'twipsy', :class => "#{on} auto-refresh btn btn-group btn-default"})
   end
 
   def widget_class_name(widget)

@@ -33,15 +33,7 @@ module Authorizable
   end
 
   def permission_name(action)
-    type = Permission.resource_name(self.class)
-    permissions = Permission.where(:resource_type => type).where(["#{Permission.table_name}.name LIKE ?", "#{action}_%"])
-
-    # some permissions are grouped for same resource, e.g. edit_comupute_resources and edit_compute_resources_vms, in such case we need to detect the right permission
-    if permissions.size > 1
-      permissions.detect { |p| p.name.end_with?(type.underscore.pluralize) }.try(:name)
-    else
-      permissions.first.try(:name)
-    end
+    self.class.find_permission_name(action)
   end
 
   included do
@@ -90,7 +82,7 @@ module Authorizable
     end
 
     def allows_taxonomy_filtering?(taxonomy)
-      scoped_search_definition&.fields&.has_key?(taxonomy)
+      scoped_search_definition&.fields&.has_key?(taxonomy.to_sym)
     end
 
     def allows_organization_filtering?
@@ -114,6 +106,18 @@ module Authorizable
       yield
     ensure
       Thread.current[:ignore_permission_check] = original_value
+    end
+
+    def find_permission_name(action)
+      type = Permission.resource_name(self)
+      permissions = Permission.where(:resource_type => type).where(["#{Permission.table_name}.name LIKE ?", "#{action}_%"])
+
+      # some permissions are grouped for same resource, e.g. edit_comupute_resources and edit_compute_resources_vms, in such case we need to detect the right permission
+      if permissions.size > 1
+        permissions.detect { |p| p.name.end_with?(type.underscore.pluralize) }.try(:name)
+      else
+        permissions.first.try(:name)
+      end
     end
   end
 end

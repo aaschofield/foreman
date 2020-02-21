@@ -2,7 +2,6 @@ module Api
   module V2
     class HostsController < V2::BaseController
       include Api::Version2
-      include Api::CompatibilityChecker
       include ScopesPerAction
       include Foreman::Controller::SmartProxyAuth
       include Foreman::Controller::Parameters::Host
@@ -10,8 +9,6 @@ module Api
 
       wrap_parameters :host, :include => host_params_filter.accessible_attributes(parameter_filter_context) + ['compute_attributes']
       include HostsControllerExtension
-
-      before_action :check_create_host_nested, :only => [:create, :update]
 
       before_action :find_optional_nested_object, :except => [:facts]
       before_action :find_resource, :except => [:index, :create, :facts]
@@ -72,8 +69,8 @@ module Api
       def_param_group :host do
         param :host, Hash, :required => true, :action_aware => true do
           param :name, String, :required => true
-          param :location_id, :number, :required => true, :desc => N_("required if locations are enabled") if SETTINGS[:locations_enabled]
-          param :organization_id, :number, :required => true, :desc => N_("required if organizations are enabled") if SETTINGS[:organizations_enabled]
+          param :location_id, :number, :required => true
+          param :organization_id, :number, :required => true
           param :environment_id, String, :desc => N_("required if host is managed and value is not inherited from host group")
           param :ip, String, :desc => N_("not required if using a subnet with DHCP proxy")
           param :mac, String, :desc => N_("required for managed host that is bare metal, not required if it's a virtual machine")
@@ -100,6 +97,8 @@ module Api
           param :host_parameters_attributes, Array, :desc => N_("Host's parameters (array or indexed hash)") do
             param :name, String, :desc => N_("Name of the parameter"), :required => true
             param :value, String, :desc => N_("Parameter value"), :required => true
+            param :parameter_type, Parameter::KEY_TYPES, :desc => N_("Type of value")
+            param :hidden_value, :bool
           end
           param :build, :bool
           param :enabled, :bool, :desc => N_("Include this host within Foreman reporting")
@@ -143,7 +142,7 @@ module Api
 
         forward_request_url
         process_response @host.save
-      rescue InterfaceTypeMapper::UnknownTypeExeption => e
+      rescue InterfaceTypeMapper::UnknownTypeException => e
         render_error :custom_error, :status => :unprocessable_entity, :locals => { :message => e.to_s }
       end
 
@@ -159,7 +158,7 @@ module Api
         apply_compute_profile(@host) if (params[:host] && params[:host][:compute_attributes].present?) || @host.compute_profile_id_changed?
 
         process_response @host.save
-      rescue InterfaceTypeMapper::UnknownTypeExeption => e
+      rescue InterfaceTypeMapper::UnknownTypeException => e
         render_error :custom_error, :status => :unprocessable_entity, :locals => { :message => e.to_s }
       end
 
@@ -177,34 +176,17 @@ module Api
         render :json => { :data => @host.info }
       end
 
-      api :GET, "/hosts/:id/status", N_("Get configuration status of host")
-      param :id, :identifier_dottable, :required => true
-      description <<-EOS
-Return value may either be one of the following:
-
-* Alerts disabled
-* No reports
-* Error
-* Out of sync
-* Active
-* Pending
-* No changes
-      EOS
-
-      def status
-        Foreman::Deprecation.api_deprecation_warning('The /status route is deprecated, please use the new /status/configuration instead')
-        render :json => { :status => @host.get_status(HostStatus::ConfigurationStatus).to_label }.to_json if @host
-      end
-
       api :GET, "/hosts/:id/status/:type", N_("Get status of host")
       param :id, :identifier_dottable, :required => true
-      param :type, [ HostStatus::Global ] + HostStatus.status_registry.to_a.map { |s| s.humanized_name }, :required => true, :desc => N_(<<-EOS
-status type, can be one of
-* global
-* configuration
-* build
-EOS
-)
+      param :type, [ HostStatus::Global ] + HostStatus.status_registry.to_a.map { |s| s.humanized_name }, :required => true, :desc => N_(
+        <<~EOS
+          status type, can be one of
+          * global
+          * configuration
+          * build
+        EOS
+      )
+
       description N_('Returns string representing a host status of a given type')
       def get_status
         case params[:type]
@@ -217,8 +199,8 @@ EOS
 
       api :GET, "/hosts/:id/vm_compute_attributes", N_("Get vm attributes of host")
       param :id, :identifier_dottable, :required => true
-      description <<-EOS
-Return the host's compute attributes that can be used to create a clone of this VM
+      description <<~EOS
+        Return the host's compute attributes that can be used to create a clone of this VM
       EOS
 
       def vm_compute_attributes
@@ -262,6 +244,22 @@ Return the host's compute attributes that can be used to create a clone of this 
         end
       end
 
+      api :GET, '/hosts/:id/power', N_('Fetch the status of whether the host is powered on or not. Supported hosts are VMs and physical hosts with BMCs.')
+      param :id, :identifier_dottable, required: true
+
+      def power_status
+        render json: PowerManager::PowerStatus.new(host: @host).power_state
+      rescue => e
+        Foreman::Logging.exception("Failed to fetch power status", e)
+
+        resp = {
+          id: @host.id,
+          statusText: _("Failed to fetch power status: %s") % e,
+        }
+
+        render json: resp.merge(PowerManager::PowerStatus::HOST_POWER[:na])
+      end
+
       api :PUT, "/hosts/:id/boot", N_("Boot host from specified device")
       param :id, :identifier_dottable, :required => true
       param :device, String, :required => true, :desc => N_("boot device, valid devices are disk, cdrom, pxe, bios")
@@ -274,7 +272,7 @@ Return the host's compute attributes that can be used to create a clone of this 
           render :json => { :error => _("Unknown device: available devices are %s") % valid_devices.join(', ') }, :status => :unprocessable_entity
         end
       rescue ::Foreman::Exception => e
-        render_message(e.to_s, :status => :unprocessable_entity)
+        render_exception(e, :status => :unprocessable_entity)
       end
 
       api :POST, "/hosts/facts", N_("Upload facts for a host, creating the host if required")
@@ -288,7 +286,7 @@ Return the host's compute attributes that can be used to create a clone of this 
         state = @host.import_facts(params[:facts].to_unsafe_h, detected_proxy)
         process_response state
       rescue ::Foreman::Exception => e
-        render_message(e.to_s, :status => :unprocessable_entity)
+        render_exception(e, :status => :unprocessable_entity)
       end
 
       api :PUT, "/hosts/:id/rebuild_config", N_("Rebuild orchestration config")
@@ -348,6 +346,8 @@ Return the host's compute attributes that can be used to create a clone of this 
 
       def action_permission
         case params[:action]
+          when 'power_status'
+            :power
           when 'power'
             :power
           when 'boot'

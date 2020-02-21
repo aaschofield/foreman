@@ -41,7 +41,7 @@ class Api::V2::UsergroupsControllerTest < ActionController::TestCase
     roles = [
       Role.find_by_name('Manager'),
       Role.find_by_name('View hosts'),
-      Role.find_by_name('Edit hosts')
+      Role.find_by_name('Edit hosts'),
     ]
     post :create, params: { :usergroup => valid_attrs.clone.update(:role_ids => roles.map { |role| role.id })}
     assert_response :created
@@ -61,7 +61,7 @@ class Api::V2::UsergroupsControllerTest < ActionController::TestCase
     users = [
       User.find_by_login('one'),
       User.find_by_login('two'),
-      User.find_by_login('test')
+      User.find_by_login('test'),
     ]
     post :create, params: { :usergroup => valid_attrs.clone.update(:user_ids => users.map { |user| user.id })}
     assert_response :created
@@ -100,6 +100,13 @@ class Api::V2::UsergroupsControllerTest < ActionController::TestCase
     put :update, params: { :id => @usergroup.to_param, :usergroup => valid_attrs.clone.update(:usergroup_ids => [usergroup.id]) }
     assert_response :success
     assert_equal JSON.parse(@response.body)["usergroups"][0]["name"], usergroup.name, "Can't update usergroup with user #{usergroup}"
+  end
+
+  test "should not update usergroup with itself" do
+    usergroup = FactoryBot.create(:usergroup)
+    put :update, params: { :id => usergroup.to_param, :usergroup => {:usergroup_ids => [usergroup.id] } }
+    assert_response :unprocessable_entity
+    assert_equal "Validation failed: cannot contain itself as member", JSON.parse(@response.body)['error']['errors']['usergroups'].first
   end
 
   test "should destroy usergroups" do

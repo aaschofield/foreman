@@ -4,11 +4,12 @@ module Foreman::Model
 
     include KeyPairComputeResource
     delegate :flavors, :subnets, :to => :client
-    delegate :security_groups, :flavors, :zones, :to => :self, :prefix => 'available'
     validates :user, :password, :presence => true
 
     alias_attribute :access_key, :user
     alias_attribute :region, :url
+
+    alias_method :available_flavors, :flavors
 
     def to_label
       "#{name} (#{region}-#{provider_friendly_name})"
@@ -45,7 +46,7 @@ module Foreman::Model
 
     def find_vm_by_uuid(uuid)
       super
-    rescue Fog::Compute::AWS::Error
+    rescue Fog::AWS::Compute::Error
       raise(ActiveRecord::RecordNotFound)
     end
 
@@ -74,6 +75,7 @@ module Foreman::Model
       groups.reject! { |sg| sg.vpc_id != vpc } if vpc
       groups
     end
+    alias_method :available_security_groups, :security_groups
 
     def regions
       return [] if user.blank? || password.blank?
@@ -83,11 +85,12 @@ module Foreman::Model
     def zones
       @zones ||= client.describe_availability_zones.body["availabilityZoneInfo"].map { |r| r["zoneName"] if r["regionName"] == region }.compact
     end
+    alias_method :available_zones, :zones
 
     def test_connection(options = {})
       super
       errors[:user].empty? && errors[:password].empty? && regions
-    rescue Fog::Compute::AWS::Error => e
+    rescue Fog::AWS::Compute::Error => e
       errors[:base] << e.message
     rescue Excon::Error::Socket => e
       errors[:base] << e.message
@@ -133,12 +136,12 @@ module Foreman::Model
       normalized['security_groups'] = group_ids.map.with_index do |gid, idx|
         [idx.to_s, {
           'id' => gid,
-          'name' => self.security_groups.detect { |g| g.group_id == gid }.try(:name)
+          'name' => self.security_groups.detect { |g| g.group_id == gid }.try(:name),
         }]
       end.to_h
 
       normalized
-    rescue Fog::Compute::AWS::Error => e
+    rescue Fog::AWS::Compute::Error => e
       Foreman::Logging.exception("Unhandled EC2 error", e)
       {}
     end

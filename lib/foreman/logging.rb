@@ -16,10 +16,13 @@ module Foreman
 
       load_config(options.fetch(:environment), options.fetch(:config_overrides, {}))
 
+      # override via Rails env var
+      @config[:type] = 'stdout' if ENV['RAILS_LOG_TO_STDOUT']
+
       configure_color_scheme
       configure_root_logger(options)
+      add_console_appender if @config[:console_inline]
 
-      build_console_appender
       # we need to postpone loading of the silenced logger
       # to the time the Logging::LEVELS is initialized
       require_dependency File.expand_path('silenced_logger', __dir__)
@@ -82,7 +85,8 @@ module Foreman
     def exception(context_message, exception, options = {})
       options.assert_valid_keys :level, :logger
       logger_name = options[:logger] || 'app'
-      level       = options[:level] || :warn
+      level = options[:level] || :warn
+      backtrace_level = options[:backtrace_level] || :debug
       unless ::Logging::LEVELS.key?(level.to_s)
         raise "Unexpected log level #{level}, expected one of #{::Logging::LEVELS.keys}"
       end
@@ -91,13 +95,15 @@ module Foreman
       extra_fields = {
         exception_class: exception.class.name,
         exception_message: exception.message,
-        exception_backtrace: backtrace
+        exception_backtrace: backtrace,
       }
       extra_fields[:foreman_code] = exception.code if exception.respond_to?(:code)
       with_fields(extra_fields) do
-        self.logger(logger_name).public_send(level) do
-          ([context_message, "#{exception.class}: #{exception.message}"] + backtrace).join("\n")
-        end
+        self.logger(logger_name).public_send(level) { context_message }
+      end
+      # backtrace have its own separate level to prevent flooding logs with backtraces
+      self.logger(logger_name).public_send(backtrace_level) do
+        "Backtrace for '#{context_message}' error (#{exception.class}): #{exception.message}\n" + backtrace.join("\n")
       end
     end
 
@@ -150,19 +156,13 @@ module Foreman
       end
     end
 
-    def build_console_appender
-      return unless @config[:console_inline]
-
-      ::Logging.logger.root.add_appenders(
-        ::Logging.appenders.stdout(:layout => build_layout)
-      )
-    end
-
     def build_root_appender(options)
       name = "foreman"
       options[:facility] = self.class.const_get("::Syslog::Constants::#{options[:facility] || :LOG_LOCAL6}")
 
       case @config[:type]
+      when 'stdout'
+        build_console_appender(name, options)
       when 'syslog'
         build_syslog_appender(name, options)
       when 'journal', 'journald'
@@ -170,8 +170,17 @@ module Foreman
       when 'file'
         build_file_appender(name, options)
       else
-        fail 'unsupported logger type, please choose syslog or file'
+        fail 'unsupported logger type, please choose stdout, file, syslog or journald'
       end
+    end
+
+    def build_console_appender(name, options = {})
+      ::Logging.appenders.stdout(name, options.reverse_merge(:layout => build_layout(false)))
+    end
+
+    def add_console_appender
+      return if @config[:type] == 'stdout'
+      ::Logging.logger.root.add_appenders(build_console_appender("foreman"))
     end
 
     def build_syslog_appender(name, options)
@@ -220,7 +229,7 @@ module Foreman
           :info  => :green,
           :warn  => :yellow,
           :error => :red,
-          :fatal => [:white, :on_red]
+          :fatal => [:white, :on_red],
         },
         :date   => :green,
         :logger => :cyan,

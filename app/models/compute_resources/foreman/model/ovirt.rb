@@ -3,8 +3,12 @@ require 'uri'
 
 module Foreman::Model
   class Ovirt < ComputeResource
+    ALLOWED_DISPLAY_TYPES = %w(vnc spice)
+
     validates :url, :format => { :with => URI::DEFAULT_PARSER.make_regexp }, :presence => true,
               :url_schema => ['http', 'https']
+    validates :display_type, :inclusion => { :in => ALLOWED_DISPLAY_TYPES }
+    validates :keyboard_layout, :inclusion => { :in => ALLOWED_KEYBOARD_LAYOUTS }
     validates :user, :password, :presence => true
     after_validation :connect, :update_available_operating_systems unless Rails.env.test?
 
@@ -106,18 +110,6 @@ module Foreman::Model
       super.merge({:mac => :mac})
     end
 
-    def max_cpu_count
-      16
-    end
-
-    def max_socket_count
-      16
-    end
-
-    def max_memory
-      16.gigabytes
-    end
-
     def use_v4=(value)
       value = case value
               when true, '1'
@@ -154,6 +146,10 @@ module Foreman::Model
 
     def instance_type(id)
       client.instance_types.get(id) || raise(ActiveRecord::RecordNotFound)
+    end
+
+    def display_types
+      ALLOWED_DISPLAY_TYPES
     end
 
     # Check if HTTPS is mandatory, since rest_client will fail with a POST
@@ -230,7 +226,7 @@ module Foreman::Model
       networks({:cluster_id => cluster_id})
     end
 
-    def available_storage_domains(storage_domain = nil)
+    def available_storage_domains(cluster_id = nil)
       storage_domains
     end
 
@@ -253,37 +249,42 @@ module Foreman::Model
       find_vm_by_uuid(uuid).start_with_cloudinit(:blocking => true, :user_data => user_data, :use_custom_script => true)
     end
 
-    def sanitize_inherited_vm_attributes(args)
-      # Cleanup memory an cores values if template and/or instance type provided when VM values are
-      # * Blank values for these attributes, because oVirt will fail if empty values are present in VM definition
-      # * Provided but identical to values present in the template or instance type
-      # Instance type values take precedence on templates values
-      if args[:template].present?
-        template = template(args[:template])
-        cores = template.cores.to_i if template.cores.present?
-        memory = template.memory.to_i if template.memory.present?
+    def sanitize_inherited_vm_attributes(args, template, instance_type)
+      # Override memory an cores values if template and/or instance type is/are provided.
+      # Take template values if blank values for VM attributes, because oVirt will fail if empty values are present in VM definition
+      # Instance type values always take precedence on templates or vm provided values
+      if template
+        template_cores = template.cores.to_i if template.cores.present?
+        template_memory = template.memory.to_i if template.memory.present?
+        args[:cores] = template_cores if template_cores && args[:cores].blank?
+        args[:memory] = template_memory if template_memory && args[:memory].blank?
       end
-      if args[:instance_type].present?
-        instance_type = instance_type(args[:instance_type])
-        cores = instance_type.cores.to_i if instance_type.cores.present?
-        memory = instance_type.memory.to_i if instance_type.memory.present?
+      if instance_type
+        instance_type_cores = instance_type.cores.to_i if instance_type.cores.present?
+        instance_type_sockets = instance_type.sockets.to_i if instance_type.sockets.present?
+        instance_type_memory = instance_type.memory.to_i if instance_type.memory.present?
+        args[:cores] = instance_type_cores if instance_type_cores
+        args[:sockets] = instance_type_sockets if instance_type_sockets
+        args[:memory] = instance_type_memory if instance_type_memory
       end
-      args.delete(:cores) if (args[:cores].blank? && cores) || (args[:cores].to_i == cores)
-      args.delete(:memory) if (args[:memory].blank? && memory) || (args[:memory].to_i == memory)
     end
 
     def create_vm(args = {})
       args[:comment] = args[:user_data] if args[:user_data]
       args[:template] = args[:image_id] if args[:image_id]
-      sanitize_inherited_vm_attributes(args)
+      template = template(args[:template]) if args[:template]
+      instance_type = instance_type(args[:instance_type]) unless args[:instance_type].empty?
 
-      preallocate_disks(args) if args[:volumes_attributes].present?
+      args[:cluster] = get_ovirt_id(self.clusters, args[:cluster])
+
+      sanitize_inherited_vm_attributes(args, template, instance_type)
+      preallocate_and_clone_disks(args, template) if args[:volumes_attributes].present? && template.present?
 
       vm = super({ :first_boot_dev => 'network', :quota => ovirt_quota }.merge(args))
 
       begin
-        create_interfaces(vm, args[:interfaces_attributes])
-        create_volumes(vm, args[:volumes_attributes])
+        create_interfaces(vm, args[:interfaces_attributes], args[:cluster]) unless args[:interfaces_attributes].empty?
+        create_volumes(vm, args[:volumes_attributes]) unless args[:volumes_attributes].empty?
       rescue => e
         destroy_vm vm.id
         raise e
@@ -291,21 +292,41 @@ module Foreman::Model
       vm
     end
 
-    def preallocate_disks(args)
-      change_allocation_volumes = args[:volumes_attributes].values.select { |x| x[:id].present? && x[:preallocate] == '1' }
-      if args[:template].present? && change_allocation_volumes.present?
-        disks = change_allocation_volumes.map do |volume|
-          { :id => volume[:id], :sparse => 'false', :format => 'raw', :storagedomain => volume[:storage_domain] }
-        end
-        args.merge!(:clone => true, :disks => disks)
+    def get_ovirt_id(argument_list, argument)
+      if argument_list.detect { |a| a.name == argument }.nil? && argument_list.detect { |a| a.id == argument }.nil?
+        raise Foreman::Exception.new("#{argument} is not valid, enter id or name")
+      else
+        argument_list.detect { |a| a.name == argument }.try(:id) || argument
       end
+    end
+
+    def preallocate_and_clone_disks(args, template)
+      volumes_to_change = args[:volumes_attributes].values.select {|x| x[:id].present?}
+      return unless volumes_to_change.present?
+
+      template_disks = template.volumes
+
+      disks = volumes_to_change.map do |volume|
+        if volume[:preallocate] == '1'
+          {:id => volume[:id], :sparse => 'false', :format => 'raw', :storage_domain => volume[:storage_domain]}
+        else
+          template_volume = template_disks.detect {|v| v.id == volume["id"]}
+          {:id => volume["id"], :storage_domain => volume["storage_domain"]} if template_volume.storage_domain != volume["storage_domain"]
+        end
+      end.compact
+
+      args.merge!(:clone => true, :disks => disks) if disks.present?
     end
 
     def vm_instance_defaults
       super.merge(
         :memory     => 1024.megabytes,
         :cores      => '1',
-        :sockets    => '1'
+        :sockets    => '1',
+        :display    => { :type => display_type,
+                         :keyboard_layout => keyboard_layout,
+                         :port => -1,
+                         :monitors => 1 }
       )
     end
 
@@ -319,17 +340,17 @@ module Foreman::Model
     end
 
     def new_interface(attr = {})
-      Fog::Compute::Ovirt::Interface.new(attr)
+      Fog::Ovirt::Compute::Interface.new(attr)
     end
 
     def new_volume(attr = {})
       set_preallocated_attributes!(attr, attr[:preallocate])
-      Fog::Compute::Ovirt::Volume.new(attr)
+      Fog::Ovirt::Compute::Volume.new(attr)
     end
 
     def save_vm(uuid, attr)
       vm = find_vm_by_uuid(uuid)
-      vm.attributes.merge!(attr.symbolize_keys).deep_symbolize_keys
+      vm.attributes.deep_merge!(attr.deep_symbolize_keys).deep_symbolize_keys
       update_interfaces(vm, attr[:interfaces_attributes])
       update_volumes(vm, attr[:volumes_attributes])
       vm.interfaces
@@ -353,7 +374,7 @@ module Foreman::Model
         :search => params['search']['value'] || '',
         :max => max,
         :page => (params['start'].to_i / max) + 1,
-        :without_details => true
+        :without_details => true,
       }
     end
 
@@ -395,6 +416,22 @@ module Foreman::Model
       "oVirt"
     end
 
+    def display_type
+      self.attrs[:display].presence || 'vnc'
+    end
+
+    def display_type=(display)
+      self.attrs[:display] = display.downcase
+    end
+
+    def keyboard_layout
+      self.attrs[:keyboard_layout].presence || 'en-us'
+    end
+
+    def keyboard_layout=(layout)
+      self.attrs[:keyboard_layout] = layout.downcase
+    end
+
     def public_key
       attrs[:public_key]
     end
@@ -417,7 +454,7 @@ module Foreman::Model
       normalized['interfaces_attributes'] = interface_attrs.inject({}) do |interfaces, (key, nic)|
         interfaces.update(key => { 'name' => nic['name'],
                                 'network_id' => nic['network'],
-                                'network_name' => cluster_networks.detect { |n| n.id == nic['network'] }.try(:name)
+                                'network_name' => cluster_networks.detect { |n| n.id == nic['network'] }.try(:name),
                               })
       end
 
@@ -427,7 +464,7 @@ module Foreman::Model
                                 'storage_domain_id' => vol['storage_domain'],
                                 'storage_domain_name' => storage_domains.detect { |d| d.id == vol['storage_domain'] }.try(:name),
                                 'preallocate' => to_bool(vol['preallocate']),
-                                'bootable' => to_bool(vol['bootable'])
+                                'bootable' => to_bool(vol['bootable']),
                               })
       end
 
@@ -439,8 +476,16 @@ module Foreman::Model
         OpenStruct.new({:id => 'virtio', :name => 'VirtIO'}),
         OpenStruct.new({:id => 'rtl8139', :name => 'rtl8139'}),
         OpenStruct.new({:id => 'e1000', :name => 'e1000'}),
-        OpenStruct.new({:id => 'pci_passthrough', :name => 'PCI Passthrough'})
+        OpenStruct.new({:id => 'pci_passthrough', :name => 'PCI Passthrough'}),
       ]
+    end
+
+    def validate_quota(client)
+      if self.attrs[:ovirt_quota_id].nil?
+        self.attrs[:ovirt_quota_id] = client.quotas.first.id
+      else
+        get_ovirt_id(client.quotas, self.attrs[:ovirt_quota_id])
+      end
     end
 
     protected
@@ -466,10 +511,12 @@ module Foreman::Model
         :api_version      => use_v4? ? 'v4' : 'v3'
       )
       client.datacenters
+      validate_quota(client)
       @client = client
     rescue => e
       if e.message =~ /SSL_connect.*certificate verify failed/ ||
-          e.message =~ /Peer certificate cannot be authenticated with given CA certificates/
+          e.message =~ /Peer certificate cannot be authenticated with given CA certificates/ ||
+           e.message =~ /SSL peer certificate or SSH remote key was not OK/
         raise Foreman::FingerprintException.new(
           N_("The remote system presented a public key signed by an unidentified certificate authority. If you are sure the remote system is authentic, go to the compute resource edit page, press the 'Test Connection' or 'Load Datacenters' button and submit"),
           ca_cert
@@ -558,16 +605,18 @@ module Foreman::Model
       "nic#{nic_name_num}"
     end
 
-    def create_interfaces(vm, attrs)
+    def create_interfaces(vm, attrs, cluster_id)
       # first remove all existing interfaces
       vm.interfaces&.each do |interface|
         # The blocking true is a work-around for ovirt bug, it should be removed.
         vm.destroy_interface(:id => interface.id, :blocking => true)
       end
       # add interfaces
+      cluster_networks = self.networks(:cluster_id => cluster_id)
       interfaces = nested_attributes_for :interfaces, attrs
       interfaces.map do |interface|
         interface[:name] = default_iface_name(interfaces) if interface[:name].empty?
+        interface[:network] = get_ovirt_id(cluster_networks, interface[:network])
         vm.add_interface(interface)
       end
       vm.interfaces.reload
@@ -577,11 +626,28 @@ module Foreman::Model
       # add volumes
       volumes = nested_attributes_for :volumes, attrs
       volumes.map do |vol|
-        set_preallocated_attributes!(vol, vol[:preallocate])
-        # The blocking true is a work-around for ovirt bug fixed in ovirt version 3.1.
-        vm.add_volume({:bootable => 'false', :quota => ovirt_quota, :blocking => api_version.to_f < 3.1}.merge(vol)) if vol[:id].blank?
+        if vol[:id].blank?
+          set_preallocated_attributes!(vol, vol[:preallocate])
+          vol[:wipe_after_delete] = to_fog_ovirt_boolean(vol[:wipe_after_delete])
+          vol[:storage_domain] = get_ovirt_id(storage_domains, vol[:storage_domain])
+          # The blocking true is a work-around for ovirt bug fixed in ovirt version 5.1
+          # The BZ in ovirt cause to the destruction of a host in foreman to fail in case a volume is locked
+          # Here we are enforcing blocking behavior which  will  wait until the volume is added
+          vm.add_volume({:bootable => 'false', :quota => ovirt_quota, :blocking => api_version.to_f < 5.1}.merge(vol))
+        end
       end
       vm.volumes.reload
+    end
+
+    def to_fog_ovirt_boolean(val)
+      case val
+      when '1'
+        'true'
+      when '0'
+        'false'
+      else
+        val
+      end
     end
 
     def set_preallocated_attributes!(volume_attributes, preallocate)
@@ -610,6 +676,24 @@ module Foreman::Model
         vm.destroy_volume(:id => volume[:id], :blocking => api_version.to_f < 3.1) if volume[:_delete] == '1' && volume[:id].present?
         vm.add_volume({:bootable => 'false', :quota => ovirt_quota, :blocking => api_version.to_f < 3.1}.merge(volume)) if volume[:id].blank?
       end
+    end
+
+    def set_vm_interfaces_attributes(vm, vm_attrs)
+      if vm.respond_to?(:interfaces)
+        interfaces = vm.interfaces || []
+        vm_attrs[:interfaces_attributes] = interfaces.each_with_index.each_with_object({}) do |(interface, index), hsh|
+          interface_attrs = {
+            mac: interface.mac,
+            compute_attributes: {
+              name: interface.name,
+              network: interface.network,
+              interface: interface.interface,
+            },
+          }
+          hsh[index.to_s] = interface_attrs
+        end
+      end
+      vm_attrs
     end
   end
 end

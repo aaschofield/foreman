@@ -23,15 +23,9 @@ class HostsController < ApplicationController
                         rebuild_config submit_rebuild_config select_multiple_owner update_multiple_owner
                         select_multiple_power_state update_multiple_power_state)
 
-  HOST_POWER = {
-    :on =>  { :state => 'on', :title => N_('On') },
-    :off => { :state => 'off', :title => N_('Off') },
-    :na =>  { :state => 'na', :title => N_('N/A') }
-  }.freeze
-
-  before_action :ajax_request, :only => AJAX_REQUESTS + [:get_power_state]
+  before_action :ajax_request, :only => AJAX_REQUESTS
   before_action :find_resource, :only => [:show, :clone, :edit, :update, :destroy, :puppetrun, :review_before_build,
-                                          :setBuild, :cancelBuild, :power, :get_power_state, :overview, :bmc, :vm,
+                                          :setBuild, :cancelBuild, :power, :overview, :bmc, :vm,
                                           :runtime, :resources, :nics, :ipmi_boot, :console,
                                           :toggle_manage, :pxe_config, :disassociate, :build_errors]
 
@@ -132,9 +126,9 @@ class HostsController < ApplicationController
 
   def destroy
     if @host.destroy
-      process_success :success_redirect => hosts_path
+      process_success redirection_url_on_host_deletion
     else
-      process_error
+      process_error :redirect => saved_redirect_url_or(send("#{controller_name}_url"))
     end
   end
 
@@ -271,22 +265,6 @@ class HostsController < ApplicationController
     process_success :success_redirect => :back, :success_msg => _("%{host} is about to %{action}") % { :host => @host, :action => _(params[:power_action].downcase) }
   rescue => e
     process_error :redirect => :back, :error_msg => _("Failed to %{action} %{host}: %{e}") % { :action => _(params[:power_action]), :host => @host, :e => e }
-  end
-
-  def get_power_state
-    result = {:id => @host.id}.merge(host_power_state(:na))
-    if @host.supports_power?
-      result = host_power_ping result
-    else
-      result[:statusText] = _('Power operations are not enabled on this host.')
-    end
-
-    render :json => result
-  rescue => e
-    Foreman::Logging.exception("Failed to fetch power status", e)
-    result.merge!(host_power_state(:na))
-    result[:statusText] = _("Failed to fetch power status: %s") % e
-    render :json => result
   end
 
   def overview
@@ -464,12 +442,10 @@ class HostsController < ApplicationController
   def update_multiple_power_state
     action = params[:power][:action]
     @hosts.each do |host|
-      begin
-        host.power.send(action.to_sym) if host.supports_power?
-      rescue => error
-        message = _('Failed to set power state for %s.') % host
-        Foreman::Logging.exception(message, error)
-      end
+      host.power.send(action.to_sym) if host.supports_power?
+    rescue => error
+      message = _('Failed to set power state for %s.') % host
+      Foreman::Logging.exception(message, error)
     end
 
     success _('The power state of the selected hosts will be set to %s') % _(action)
@@ -499,8 +475,8 @@ class HostsController < ApplicationController
     all_fails.each_pair do |key, values|
       unless values.empty?
         message << ((n_("%{config_type} rebuild failed for host: %{host_names}.",
-                        "%{config_type} rebuild failed for hosts: %{host_names}.",
-                         values.count) % {:config_type => _(key), :host_names => values.to_sentence})) + " "
+          "%{config_type} rebuild failed for hosts: %{host_names}.",
+          values.count) % {:config_type => _(key), :host_names => values.to_sentence})) + " "
       end
     end
 
@@ -549,7 +525,7 @@ class HostsController < ApplicationController
     else
       error _("The following hosts were not deleted: %s") % missed_hosts.map(&:name).to_sentence
     end
-    redirect_to(hosts_path)
+    redirect_to(saved_redirect_url_or(send("#{controller_name}_url")))
   end
 
   def multiple_disable
@@ -715,7 +691,7 @@ class HostsController < ApplicationController
       not_found
       return false
     end
-    @host   = resource_base.friendly.find(id)
+    @host = resource_base.friendly.find(id)
     @host ||= resource_base.find_by_mac params[:host][:mac].to_s if params[:host] && params[:host][:mac]
 
     unless @host
@@ -829,14 +805,12 @@ class HostsController < ApplicationController
     failed_hosts = {}
 
     @hosts.each do |host|
-      begin
-        host.send(host_update_method, proxy)
-        host.save!
-      rescue => error
-        failed_hosts[host.name] = error
-        message = _('Failed to set %{proxy_type} proxy for %{host}.') % {:host => host, :proxy_type => proxy_type}
-        Foreman::Logging.exception(message, error)
-      end
+      host.send(host_update_method, proxy)
+      host.save!
+    rescue => error
+      failed_hosts[host.name] = error
+      message = _('Failed to set %{proxy_type} proxy for %{host}.') % {:host => host, :proxy_type => proxy_type}
+      Foreman::Logging.exception(message, error)
     end
 
     if failed_hosts.empty?
@@ -847,8 +821,8 @@ class HostsController < ApplicationController
       end
     else
       error n_("The %{proxy_type} proxy could not be set for host: %{host_names}.",
-               "The %{proxy_type} puppet ca proxy could not be set for hosts: %{host_names}",
-               failed_hosts.count) % {:proxy_type => proxy_type, :host_names => failed_hosts.map {|h, err| "#{h} (#{err})"}.to_sentence}
+        "The %{proxy_type} puppet ca proxy could not be set for hosts: %{host_names}",
+        failed_hosts.count) % {:proxy_type => proxy_type, :host_names => failed_hosts.map {|h, err| "#{h} (#{err})"}.to_sentence}
     end
     redirect_back_or_to hosts_path
   end
@@ -859,24 +833,6 @@ class HostsController < ApplicationController
       @host.provisioning_template(:kind => kind.name)
     end.compact
     raise Foreman::Exception.new(N_("No templates found")) if @templates.empty?
-  end
-
-  def host_power_ping(result)
-    timeout = 3
-    Timeout.timeout(timeout) do
-      result.merge!(host_power_state(@host.supports_power_and_running? ? :on : :off))
-    end
-    result
-  rescue Timeout::Error
-    logger.debug("Failed to retrieve power status for #{@host} within #{timeout} seconds.")
-    result[:statusText] = n_("Failed to retrieve power status for %{host} within %{timeout} second.",
-                             "Failed to retrieve power status for %{host} within %{timeout} seconds.", timeout) %
-                            {:host => @host, :timeout => timeout}
-    result
-  end
-
-  def host_power_state(key)
-    HOST_POWER[key].merge(:title => _(HOST_POWER[key][:title]))
   end
 
   def host_attributes_for_templates(host)
@@ -907,5 +863,13 @@ class HostsController < ApplicationController
     Hash[Report.origins.map do |origin|
       [origin, Setting[:"#{origin.downcase}_interval"].to_i]
     end]
+  end
+
+  def redirection_url_on_host_deletion
+    default_redirection = { :success_redirect => hosts_path }
+    return default_redirection unless session["redirect_to_url_#{controller_name}"]
+    path_hash = main_app.routes.recognize_path(session["redirect_to_url_#{controller_name}"])
+    return default_redirection if (path_hash.nil? || (path_hash && path_hash[:action] != 'index'))
+    { :success_redirect => saved_redirect_url_or(send("#{controller_name}_url")) }
   end
 end

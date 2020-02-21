@@ -2,11 +2,6 @@ class Junos < Operatingsystem
   # We don't fetch any files here.
   PXEFILES = {}
 
-  # Simple output of the media url
-  def mediumpath(medium_provider)
-    medium_provider.medium_uri.to_s
-  end
-
   # The PXE type to use when generating actions and evaluating attributes. jumpstart, kickstart and preseed are currently supported.
   def pxe_type
     "ZTP"
@@ -20,7 +15,7 @@ class Junos < Operatingsystem
     ["ZTP"]
   end
 
-  def pxedir
+  def pxedir(medium_provider = nil)
     "boot/$arch/images"
   end
 

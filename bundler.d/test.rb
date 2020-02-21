@@ -1,24 +1,27 @@
 group :test do
-  gem 'mocha', '~> 1.4'
+  gem 'mocha', '~> 1.11'
   gem 'single_test', '~> 0.6'
   gem 'minitest', '~> 5.1', '< 5.11'
   gem 'minitest-retry', '~> 0.0', :require => false
-  gem 'minitest-spec-rails', '~> 5.3'
+  gem 'minitest-spec-rails', '~> 6.0'
   gem 'ci_reporter_minitest', :require => false
   gem 'capybara', '~> 3.0', :require => false
   gem 'puma', :require => false
-  gem 'show_me_the_cookies', '~> 4.0', :require => false
+  gem 'show_me_the_cookies', '~> 5.0', :require => false
   gem 'database_cleaner', '~> 1.3', :require => false
   gem 'launchy', '~> 2.4'
-  gem 'factory_bot_rails', '~> 4.5', :require => false
+  gem 'factory_bot_rails', '~> 5.0', :require => false
+  gem 'rubocop', '~> 0.75.0'
   gem 'rubocop-checkstyle_formatter', '~> 0.2'
+  gem 'rubocop-performance', '~> 1.5.0'
+  gem 'rubocop-rails', '~> 2.3.2'
   gem 'poltergeist', '>= 1.18.0', :require => false
   gem 'selenium-webdriver', :require => false
-  gem 'shoulda-matchers', '~> 3.0'
+  gem 'shoulda-matchers', '~> 4.0'
   gem 'shoulda-context', '~> 1.2'
   gem 'as_deprecation_tracker', '~> 1.4'
   gem 'rails-controller-testing', '~> 1.0'
-  gem 'rfauxfactory', '~> 0.1'
+  gem 'rfauxfactory', '~> 0.1', '>= 0.1.5'
   gem 'robottelo_reporter', '~> 0.1'
   gem 'webmock'
 end

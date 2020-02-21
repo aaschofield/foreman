@@ -4,6 +4,7 @@ class SubnetTest < ActiveSupport::TestCase
   should validate_presence_of(:network)
   should validate_presence_of(:mask)
   should validate_presence_of(:mtu)
+  should_not allow_value(60).for(:mtu)
   should_not validate_uniqueness_of(:network)
   should_not allow_value("asf:fwe6::we6s:q1").for(:network)
   should_not allow_value("asf:fwe6::we6s:q1").for(:mask)
@@ -73,11 +74,11 @@ class SubnetTest < ActiveSupport::TestCase
 
   test "when to_label is applied should show the domain, the mask and network" do
     subnet = FactoryBot.create(:subnet_ipv4,
-                                :with_domains,
-                                :name => 'valid',
-                                :network => '123.123.123.0',
-                                :mask => '255.255.255.0'
-                               )
+      :with_domains,
+      :name => 'valid',
+      :network => '123.123.123.0',
+      :mask => '255.255.255.0'
+    )
 
     assert_equal "valid (123.123.123.0/24)", subnet.to_label
   end
@@ -138,10 +139,31 @@ class SubnetTest < ActiveSupport::TestCase
     assert_equal({key.id => {key.key => {:value => value.value,
                                          :element => 'subnet',
                                          :element_name => subnet.name}}},
-                 smart_variables)
+      smart_variables)
   end
 
   test "should have MTU set to 1500 by default" do
     assert_equal 1500, Subnet.new.mtu
+  end
+
+  test "should have nic_delay set to nil by default" do
+    assert_nil Subnet.new.nic_delay
+  end
+
+  describe '#dns_servers' do
+    test 'should display a list of dns servers' do
+      subnet = FactoryBot.create(:subnet_ipv4, dns_primary: '192.0.2.1', dns_secondary: '192.0.2.2')
+      assert_equal ['192.0.2.1', '192.0.2.2'], subnet.dns_servers
+    end
+
+    test 'should skip empty dns servers' do
+      subnet = FactoryBot.create(:subnet_ipv4, dns_secondary: '192.0.2.1')
+      assert_equal ['192.0.2.1'], subnet.dns_servers
+    end
+
+    test 'should display an empty list if no dns servers are present' do
+      subnet = FactoryBot.create(:subnet_ipv4)
+      assert_equal [], subnet.dns_servers
+    end
   end
 end

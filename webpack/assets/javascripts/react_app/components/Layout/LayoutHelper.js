@@ -1,20 +1,26 @@
+/* eslint-disable no-unused-vars */
+// eslint bug - https://github.com/eslint/eslint/issues/12117
+
 import { isEmpty } from 'lodash';
 import {
   changeOrganization,
   changeLocation,
 } from '../../../foreman_navigation';
 import { translate as __ } from '../../common/I18n';
+import { removeLastSlashFromPath } from '../../common/helpers';
 
-export const getCurrentPath = () => window.location.pathname;
+export const getCurrentPath = () =>
+  removeLastSlashFromPath(window.location.pathname);
 
-export const getActive = (data, path) => {
-  let activeItem = '';
-  data.forEach(item => {
-    item.children.forEach(child => {
-      if (child.url === path) activeItem = item.name;
-    });
-  });
-  return { title: activeItem };
+export const getActive = (items, path) => {
+  for (const item of items) {
+    for (const child of item.children) {
+      if (child.exact) {
+        if (path === child.url) return { title: item.name };
+      } else if (path.startsWith(child.url)) return { title: item.name };
+    }
+  }
+  return { title: '' };
 };
 
 export const handleMenuClick = (primary, activeMenu, changeActive) => {
@@ -80,7 +86,6 @@ const createOrgItem = orgs => {
     children: childrenArray,
     // Hiding Organizations if not on Mobile view
     className: 'visible-xs-block',
-    active: false,
   };
   return orgItem;
 };
@@ -115,7 +120,13 @@ const createLocationItem = locations => {
     children: childrenArray,
     // Hiding Locations if not on Mobile view
     className: 'visible-xs-block',
-    active: false,
   };
   return locItem;
+};
+
+export const checkCollapsed = () => {
+  const collapsedState = sessionStorage.getItem(
+    `["navCollapsed","pinnedPath"]`
+  );
+  return !!collapsedState && collapsedState.includes('true');
 };

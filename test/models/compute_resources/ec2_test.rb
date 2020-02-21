@@ -25,7 +25,7 @@ module Foreman
         end
 
         it "raises RecordNotFound when the compute raises EC2 error" do
-          cr = mock_cr_servers(Foreman::Model::EC2.new, servers_raising_exception(Fog::Compute::AWS::Error))
+          cr = mock_cr_servers(Foreman::Model::EC2.new, servers_raising_exception(Fog::AWS::Compute::Error))
           assert_find_by_uuid_raises(ActiveRecord::RecordNotFound, cr)
         end
       end
@@ -38,19 +38,20 @@ module Foreman
       end
 
       describe '#normalize_vm_attrs' do
+        let(:base_cr) { FactoryBot.build(:ec2_cr) }
         let(:cr) do
-          mock_cr(FactoryBot.build(:ec2_cr),
+          mock_cr(base_cr,
             :subnets => [
               stub(:subnet_id => 'sn1', :cidr_block => 'cidr blk 1'),
-              stub(:subnet_id => 'sn2', :cidr_block => 'cidr blk 2')
+              stub(:subnet_id => 'sn2', :cidr_block => 'cidr blk 2'),
             ],
             :security_groups => [
               stub(:group_id => 'grp1', :name => 'group 1'),
-              stub(:group_id => 'grp2', :name => 'group 2')
+              stub(:group_id => 'grp2', :name => 'group 2'),
             ],
             :flavors => [
               stub(:id => 'flvr1', :name => 'flavour 1'),
-              stub(:id => 'flvr2', :name => 'flavour 2')
+              stub(:id => 'flvr2', :name => 'flavour 2'),
             ]
           )
         end
@@ -61,7 +62,7 @@ module Foreman
 
         test 'sets flavor_name' do
           vm_attrs = {
-            'flavor_id' => 'flvr1'
+            'flavor_id' => 'flvr1',
           }
           normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -78,33 +79,35 @@ module Foreman
 
         test 'sets subnet_name' do
           vm_attrs = {
-            'subnet_id' => 'sn1'
+            'subnet_id' => 'sn1',
           }
           normalized = cr.normalize_vm_attrs(vm_attrs)
 
           assert_equal('cidr blk 1', normalized['subnet_name'])
         end
 
-        test 'sets image_name' do
-          cr = FactoryBot.create(:gce_cr, :with_images)
+        describe 'images' do
+          let(:base_cr) { FactoryBot.create(:ec2_cr, :with_images) }
 
-          vm_attrs = {
-            'image_id' => cr.images.last.uuid
-          }
-          normalized = cr.normalize_vm_attrs(vm_attrs)
+          test 'sets image_name' do
+            vm_attrs = {
+              'image_id' => cr.images.last.uuid,
+            }
+            normalized = cr.normalize_vm_attrs(vm_attrs)
 
-          assert_equal(cr.images.last.name, normalized['image_name'])
+            assert_equal(cr.images.last.name, normalized['image_name'])
+          end
         end
 
         test 'maps security_groups' do
           vm_attrs = {
-            'security_group_ids' => ['', 'grp1']
+            'security_group_ids' => ['', 'grp1'],
           }
           expected_attrs = {
             '0' => {
               'id' => 'grp1',
-              'name' => 'group 1'
-            }
+              'name' => 'group 1',
+            },
           }
           normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -122,7 +125,7 @@ module Foreman
             'managed_ip' => nil,
             'subnet_id' => nil,
             'subnet_name' => nil,
-            'security_groups' => {}
+            'security_groups' => {},
           }
 
           assert_equal(expected_attrs.keys.sort, normalized.keys.sort)

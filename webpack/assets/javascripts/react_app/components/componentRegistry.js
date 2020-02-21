@@ -1,42 +1,57 @@
 import React from 'react';
+import forceSingleton from '../common/forceSingleton';
 
+import ReactApp from '../ReactApp';
 import DonutChart from './common/charts/DonutChart';
 import BarChart from './common/charts/BarChart';
-import StatisticsChartsList from './statistics/StatisticsChartsList';
+import LineChart from './common/charts/LineChart';
+import StatisticsChartsList from './StatisticsChartsList';
 import PowerStatus from './hosts/powerStatus/';
 import NotificationContainer from './notifications/';
-import ToastsList from './toastNotifications/';
+import ToastsList from './ToastsList/';
 import RelativeDateTime from './common/dates/RelativeDateTime';
 import LongDateTime from './common/dates/LongDateTime';
 import ShortDateTime from './common/dates/ShortDateTime';
 import IsoDate from './common/dates/IsoDate';
+import FormField from './common/forms/FormField';
+import InputFactory from './common/forms/InputFactory';
 import StorageContainer from './hosts/storage/vmware/';
 import PasswordStrength from './PasswordStrength';
 import BreadcrumbBar from './BreadcrumbBar';
-import FactChart from './factCharts';
+import FactChart from './FactCharts';
 import Pagination from './Pagination/Pagination';
-import AuditsList from './AuditsList';
+import AutoComplete from './AutoComplete';
 import SearchBar from './SearchBar';
 import Layout from './Layout';
 import EmptyState from './common/EmptyState';
 import ComponentWrapper from './common/ComponentWrapper/ComponentWrapper';
-import ChartBox from './statistics/ChartBox';
+import ChartBox from './ChartBox';
 import ConfigReports from './ConfigReports/ConfigReports';
 import DiffModal from './ConfigReports/DiffModal';
 import { WrapperFactory } from './wrapperFactory';
+import ModelsTable from './ModelsTable';
+import TemplateGenerator from './TemplateGenerator';
+import TemplateInput from './Template/TemplateInput';
+import Editor from './Editor';
+import LoginPage from './LoginPage';
+import ExternalLogout from './ExternalLogout';
+import Slot from './common/Slot';
+import TypeAheadSelect from './common/TypeAheadSelect';
 
 const componentRegistry = {
-  registry: {},
+  registry: forceSingleton('component_registry', () => ({})),
 
   register({ name = null, type = null, store = true, data = true }) {
     if (!name || !type) {
       throw new Error('Component name or type is missing');
     }
     if (this.registry[name]) {
-      throw new Error(`Component name already taken: ${name}`);
+      // eslint-disable-next-line no-console
+      console.warn(`Component name already taken: ${name}`);
+    } else {
+      this.registry[name] = { type, store, data };
     }
 
-    this.registry[name] = { type, store, data };
     return this.registry;
   },
 
@@ -92,8 +107,11 @@ const componentRegistry = {
 };
 
 const coreComponets = [
+  { name: 'ReactApp', type: ReactApp },
   { name: 'SearchBar', type: SearchBar },
+  { name: 'AutoComplete', type: AutoComplete },
   { name: 'DonutChart', type: DonutChart },
+  { name: 'LineChart', type: LineChart },
   { name: 'StatisticsChartsList', type: StatisticsChartsList },
   { name: 'PowerStatus', type: PowerStatus },
   { name: 'NotificationContainer', type: NotificationContainer },
@@ -103,7 +121,6 @@ const coreComponets = [
   { name: 'BreadcrumbBar', type: BreadcrumbBar },
   { name: 'FactChart', type: FactChart },
   { name: 'Pagination', type: Pagination },
-  { name: 'AuditsList', type: AuditsList },
   { name: 'Layout', type: Layout },
   { name: 'EmptyState', type: EmptyState },
   { name: 'BarChart', type: BarChart },
@@ -111,6 +128,11 @@ const coreComponets = [
   { name: 'ComponentWrapper', type: ComponentWrapper },
   { name: 'ConfigReports', type: ConfigReports },
   { name: 'DiffModal', type: DiffModal },
+  { name: 'TemplateInput', type: TemplateInput },
+  { name: 'ExternalLogout', type: ExternalLogout },
+  { name: 'Slot', type: Slot },
+  { name: 'TypeAheadSelect', type: TypeAheadSelect },
+
   {
     name: 'RelativeDateTime',
     type: RelativeDateTime,
@@ -135,6 +157,14 @@ const coreComponets = [
     data: true,
     store: false,
   },
+  { name: 'FormField', type: FormField },
+  { name: 'InputFactory', type: InputFactory },
+  { name: 'ModelsTable', type: ModelsTable },
+  { name: 'Editor', type: Editor },
+
+  // Report templates
+  { name: 'TemplateGenerator', type: TemplateGenerator },
+  { name: 'LoginPage', type: LoginPage },
 ];
 
 componentRegistry.registerMultiple(coreComponets);

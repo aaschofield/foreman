@@ -5,6 +5,8 @@ class ExternalUsergroup < ApplicationRecord
   belongs_to :usergroup, :inverse_of => :external_usergroups
   belongs_to :auth_source
 
+  delegate :supports_refresh?, :to => :auth_source
+
   validates_lengths_from_database
   validates :name, :uniqueness => { :scope => :auth_source_id }
   validates :name, :auth_source, :usergroup, :presence => true
@@ -13,30 +15,7 @@ class ExternalUsergroup < ApplicationRecord
   validate :domain_users_forbidden
 
   def refresh
-    return false unless auth_source.respond_to?(:users_in_group)
-
-    current_users = usergroup.users.map(&:login)
-    internal_users = usergroup.users.
-      where(:auth_source => AuthSourceInternal.first).map(&:login)
-    my_users = users
-    return false unless my_users
-
-    all_other_users = (usergroup.external_usergroups - [self]).map(&:users)
-    all_users = (all_other_users + my_users).flatten.uniq
-
-    # We need to make sure when we refresh a external_usergroup
-    # other external_usergroup users remain in. Otherwise refreshing
-    # a external user group with no users in will empty the user group.
-    old_users = current_users - all_users - internal_users
-    new_users = my_users - current_users
-
-    remaining_user_ids = usergroup.user_ids - User.fetch_ids_by_list(old_users)
-    new_user_ids = User.fetch_ids_by_list(new_users)
-
-    # To make changes auditable called update
-    usergroup.user_ids = remaining_user_ids.concat(new_user_ids)
-    usergroup.save
-    true
+    auth_source.refresh_usergroup_members(usergroup)
   end
 
   def users

@@ -1,9 +1,9 @@
-import { SubmissionError } from 'redux-form';
+/* eslint-disable promise/prefer-await-to-then */
 import configureMockStore from 'redux-mock-store';
 import thunk from 'redux-thunk';
 import { requestData, requestDataMsg } from './forms.fixtures';
 import * as types from '../../consts';
-import { submitForm } from './forms';
+import { submitForm, SubmissionError } from './forms';
 import { mockRequest, mockReset } from '../../../mockRequests';
 
 const middlewares = [thunk];
@@ -39,7 +39,7 @@ describe('form actions', () => {
       submitForm({ values: { a: 1 } });
     }).toThrow();
   });
-  it('on failed response raise exception', () => {
+  it('on failed response raise exception', async () => {
     const store = mockStore({ resources: [] });
 
     mockRequest({
@@ -49,18 +49,17 @@ describe('form actions', () => {
         message: 'oh snap',
       },
     });
-    return store
-      .dispatch(submitForm(requestData))
-      .then(() => {
-        throw new Error(
-          'Should not hit this then block - test was set up incorrectly'
-        );
-      })
-      .catch(error => {
-        expect(error).toBeInstanceOf(SubmissionError);
-      });
+
+    try {
+      await store.dispatch(submitForm(requestData));
+      throw new Error(
+        'Should not hit this then block - test was set up incorrectly'
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(SubmissionError);
+    }
   });
-  it('on failed response handle base errors', () => {
+  it('on failed response handle base errors', async () => {
     const store = mockStore({ resources: [] });
 
     mockRequest({
@@ -70,44 +69,44 @@ describe('form actions', () => {
         message: 'not found',
       },
     });
-    return store
-      .dispatch(submitForm(requestData))
-      .then(() => {
-        throw new Error(
-          'Should not hit this then block - test was set up incorrectly'
-        );
-      })
-      .catch(error => {
-        expect(error).toBeInstanceOf(SubmissionError);
-        expect(error.errors._error[0]).toMatch(/Error submitting data: 404*/);
-      });
+    try {
+      await store.dispatch(submitForm(requestData));
+      throw new Error(
+        'Should not hit this then block - test was set up incorrectly'
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(SubmissionError);
+      expect(error.errors._error.errorMsgs[0]).toMatch(
+        /Error submitting data: 404*/
+      );
+    }
   });
-  it('on failed response handle field errors', () => {
+  it('on failed response handle field errors', async () => {
     const store = mockStore({ resources: [] });
 
     mockRequest({
       ...mockRequestData,
       status: 422,
       response: {
-        error: { errors: { name: 'already used', base: 'some error' } },
+        error: { errors: { name: 'already used', base: ['some error'] } },
       },
     });
-    return store
-      .dispatch(submitForm(requestData))
-      .then(() => {
-        throw new Error(
-          'Should not hit this then block - test was set up incorrectly'
-        );
-      })
-      .catch(error => {
-        expect(error).toBeInstanceOf(SubmissionError);
-        expect(error.errors).toEqual({
-          name: 'already used',
-          _error: 'some error',
-        });
+    try {
+      await store.dispatch(submitForm(requestData));
+      throw new Error(
+        'Should not hit this then block - test was set up incorrectly'
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(SubmissionError);
+      expect(error.errors).toEqual({
+        name: 'already used',
+        _error: {
+          errorMsgs: ['some error'],
+        },
       });
+    }
   });
-  it('on success dispatch actions correctly', () => {
+  it('on success dispatch actions correctly', async () => {
     const store = mockStore({ resources: [] });
     const expectedAction = {
       type: 'RESOURCE_FORM_SUBMITTED',
@@ -122,14 +121,13 @@ describe('form actions', () => {
       },
     });
 
-    return store.dispatch(submitForm(requestData)).then(() => {
-      // dispatch RESOURCE_FORM_SUBMITTED action
-      expect(store.getActions()[0]).toEqual(expectedAction);
-      // dispatch toast notifications
-      expect(store.getActions()[1].type).toEqual(types.TOASTS_ADD);
-    });
+    await store.dispatch(submitForm(requestData));
+    // dispatch RESOURCE_FORM_SUBMITTED action
+    expect(store.getActions()[0]).toEqual(expectedAction);
+    // dispatch toast notifications
+    expect(store.getActions()[1].type).toEqual(types.TOASTS_ADD);
   });
-  it('on success display custom message', () => {
+  it('on success display custom message', async () => {
     const store = mockStore({ resources: [] });
 
     mockRequest({
@@ -139,11 +137,9 @@ describe('form actions', () => {
         id: 42,
       },
     });
-
-    return store.dispatch(submitForm(requestDataMsg)).then(() => {
-      expect(store.getActions()[1].payload.message.message).toEqual(
-        'Customized success!'
-      );
-    });
+    await store.dispatch(submitForm(requestDataMsg));
+    expect(store.getActions()[1].payload.message.message).toEqual(
+      'Customized success!'
+    );
   });
 });

@@ -1,6 +1,7 @@
 import React from 'react';
-import { shallow } from 'enzyme';
-import toJson from 'enzyme-to-json';
+import { shallow } from '@theforeman/test';
+
+jest.useFakeTimers();
 
 export default {
   mockStorage: () => {
@@ -24,6 +25,20 @@ export default {
       },
     };
   },
+};
+
+export const mockWindowLocation = ({ href }) => {
+  let currentHref = href;
+  delete global.window.location;
+  global.window.location = { reload: jest.fn() };
+  Object.defineProperty(global.window.location, 'href', {
+    configurable: true,
+    get: () => currentHref,
+    set: newValue => {
+      currentHref = newValue;
+    },
+  });
+  return jest.spyOn(global.window.location, 'href', 'set');
 };
 
 // a helper method for invoking a class method (for unit tests)
@@ -53,10 +68,36 @@ export const shallowRenderComponentWithFixtures = (Component, fixtures) =>
  * @param  {Object}         fixtures  key=fixture description, value=props to apply
  */
 export const testComponentSnapshotsWithFixtures = (Component, fixtures) =>
-  shallowRenderComponentWithFixtures(Component, fixtures).forEach(
-    ({ description, component }) =>
-      it(description, () => expect(toJson(component)).toMatchSnapshot())
+  shallowRenderComponentWithFixtures(
+    Component,
+    fixtures
+  ).forEach(({ description, component }) =>
+    it(description, () => expect(component).toMatchSnapshot())
   );
+
+const resolveDispatch = async (action, depth) => {
+  // if it is async action and we are allowed to go deeper
+  if (depth && typeof action === 'function') {
+    const dispatch = jest.fn();
+    await action(dispatch);
+    jest.runOnlyPendingTimers();
+
+    return Promise.all(
+      dispatch.mock.calls.map(call => resolveDispatch(call[0], depth - 1))
+    );
+  }
+  // else return the action itself
+  return action;
+};
+
+/**
+ * run an action (sync or async) and returns a call tree
+ * @param  {Function}  runAction  Action runner function
+ * @param  {Number} states the depth of dispatch calls
+ * @return calls result tree to the given depth - array for each branch of calls
+ */
+export const runActionInDepth = (runAction, depth = 1) =>
+  resolveDispatch(runAction(), depth);
 
 /**
  * run an action (sync or async) and except the results to much snapshot

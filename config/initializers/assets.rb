@@ -21,22 +21,17 @@ Foreman::Application.configure do |app|
   javascript = %w(compute_resource
                   compute_resources/libvirt/nic_info
                   compute_resources/ovirt/nic_info
+                  compute_resources/ovirt/display
                   compute_resources/vmware/nic_info
-                  lookup_keys
                   host_edit
                   host_edit_interfaces
                   hosts
-                  host_checkbox
                   reports
-                  spice
                   charts
                   taxonomy_edit
                   gettext/all
                   filters
-                  class_edit
-                  dashboard
                   subnets
-                  hidden_values
                   proxy_status
                   about
                   parameter_override)
@@ -71,8 +66,8 @@ Foreman::Application.configure do |app|
           Rails.logger.debug { "Loading #{plugin.id} precompiled asset manifest from #{manifest_path}" }
           assets = JSON.parse(File.read(manifest_path))
 
-          foreman_manifest['files']  = foreman_manifest['files'].merge(assets['files'])
-          foreman_manifest['assets'] = foreman_manifest['assets'].merge(assets['assets'])
+          foreman_manifest['files']  = foreman_manifest['files'].merge(assets.fetch('files', {}))
+          foreman_manifest['assets'] = foreman_manifest['assets'].merge(assets.fetch('assets', {}))
         end
       end
 
@@ -104,7 +99,12 @@ Foreman::Application.configure do |app|
           Rails.logger.debug { "Loading #{plugin.id} webpack asset manifest from #{manifest_path}" }
           assets = JSON.parse(File.read(manifest_path))
 
-          webpack_manifest['assetsByChunkName'][plugin.id.to_s] = assets['assetsByChunkName'][plugin.id.to_s] if assets['assetsByChunkName'].key?(plugin.id.to_s)
+          plugin_id = plugin.id.to_s
+          assets['assetsByChunkName'].each do |chunk, filename|
+            if chunk == plugin_id || chunk.start_with?("#{plugin_id}:")
+              webpack_manifest['assetsByChunkName'][chunk] = filename
+            end
+          end
         end
 
         Webpack::Rails::Manifest.manifest = webpack_manifest

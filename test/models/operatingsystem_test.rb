@@ -30,14 +30,14 @@ class OperatingsystemTest < ActiveSupport::TestCase
   should allow_value(*valid_name_list).for(:description)
 
   test "name and major should be unique" do
-    operating_system = FactoryBot.build(:operatingsystem, :name => "Ubuntu", :major => "10")
+    operating_system = FactoryBot.build(:operatingsystem, :name => "Ubuntu", :major => "10", :release_name => "rn10")
     assert operating_system.save
-    other_operating_system = FactoryBot.build(:operatingsystem, :name => "Ubuntu", :major => "10")
+    other_operating_system = FactoryBot.build(:operatingsystem, :name => "Ubuntu", :major => "10", :release_name => "rn10")
     refute_valid other_operating_system
   end
 
   test "should not destroy while using" do
-    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "10"
+    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "10", :release_name => "rn10"
     assert operating_system.save
 
     host = FactoryBot.create(:host)
@@ -49,12 +49,12 @@ class OperatingsystemTest < ActiveSupport::TestCase
 
   # Methods tests
   test "to_label should print correctly" do
-    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "9", :minor => "10"
+    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "9", :minor => "10", :release_name => "rn9"
     assert operating_system.to_label == "Ubuntu 9.10"
   end
 
   test "to_s retrives label" do
-    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "9", :minor => "10"
+    operating_system = Operatingsystem.new :name => "Ubuntu", :major => "9", :minor => "10", :release_name => "rn9"
     assert operating_system.to_s == operating_system.to_label
   end
 
@@ -121,6 +121,7 @@ class OperatingsystemTest < ActiveSupport::TestCase
 
     test "os family can be one of defined os families" do
       Operatingsystem.families.each do |family|
+        os.release_name = "nicereleasename" if (family == 'Debian')
         os.family = family
         assert_valid os
       end
@@ -294,7 +295,7 @@ class OperatingsystemTest < ActiveSupport::TestCase
       @os = operatingsystems(:centos5_3)
       @os.update(:os_default_templates_attributes =>
                                [{ :provisioning_template_id => @provisioning_template.id, :template_kind_id => @template_kind.id }]
-      )
+                )
     end
 
     test 'should create os default templates' do
@@ -359,10 +360,27 @@ class OperatingsystemTest < ActiveSupport::TestCase
     end
 
     test 'should be the smart proxy ipxe unattended url for iPXE' do
-      template_server_from_proxy = 'https://someproxy:8443'
-      ProxyAPI::Template.any_instance.stubs(:template_url).returns(template_server_from_proxy)
-      host = FactoryBot.build(:host, :managed, :with_templates_subnet, pxe_loader: 'iPXE Embedded')
-      assert_equal 'https://someproxy:8443/unattended/iPXE', host.operatingsystem.boot_filename(host)
+      host = FactoryBot.build(:host, :managed, :with_tftp_and_httpboot_subnet, pxe_loader: 'iPXE Embedded')
+      assert_equal 'http://foreman.some.host.fqdn/unattended/iPXE', host.operatingsystem.boot_filename(host)
+    end
+
+    test 'should be the smart proxy and httpboot port for UEFI HTTP' do
+      SmartProxy.any_instance.expects(:setting).with(:HTTPBoot, 'http_port').returns(1234)
+      host = FactoryBot.build(:host, :managed, :with_tftp_and_httpboot_subnet, pxe_loader: 'Grub2 UEFI HTTP')
+      assert_match(%r{http://somewhere.*net:1234/httpboot/grub2/grubx64.efi}, host.operatingsystem.boot_filename(host))
+    end
+
+    test 'should be the smart proxy and httpboot port for UEFI HTTPS' do
+      SmartProxy.any_instance.expects(:setting).with(:HTTPBoot, 'https_port').returns(1235)
+      host = FactoryBot.build(:host, :managed, :with_tftp_and_httpboot_subnet, pxe_loader: 'Grub2 UEFI HTTPS')
+      assert_match(%r{https://somewhere.*net:1235/httpboot/grub2/grubx64.efi}, host.operatingsystem.boot_filename(host))
+    end
+
+    test 'should raise an error without subnet or httpboot feature' do
+      host = FactoryBot.build(:host, :managed, pxe_loader: 'Grub2 UEFI HTTP')
+      assert_raises Foreman::Exception do
+        host.operatingsystem.boot_filename(host)
+      end
     end
   end
 end

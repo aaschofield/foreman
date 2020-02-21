@@ -5,6 +5,7 @@ class LookupValue < ApplicationRecord
   include Authorizable
   include PuppetLookupValueExtensions
   include HiddenValue
+  include KeyValueValidation
 
   validates_lengths_from_database
   delegate :hidden_value?, :editable_by_user?, :to => :lookup_key, :allow_nil => true
@@ -49,11 +50,11 @@ class LookupValue < ApplicationRecord
   def value_before_type_cast
     return self[:value] if errors[:value].present?
     return self.value if lookup_key.nil? || value.contains_erb?
-    lookup_key.value_before_type_cast self.value
+    LookupKey.format_value_before_type_cast(self.value, lookup_key.key_type)
   end
 
   def validate_value
-    validate_and_cast_value
+    validate_and_cast_value(lookup_key)
     Foreman::Parameters::Validator.new(self,
       :type => lookup_key.validator_type,
       :validate_with => lookup_key.validator_rule,
@@ -77,19 +78,11 @@ class LookupValue < ApplicationRecord
     end.join(LookupKey::KEY_DELM)
   end
 
-  def validate_and_cast_value
-    return if !self.value.is_a?(String) || value.contains_erb?
-    Foreman::Parameters::Caster.new(self, :attribute_name => :value, :to => lookup_key.key_type).cast!
-  rescue StandardError, SyntaxError => e
-    Foreman::Logging.exception("Error while parsing #{lookup_key}", e)
-    errors.add(:value, _("is invalid %s") % lookup_key.key_type)
-  end
-
   def ensure_fqdn_exists
     md = ensure_matcher(/fqdn=(.*)/)
     return md if md == true || md == false
     fqdn = md[1].split(LookupKey::KEY_DELM)[0]
-    return true if Host.unscoped.find_by_name(fqdn) || host_or_hostgroup.try(:new_record?) ||
+    return true if host_with_fqdn_exists?(fqdn) || host_or_hostgroup.try(:new_record?) ||
         (host_or_hostgroup.present? && host_or_hostgroup.type_changed? && host_or_hostgroup.type == "Host::Managed")
     errors.add(:match, _("%{match} does not match an existing host") % { :match => "fqdn=#{fqdn}" })
 
@@ -127,5 +120,9 @@ class LookupValue < ApplicationRecord
 
   def skip_strip_attrs
     ['value']
+  end
+
+  def host_with_fqdn_exists?(fqdn)
+    Host.unscoped.left_joins(:primary_interface).where("nics.name = ?", fqdn).any?
   end
 end

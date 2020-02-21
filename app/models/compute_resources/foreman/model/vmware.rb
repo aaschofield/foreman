@@ -15,7 +15,7 @@ module Foreman::Model
     validates :user, :password, :server, :datacenter, :presence => true
     validates :display_type, :inclusion => {
       :in => Proc.new { |cr| cr.class.supported_display_types.keys },
-      :message => N_('not supported by this compute resource')
+      :message => N_('not supported by this compute resource'),
     }
 
     before_create :update_public_key
@@ -34,7 +34,7 @@ module Foreman::Model
     def self.supported_display_types
       {
         'vnc' => _('VNC'),
-        'vmrc' => _('VMRC')
+        'vmrc' => _('VMRC'),
       }
     end
 
@@ -52,7 +52,7 @@ module Foreman::Model
 
     def vms(opts = {})
       if opts[:eager_loading] == true
-        super()
+        super(datacenter: datacenter)
       else
         # VMware server loading is very slow
         # not using FOG models directly to save the time
@@ -99,40 +99,47 @@ module Foreman::Model
       dc_clusters.map(&:full_path).sort
     end
 
+    # Params:
+    # +name+ identifier of the datastore - its name unique in given vCenter
+    def datastore(name)
+      cache.cache(:"datastore-#{name}") do
+        dc.datastores.get(name)
+      end
+    end
+
+    # ==== Options
+    #
+    # * +:cluster_id+ - Limits the datastores in response to the ones available to defined cluster
     def datastores(opts = {})
-      if opts[:storage_domain]
-        cache.cache(:"datastores-#{opts[:storage_domain]}") do
-          name_sort(dc.datastores.get(opts[:storage_domain]))
-        end
-      else
-        cache.cache(:datastores) do
-          name_sort(dc.datastores.all(:accessible => true))
-        end
+      cache.cache(cachekey_with_cluster(:datastores, opts[:cluster_id])) do
+        name_sort(dc.datastores(cluster: opts[:cluster_id]).all(:accessible => true))
       end
     end
 
+    def storage_pod(name)
+      cache.cache(:"storage_pod-#{name}") do
+        dc.storage_pods.get(name)
+      rescue RbVmomi::VIM::InvalidArgument
+        {} # Return an empty storage pod hash if vsphere does not support the feature
+      end
+    end
+
+    ##
+    # Lists storage_pods for datastore/cluster.
+    # TODO: fog-vsphere doesn't support cluster base filtering, so the cluser_id is useless for now.
+    # ==== Options
+    #
+    # * +:cluster_id+ - Limits the datastores in response to the ones available to defined cluster
     def storage_pods(opts = {})
-      if opts[:storage_pod]
-        cache.cache(:"storage_pods-#{opts[:storage_pod]}") do
-          begin
-            dc.storage_pods.get(opts[:storage_pod])
-          rescue RbVmomi::VIM::InvalidArgument
-            {} # Return an empty storage pod hash if vsphere does not support the feature
-          end
-        end
-      else
-        cache.cache(:storage_pods) do
-          begin
-            name_sort(dc.storage_pods.all())
-          rescue RbVmomi::VIM::InvalidArgument
-            [] # Return an empty set of storage pods if vsphere does not support the feature
-          end
-        end
+      cache.cache(cachekey_with_cluster(:storage_pods, opts[:cluster_id])) do
+        name_sort(dc.storage_pods.all(cluster: opts[:cluster_id]))
+      rescue RbVmomi::VIM::InvalidArgument
+        [] # Return an empty set of storage pods if vsphere does not support the feature
       end
     end
 
-    def available_storage_pods(storage_pod = nil)
-      storage_pods({:storage_pod => storage_pod})
+    def available_storage_pods(cluster_id = nil)
+      storage_pods(cluster_id: cluster_id)
     end
 
     def folders
@@ -142,15 +149,15 @@ module Foreman::Model
     end
 
     def networks(opts = {})
-      cache.cache(:networks) do
-        name_sort(dc.networks.all(:accessible => true))
+      cache_key = opts[:cluster_id].nil? ? :networks : :"networks-#{opts[:cluster_id]}"
+      cache.cache(cache_key) do
+        name_sort(dc.networks(cluster: opts[:cluster_id]).all(:accessible => true))
       end
     end
 
     def resource_pools(opts = {})
-      cluster = cluster(opts[:cluster_id])
-      cache.cache(:resource_pools) do
-        name_sort(cluster.resource_pools.all(:accessible => true))
+      cache.cache(:"resource_pools-#{opts[:cluster_id]}") do
+        name_sort(cluster(opts[:cluster_id]).resource_pools.all(:accessible => true))
       end
     end
 
@@ -165,11 +172,15 @@ module Foreman::Model
     end
 
     def available_networks(cluster_id = nil)
-      networks
+      networks(cluster_id: cluster_id)
     end
 
-    def available_storage_domains(storage_domain = nil)
-      datastores({:storage_domain => storage_domain})
+    def storage_domain(storage_domain)
+      datastore(storage_domain)
+    end
+
+    def available_storage_domains(cluster_id = nil)
+      datastores(cluster_id: cluster_id)
     end
 
     def available_resource_pools(opts = {})
@@ -179,7 +190,7 @@ module Foreman::Model
     def nictypes
       {
         "VirtualE1000" => "E1000",
-        "VirtualVmxnet3" => "VMXNET 3"
+        "VirtualVmxnet3" => "VMXNET 3",
       }
     end
 
@@ -188,7 +199,7 @@ module Foreman::Model
         "VirtualBusLogicController" => "Bus Logic Parallel",
         "VirtualLsiLogicController" => "LSI Logic Parallel",
         "VirtualLsiLogicSASController" => "LSI Logic SAS",
-        "ParaVirtualSCSIController" => "VMware Paravirtual"
+        "ParaVirtualSCSIController" => "VMware Paravirtual",
       }
     end
 
@@ -196,7 +207,7 @@ module Foreman::Model
       {
         "automatic" => N_("Automatic"),
         "bios" => N_("BIOS"),
-        "efi" => N_("EFI")
+        "efi" => N_("EFI"),
       }
     end
 
@@ -204,13 +215,22 @@ module Foreman::Model
       {
         "persistent" => _("Persistent"),
         "independent_persistent" => _("Independent - Persistent"),
-        "independent_nonpersistent" => _("Independent - Nonpersistent")
+        "independent_nonpersistent" => _("Independent - Nonpersistent"),
+      }
+    end
+
+    def boot_devices
+      {
+        'disk' => _('Harddisk'),
+        'cdrom' => _('CD-ROM'),
+        'network' => _('Network'),
+        'floppy' => _('Floppy'),
       }
     end
 
     # vSphere guest OS type descriptions
     # list fetched from RbVmomi::VIM::VirtualMachineGuestOsIdentifier.values and
-    # http://pubs.vmware.com/vsphere-65/topic/com.vmware.wssdk.apiref.doc/vim.vm.GuestOsDescriptor.GuestOsIdentifier.html
+    # https://code.vmware.com/apis/358/vsphere/doc/vim.vm.GuestOsDescriptor.GuestOsIdentifier.html
     def guest_types_descriptions
       {
         "asianux3_64Guest" => "Asianux Server 3 (64-bit)",
@@ -219,11 +239,13 @@ module Foreman::Model
         "asianux4Guest" => "Asianux Server 4 (32-bit)",
         "asianux5_64Guest" => "Asianux Server 5 (64-bit)",
         "asianux7_64Guest" => "Asianux Server 7 (64-bit)",
+        "asianux8_64Guest" => "Asianux Server 8 (64 bit)",
         "centos6_64Guest" => "CentOS 6 (64-bit)",
         "centos64Guest" => "CentOS 4/5 (64-bit)",
         "centos6Guest" => "CentOS 6 (32-bit)",
         "centos7_64Guest" => "CentOS 7 (64-bit)",
         "centos7Guest" => "CentOS 7 (32-bit)",
+        "centos8_64Guest" => "CentOS 8 (64-bit)",
         "centosGuest" => "CentOS 4/5 (32-bit)",
         "coreos64Guest" => "CoreOS Linux (64-bit)",
         "darwin10_64Guest" => "Mac OS 10.6 (64-bit)",
@@ -235,6 +257,8 @@ module Foreman::Model
         "darwin14_64Guest" => "Mac OS 10.10 (64-bit)",
         "darwin15_64Guest" => "Mac OS 10.11 (64-bit)",
         "darwin16_64Guest" => "Mac OS 10.12 (64-bit)",
+        "darwin17_64Guest" => "macOS 10.13 (64 bit)",
+        "darwin18_64Guest" => "macOS 10.14 (64 bit)",
         "darwin64Guest" => "Mac OS 10.5 (64-bit)",
         "darwinGuest" => "Mac OS 10.5 (32-bit)",
         "debian10_64Guest" => "Debian GNU/Linux 10 (64-bit)",
@@ -258,6 +282,10 @@ module Foreman::Model
         "fedoraGuest" => "Fedora Linux (32-bit)",
         "freebsd64Guest" => "FreeBSD (64-bit)",
         "freebsdGuest" => "FreeBSD (32-bit)",
+        "freebsd11_64Guest" => "FreeBSD 11 x64",
+        "freebsd11Guest" => "FreeBSD 11",
+        "freebsd12_64Guest" => "FreeBSD 12 x64",
+        "freebsd12Guest" => "FreeBSD 12",
         "genericLinuxGuest" => "Other Linux",
         "mandrakeGuest" => "Mandrake Linux",
         "mandriva64Guest" => "Mandriva Linux (64-bit)",
@@ -276,6 +304,7 @@ module Foreman::Model
         "oracleLinux6Guest" => "Oracle 6 (32-bit)",
         "oracleLinux7_64Guest" => "Oracle 7 (64-bit)",
         "oracleLinux7Guest" => "Oracle 7 (32-bit)",
+        "oracleLinux8_64Guest" => "Oracle 8 (64-bit)",
         "oracleLinuxGuest" => "Oracle Linux 4/5",
         "os2Guest" => "IBM OS/2",
         "other24xLinux64Guest" => "Linux 2.4x Kernel (64-bit)",
@@ -284,6 +313,8 @@ module Foreman::Model
         "other26xLinuxGuest" => "Linux 2.6x Kernel (32-bit)",
         "other3xLinux64Guest" => "Linux 3.x Kernel (64-bit)",
         "other3xLinuxGuest" => "Linux 3.x Kernel (32-bit)",
+        "other4xLinux64Guest" => "Linux 4.x Kernel (64 bit)",
+        "other4xLinuxGuest" => " Linux 4.x Kernel",
         "otherGuest" => "Other Operating System (32-bit)",
         "otherGuest64" => "Other Operating System (64-bit)",
         "otherLinux64Guest" => "Linux (64-bit)",
@@ -300,6 +331,7 @@ module Foreman::Model
         "rhel6Guest" => "Red Hat Enterprise Linux 6 (32-bit)",
         "rhel7_64Guest" => "Red Hat Enterprise Linux 7 (64-bit)",
         "rhel7Guest" => "Red Hat Enterprise Linux 7 (32-bit)",
+        "rhel8_64Guest" => "Red Hat Enterprise Linux 8 (64 bit)",
         "sjdsGuest" => "Sun Java Desktop System",
         "sles10_64Guest" => "Suse Linux Enterprise Server 10 (64-bit)",
         "sles10Guest" => "Suse Linux Enterprise Server 10 (32-bit)",
@@ -307,6 +339,7 @@ module Foreman::Model
         "sles11Guest" => "Suse Linux Enterprise Server 11 (32-bit)",
         "sles12_64Guest" => "Suse Linux Enterprise Server 12 (64-bit)",
         "sles12Guest" => "Suse Linux Enterprise Server 12 (32-bit)",
+        "sles15_64Guest" => "Suse Linux Enterprise Server 15 (64 bit)",
         "sles64Guest" => "Suse Linux Enterprise Server 9 (64-bit)",
         "slesGuest" => "Suse Linux Enterprise Server 9 (32-bit)",
         "solaris10_64Guest" => "Solaris 10 (64-bit)",
@@ -360,7 +393,7 @@ module Foreman::Model
         "winVistaGuest" => "Microsoft Windows Vista",
         "winXPHomeGuest" => "Microsoft Windows XP Home Edition",
         "winXPPro64Guest" => "Microsoft Windows XP Professional Edition (64-bit)",
-        "winXPProGuest" => "Microsoft Windows XP Professional (32-bit)"
+        "winXPProGuest" => "Microsoft Windows XP Professional (32-bit)",
       }
     end
 
@@ -379,13 +412,15 @@ module Foreman::Model
     def vm_hw_versions
       {
         'Default' => _("Default"),
+        'vmx-15' => '15 (ESXi 6.7 U2)',
+        'vmx-14' => '14 (ESXi 6.7)',
         'vmx-13' => '13 (ESXi 6.5)',
         'vmx-11' => '11 (ESXi 6.0)',
         'vmx-10' => '10 (ESXi 5.5)',
         'vmx-09' => '9 (ESXi 5.1)',
         'vmx-08' => '8 (ESXi 5.0)',
         'vmx-07' => '7 (ESX/ESXi 4.x)',
-        'vmx-04' => '4 (ESX/ESXi 3.5)'
+        'vmx-04' => '4 (ESX/ESXi 3.5)',
       }
     end
 
@@ -408,6 +443,10 @@ module Foreman::Model
         args[collection] = nested_attributes_for(collection, nested_attrs) if nested_attrs
       end
 
+      # see #26402 - consume scsi_controller_type from hammer as a default scsi type
+      scsi_type = args.delete(:scsi_controller_type)
+      args[:scsi_controllers] ||= [{ type: scsi_type }] if scsi_controller_types.key?(scsi_type)
+
       add_cdrom = args.delete(:add_cdrom)
       args[:cdroms] = [new_cdrom] if add_cdrom == '1'
 
@@ -426,10 +465,11 @@ module Foreman::Model
       args = args.deep_dup
       dc_networks = networks
       args["interfaces_attributes"]&.each do |key, interface|
-        # Convert network id into name
-        net = dc_networks.detect { |n| [n.id, n.name].include?(interface['network']) }
+        # Consolidate network to network id
+        net = dc_networks.detect { |n| n.id == interface['network'] }
+        net ||= dc_networks.detect { |n| n.name == interface['network'] }
         raise "Unknown Network ID: #{interface['network']}" if net.nil?
-        interface["network"] = net.name
+        interface["network"] = net.id
         interface["virtualswitch"] = net.virtualswitch
       end
       args
@@ -449,7 +489,7 @@ module Foreman::Model
         vm.firmware = 'bios' if vm.firmware == 'automatic'
         vm.save
       end
-    rescue Fog::Compute::Vsphere::NotFound => e
+    rescue Fog::Vsphere::Compute::NotFound => e
       Foreman::Logging.exception('Caught VMware error', e)
       raise ::Foreman::WrappedException.new(
         e,
@@ -475,10 +515,11 @@ module Foreman::Model
       # volumes are not part of vm.attributes so we have to set them seperately if needed
       if attr.has_key?(:volumes_attributes)
         vm.volumes.each do |vm_volume|
-          volume_attrs = attr[:volumes_attributes].values.detect {|vol| vol[:id] == vm_volume.id}
-          if volume_attrs.class == Hash && volume_attrs.key?(:size_gb)
-            vm_volume.size_gb = volume_attrs[:size_gb]
-          end
+          volume_attrs = attr[:volumes_attributes].values.detect { |vol| vol[:id] == vm_volume.id }
+
+          next unless volume_attrs.present?
+
+          vm_volume.size_gb = volume_attrs[:size_gb] if volume_attrs[:size_gb].present?
         end
       end
       vm.save
@@ -511,7 +552,8 @@ module Foreman::Model
         "datastore" => args[:volumes].first[:datastore],
         "storage_pod" => args[:volumes].first[:storage_pod],
         "resource_pool" => [args[:cluster], args[:resource_pool]],
-        "boot_order" => [:disk]
+        "boot_order" => [:disk],
+        "annotation" => args[:annotation],
       }
 
       opts['transform'] = (args[:volumes].first[:thin] == 'true') ? 'sparse' : 'flat' unless args[:volumes].empty?
@@ -548,7 +590,7 @@ module Foreman::Model
       {
         :name => vm.name,
         :console_url => build_vmrc_uri(server, vm.mo_ref, client.connection.serviceContent.sessionManager.AcquireCloneTicket),
-        :type => 'vmrc'
+        :type => 'vmrc',
       }
     end
 
@@ -565,7 +607,7 @@ module Foreman::Model
     end
 
     def new_scsi_controller(attr = {})
-      Fog::Compute::Vsphere::SCSIController.new(attr)
+      Fog::Vsphere::Compute::SCSIController.new(attr)
     end
 
     def pubkey_hash
@@ -673,7 +715,7 @@ module Foreman::Model
         interfaces.update(key => { 'type_id' => nic['type'],
                                    'type_name' => nictypes[nic['type']],
                                    'network_id' => nic['network'],
-                                   'network_name' => networks.detect { |n| n.id == nic['network'] }.try(:name)
+                                   'network_name' => networks.detect { |n| n.id == nic['network'] }.try(:name),
                                  })
       end
 
@@ -761,6 +803,10 @@ module Foreman::Model
     rescue Psych::SyntaxError => e
       Foreman::Logging.exception('Failed to parse user-data template', e)
       raise Foreman::Exception.new('The user-data template must be valid YAML for VM customization to work.')
+    end
+
+    def cachekey_with_cluster(key, cluster_id = nil)
+      cluster_id.nil? ? key.to_sym : "#{key}-#{cluster_id}".to_sym
     end
   end
 end

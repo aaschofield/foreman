@@ -15,10 +15,29 @@ FactoryBot.define do
 
     trait :gce do
       provider { 'GCE' }
-      key_path { Rails.root }
+      key_path { 'gce_config.json' }
       project { 'gce_project' }
+      zone { 'us-west1-a' }
       sequence(:email) { |n| "user#{n}@example.com" }
-      after(:build) { |cr| cr.stubs(:setup_key_pair) }
+      after(:stub) do |cr|
+        cr.stubs(:zones).returns(
+          ['us-west1-b', 'us-west1-c', 'us-west1-a', 'us-east1-b', 'us-east1-c', 'us-east1-d']
+        )
+      end
+      after(:build) do |cr|
+        cr.stubs(:setup_key_pair)
+        cr.stubs(:zones).returns(
+          ['us-west1-b', 'us-west1-c', 'us-west1-a', 'us-east1-b', 'us-east1-c', 'us-east1-d']
+        )
+        cr.stubs(:read_key_file).returns(
+          {
+            'type' => 'service_account',
+            'project_id' => 'dummy-project',
+            'private_key' => '-----BEGIN PRIVATE KEY-----\n..\n-----END PRIVATE KEY-----\n ',
+            'client_email' => 'dummy@dummy-project.iam.gserviceaccount.com',
+          }
+        )
+      end
     end
 
     trait :libvirt do
@@ -87,7 +106,7 @@ FactoryBot.define do
     vm_attrs do
       {
         :flavor_id => 'm1.small',
-        :availability_zone => 'eu-west-1a'
+        :availability_zone => 'eu-west-1a',
       }
     end
     before(:create) { |attr| attr.stubs(:pretty_vm_attrs).returns('m1.small VM') }

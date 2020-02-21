@@ -27,6 +27,7 @@ module Orchestration::Compute
   end
 
   def compute_provides?(attr)
+    return false if compute_resource.nil?
     compute? && compute_resource.provided_attributes.key?(attr)
   end
 
@@ -44,19 +45,19 @@ module Orchestration::Compute
 
   def queue_compute_create
     if find_image.try(:user_data)
-      queue.create(:name   => _("Render user data template for %s") % self, :priority => 1,
+      queue.create(:name   => _("Render user data template for %s") % self, :priority => 2,
                    :action => [self, :setUserData])
     end
-    queue.create(:name   => _("Set up compute instance %s") % self, :priority => 2,
+    queue.create(:name   => _("Set up compute instance %s") % self, :priority => 3,
                  :action => [self, :setCompute])
     if compute_provides?(:ip) || compute_provides?(:ip6)
-      queue.create(:name   => _("Acquire IP addresses for %s") % self, :priority => 3,
+      queue.create(:name   => _("Acquire IP addresses for %s") % self, :priority => 4,
                    :action => [self, :setComputeIP])
     end
-    queue.create(:name   => _("Query instance details for %s") % self, :priority => 4,
+    queue.create(:name   => _("Query instance details for %s") % self, :priority => 5,
                  :action => [self, :setComputeDetails])
     if compute_provides?(:mac) && (mac_based_ipam?(:subnet) || mac_based_ipam?(:subnet6))
-      queue.create(:name   => _("Set IP addresses for %s") % self, :priority => 5,
+      queue.create(:name   => _("Set IP addresses for %s") % self, :priority => 6,
                    :action => [self, :setComputeIPAM])
     end
     if compute_attributes && compute_attributes[:start] == '1'
@@ -81,7 +82,7 @@ module Orchestration::Compute
   def setCompute
     logger.info "Adding Compute instance for #{name}"
     if compute_attributes.nil?
-      failure _("Failed to find compute attributes, please check if VM #{name} was deleted: %{message}") % { name: name, message: e.message }, e
+      failure _("Failed to find compute attributes, please check if VM %s was deleted") % name
       return false
     end
     # TODO: extract the merging into separate class in combination
@@ -101,9 +102,9 @@ module Orchestration::Compute
     if template.nil?
       failure((_("%{image} needs user data, but %{os_link} is not associated to any provisioning template of the kind user_data. Please associate it with a suitable template or uncheck 'User data' for %{compute_resource_image_link}.") %
       { :image => image.name,
-        :os_link => "<a target='_blank' rel='noopener noreferrer' href='#{url_for(edit_operatingsystem_path(operatingsystem))}'>#{operatingsystem.title}</a>",
+        :os_link => "<a target='_blank' rel='noopener noreferrer' href='#{edit_operatingsystem_path(operatingsystem)}'>#{operatingsystem.title}</a>",
         :compute_resource_image_link =>
-          "<a target='_blank' rel='noopener noreferrer' href='#{url_for(edit_compute_resource_image_path(:compute_resource_id => compute_resource.id, :id => image.id))}'>#{image.name}</a>"}).html_safe)
+          "<a target='_blank' rel='noopener noreferrer' href='#{edit_compute_resource_image_path(:compute_resource_id => compute_resource.id, :id => image.id)}'>#{image.name}</a>"}).html_safe)
       return false
     end
 
@@ -301,13 +302,11 @@ module Orchestration::Compute
   def ssh_open?(ip)
     begin
       Timeout.timeout(1) do
-        begin
-          s = TCPSocket.new(ip, 22)
-          s.close
-          return true
-        rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH
-          return false
-        end
+        s = TCPSocket.new(ip, 22)
+        s.close
+        return true
+      rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH
+        return false
       end
     rescue Timeout::Error
     end

@@ -205,6 +205,17 @@ class ComputeResourcesControllerTest < ActionController::TestCase
   end
 
   context 'compute resource cache' do
+    test 'should show refresh-button if supported' do
+      compute_resource = compute_resources(:vmware)
+      get :show, params: { :id => compute_resource.to_param }, session: set_session_user
+      assert_select 'a.btn[href$="/refresh_cache"]'
+    end
+
+    test 'should not show refresh-button if not supported' do
+      get :show, params: { :id => @compute_resource.to_param }, session: set_session_user
+      assert_select 'a.btn[href$="/refresh_cache"]', false
+    end
+
     test 'should refresh the cache' do
       @compute_resource = compute_resources(:vmware)
       put :refresh_cache, params: { :id => @compute_resource.to_param }, session: set_session_user
@@ -215,7 +226,7 @@ class ComputeResourcesControllerTest < ActionController::TestCase
     test 'should not refresh the cache if unsupported' do
       put :refresh_cache, params: { :id => @compute_resource.to_param }, session: set_session_user
       assert_redirected_to compute_resource_url(@compute_resource)
-      assert_match /Failed to refresh the cache/, flash[:error]
+      assert_match /Cache refreshing is not supported/, flash[:error]
     end
   end
 
@@ -223,9 +234,9 @@ class ComputeResourcesControllerTest < ActionController::TestCase
     setup do
       @controller.prepend_view_path File.expand_path('../static_fixtures', __dir__)
       Pagelets::Manager.add_pagelet('compute_resources/show', :main_tabs,
-                                    :name => 'TestTab',
-                                    :id => 'my-special-id',
-                                    :partial => 'views/test')
+        :name => 'TestTab',
+        :id => 'my-special-id',
+        :partial => 'views/test')
     end
 
     test '#new renders a pagelet tab' do

@@ -5,8 +5,23 @@ module ReactjsHelper
     end
   end
 
+  # Mount react component in views
+  # Params:
+  # +name+:: the component name from the componentRegistry
+  # +props+:: props to pass to the component
+  #          valid value types: Hash, json-string, nil
+  def react_component(name, props = {})
+    props = props.to_json if props.is_a?(Hash)
+
+    content_tag('react-component', '', :name => name, :data => { props: props })
+  end
+
   def webpacked_plugins_js_for(*plugin_names)
     js_tags_for(select_requested_plugins(plugin_names)).join.html_safe
+  end
+
+  def webpacked_plugins_with_global_js
+    js_tags_for_global_files(Foreman::Plugin.with_global_js.map { |plugin| { id: plugin.id, files: plugin.global_js_files } }).join.html_safe
   end
 
   def webpacked_plugins_css_for(*plugin_names)
@@ -25,13 +40,21 @@ module ReactjsHelper
 
   def js_tags_for(requested_plugins)
     requested_plugins.map do |plugin|
-      javascript_include_tag(*webpack_asset_paths(plugin.to_s, :extension => 'js'), "data-turbolinks-track" => true)
+      javascript_include_tag(*webpack_asset_paths(plugin.to_s, :extension => 'js'))
+    end
+  end
+
+  def js_tags_for_global_files(requested_plugins)
+    requested_plugins.map do |plugin|
+      plugin[:files].map do |file|
+        javascript_include_tag(*webpack_asset_paths(plugin[:id].to_s + ":#{file}", :extension => 'js'), :defer => "defer")
+      end
     end
   end
 
   def css_tags_for(requested_plugins)
     requested_plugins.map do |plugin|
-      stylesheet_link_tag(*webpack_asset_paths(plugin.to_s, :extension => 'css'), "data-turbolinks-track" => true)
+      stylesheet_link_tag(*webpack_asset_paths(plugin.to_s, :extension => 'css'))
     end
   end
 end

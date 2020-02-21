@@ -1,7 +1,7 @@
 ENV["RAILS_ENV"] = "test"
 require File.expand_path('../config/environment', __dir__)
 require 'rails/test_help'
-require 'mocha/mini_test'
+require 'mocha/minitest'
 require 'capybara/rails'
 require 'capybara/minitest'
 require 'factory_bot_rails'
@@ -19,33 +19,19 @@ Minitest::Retry.on_consistent_failure do |klass, test_name|
   Rails.logger.error("DO NOT IGNORE - Consistent failure - #{klass} #{test_name}")
 end
 
-if ENV["JS_TEST_DRIVER"] == 'selenium_chrome'
-  Selenium::WebDriver::Chrome.driver_path = ENV['TESTDRIVER_PATH'] || File.join(Rails.root, 'node_modules', '.bin', 'chromedriver')
-  Capybara.register_driver :selenium_chrome do |app|
-    options = Selenium::WebDriver::Chrome::Options.new
-    options.args << '--disable-gpu'
-    options.args << '--no-sandbox'
-    options.args << '--window-size=1024,768'
-    Capybara::Selenium::Driver.new(app, browser: :chrome, options: options)
-  end
-  Capybara.javascript_driver = :selenium_chrome
-else
-  Capybara.register_driver :poltergeist do |app|
-    opts = {
-      # To enable debugging uncomment `:inspector => true` and
-      # add `page.driver.debug` in code to open webkit inspector
-      # :inspector => true
-      :js_errors => true,
-      :timeout => 30,
-      :extensions => ["#{Rails.root}/test/integration/support/poltergeist_onload_extensions.js"],
-      :phantomjs => File.join(Rails.root, 'node_modules', '.bin', 'phantomjs')
-    }
-    Capybara::Poltergeist::Driver.new(app, opts)
-  end
-  Capybara.javascript_driver = :poltergeist
+Selenium::WebDriver::Chrome::Service.driver_path = ENV['TESTDRIVER_PATH'] || File.join(Rails.root, 'node_modules', '.bin', 'chromedriver')
+Capybara.register_driver :selenium_chrome do |app|
+  options = Selenium::WebDriver::Chrome::Options.new
+  options.args << '--disable-gpu'
+  options.args << '--no-sandbox'
+  options.args << '--window-size=1024,768'
+  options.args << '--headless' unless ENV['DEBUG_JS_TEST'] == '1'
+  Capybara::Selenium::Driver.new(app, browser: :chrome, options: options)
 end
-
-Capybara.default_max_wait_time = 30
+Capybara.configure do |config|
+  config.javascript_driver      = ENV["JS_TEST_DRIVER"]&.to_sym || :selenium_chrome
+  config.default_max_wait_time  = 20
+end
 
 class ActionDispatch::IntegrationTest
   # Make the Capybara DSL available in all integration tests
@@ -69,7 +55,7 @@ class ActionDispatch::IntegrationTest
 
   def assert_new_button(index_path, new_link_text, new_path)
     visit index_path
-    first(:link, new_link_text).click
+    click_on new_link_text, class: 'btn'
     assert_current_path new_path
   end
 
@@ -109,24 +95,63 @@ class ActionDispatch::IntegrationTest
 
   def select2(value, attrs)
     find("#s2id_#{attrs[:from]}").click
-    find(".select2-input").set(value)
+    wait_for { find('.select2-input').visible? rescue false }
+    wait_for { find(".select2-input").set(value) }
+    wait_for { find('.select2-results').visible? rescue false }
     within ".select2-results" do
+      wait_for { find(".select2-results span", text: value).visible? rescue false }
       find("span", text: value).click
+    end
+    wait_for do
+      page.find("#s2id_#{attrs[:from]} .select2-chosen").has_text? value
+    end
+  end
+
+  def wait_for
+    Timeout.timeout(Capybara.default_max_wait_time) do
+      sleep 0.15 until (result = yield)
+      result
     end
   end
 
   def wait_for_ajax
-    Timeout.timeout(Capybara.default_max_wait_time) do
-      sleep 0.15 until ([page.evaluate_script('jQuery.active'), page.evaluate_script('window.axiosActive')] - [0, nil]).empty?
+    wait_for do
+      ([page.evaluate_script('jQuery.active'), page.evaluate_script('window.axiosActive')] - [0, nil]).empty?
     end
   end
 
-  def close_interfaces_modal
-    click_button 'Ok' # close interfaces
-    # wait for the dialog to close
-    Timeout.timeout(Capybara.default_max_wait_time) do
-      loop while find(:css, '#interfaceModal', :visible => false).visible?
+  def wait_for_modal
+    wait_for do
+      find(:css, '#interfaceModal').visible?
     end
+  end
+
+  def wait_for_element(*args)
+    wait_for do
+      find(*args).visible? rescue false
+    end
+  end
+
+  def cookie_named(name)
+    page.driver.browser.manage.cookie_named(name)
+  end
+
+  def cookie_value(name)
+    cookie_named(name) && cookie_named(name)[:value]
+  end
+
+  def has_editor_display?(css_locator, text)
+    has_css?("#{css_locator} .ace_content", text: text)
+  end
+
+  # Works only with css locator
+  def fill_in_editor_field(css_locator, text)
+    # the input is not visible for chrome driver
+    find("#{css_locator} .ace_editor.ace_input").click
+    has_css?("#{css_locator} .ace_editor.ace_input")
+    find("#{css_locator} .ace_input .ace_text-input", visible: :all).set text
+    # wait for the debounce
+    has_editor_display?(css_locator, text)
   end
 
   def login_user(username, password)
@@ -149,25 +174,25 @@ class ActionDispatch::IntegrationTest
   end
 
   def assert_available_location(location)
-    within('li#location-dropdown ul') do
+    within('li#location-dropdown ul', visible: :all) do
       assert page.has_link?(location)
     end
   end
 
   def refute_available_location(location)
-    within('li#location-dropdown ul') do
+    within('li#location-dropdown ul', visible: :all) do
       assert page.has_no_link?(location)
     end
   end
 
   def assert_available_organization(organization)
-    within('li#organization-dropdown ul') do
+    within('li#organization-dropdown ul', visible: :all) do
       assert page.has_link?(organization)
     end
   end
 
   def refute_available_organization(organization)
-    within('li#location-dropdown ul') do
+    within('li#location-dropdown ul', visible: :all) do
       assert page.has_no_link?(organization)
     end
   end
@@ -185,14 +210,16 @@ class ActionDispatch::IntegrationTest
   end
 
   def select_organization(organization)
-    within('li#organization-dropdown ul') do
-      click_link organization
+    within('li#organization-dropdown') do
+      find('a.dropdown-toggle').click
+      find("a.organization_menuitem", text: organization).click
     end
   end
 
   def select_location(location)
-    within('li#location-dropdown ul') do
-      click_link location
+    within('li#location-dropdown') do
+      find('a.dropdown-toggle').click
+      find("a.organization_menuitem", text: location).click
     end
   end
 
@@ -201,8 +228,14 @@ class ActionDispatch::IntegrationTest
   end
 
   def assert_form_tab(label)
-    within(%(label[for="#{label.singularize.underscore}_ids"])) do
+    within('form .nav-tabs') do
       assert page.has_content?(label)
+    end
+  end
+
+  def switch_form_tab(name)
+    within('form .nav-tabs') do
+      click_link name
     end
   end
 
@@ -239,8 +272,8 @@ class ActionDispatch::IntegrationTest
   end
 
   def login_admin
-    SSO.register_method(TestSSO)
     visit('/users/login') if Capybara.current_driver == :selenium_chrome
+    SSO.register_method(TestSSO)
     set_request_user(:admin)
   end
 
@@ -266,7 +299,7 @@ class IntegrationTestWithJavascript < ActionDispatch::IntegrationTest
     :truncation
   end
 
-  def login_admin
+  def before_setup
     Capybara.current_driver = Capybara.javascript_driver
     super
   end

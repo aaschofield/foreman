@@ -1,5 +1,5 @@
-<%= javascript 'host_edit', 'host_edit_interfaces', 'class_edit' %>
-<%= form_for @hostgroup, :html => {:data => {:id => @hostgroup.try(:id), :submit => 'progress_bar' }} do |f| %>
+<%= javascript 'host_edit', 'host_edit_interfaces' %>
+<%= form_for @hostgroup, :html => {:class => 'hostresource-form form-horizontal well', :data => {:id => @hostgroup.try(:id)}} do |f| %>
   <%= base_errors_for @hostgroup %>
 
   <ul class="nav nav-tabs" data-tabs="tabs">
@@ -23,7 +23,8 @@
 
     <div class="tab-pane active" id="primary">
       <%= select_f(f, :parent_id, parent_hostgroups, :id, :to_label, {:include_blank => true}, {:label => _('Parent'),
-                      :onchange => 'hostgroup_changed(this);', :'data-url'=> process_hostgroup_hostgroups_path,
+                      :class => 'hostgroup-select',
+                      :data => { :url => process_hostgroup_hostgroups_path },
                       :help_inline => :indicator }) if show_parent?(@hostgroup) %>
       <%= text_f f, :name %>
       <%= textarea_f f, :description, :rows => :auto %>
@@ -97,5 +98,5 @@
   </div>
 
   <%= f.hidden_field :id %>
-  <%= submit_or_cancel(f, false, { :cancel_path => cancel_path_with_index_search }) %>
+  <%= submit_or_cancel(f, false, { :cancel_path => resource_prev_url_with_search_filters }) %>
 <% end %>

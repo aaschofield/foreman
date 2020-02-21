@@ -5,7 +5,7 @@ class SmartProxiesControllerTest < ActionController::TestCase
   basic_pagination_per_page_test
 
   setup do
-    ProxyAPI::Features.any_instance.stubs(:features => Feature.name_map.keys)
+    stub_smart_proxy_v2_features
   end
 
   def test_index
@@ -61,7 +61,7 @@ class SmartProxiesControllerTest < ActionController::TestCase
 
   def test_refresh
     proxy = smart_proxies(:one)
-    SmartProxy.any_instance.stubs(:features).returns([features(:dns)])
+    SmartProxy.any_instance.stubs(:feature_details).returns(:dns => {})
     post :refresh, params: { :id => proxy }, session: set_session_user
     assert_redirected_to smart_proxies_url
     assert_equal "No changes found when refreshing features from DHCP Proxy.", flash[:success]
@@ -69,7 +69,7 @@ class SmartProxiesControllerTest < ActionController::TestCase
 
   def test_refresh_change
     proxy = smart_proxies(:one)
-    SmartProxy.any_instance.stubs(:features).returns([features(:dns)]).then.returns([features(:dns), features(:tftp)])
+    SmartProxy.any_instance.stubs(:feature_details).returns(:dns => {}).then.returns(:dns => {}, :tftp => {})
     post :refresh, params: { :id => proxy }, session: set_session_user
     assert_redirected_to smart_proxies_url
     assert_equal "Successfully refreshed features from DHCP Proxy.", flash[:success]
@@ -159,6 +159,13 @@ class SmartProxiesControllerTest < ActionController::TestCase
   test "smart proxy version with previous y warns" do
     foreman_version = Foreman::Version.new
     foreman_x, foreman_y, foreman_z = foreman_version.major.to_i, foreman_version.minor.to_i, foreman_version.build.to_i
+
+    # fix for 1.25 => 2.0 rename
+    if foreman_y == 0
+      foreman_x -= 1
+      foreman_y = 25
+    end
+
     expected_response = {'version' => "#{foreman_x}.#{foreman_y - 1}.#{foreman_z}", 'modules' => {'dns' => '1.11'}}
     ProxyStatus::Version.any_instance.stubs(:version).returns(expected_response)
     get :ping, params: { :id => smart_proxies(:one).to_param }, session: set_session_user
@@ -171,6 +178,17 @@ class SmartProxiesControllerTest < ActionController::TestCase
     foreman_version = Foreman::Version.new
     foreman_x, foreman_y, foreman_z = foreman_version.major.to_i, foreman_version.minor.to_i, foreman_version.build.to_i
     expected_response = {'version' => "#{foreman_x}.#{foreman_y + 2}.#{foreman_z}", 'modules' => {'dns' => '1.11'}}
+    ProxyStatus::Version.any_instance.stubs(:version).returns(expected_response)
+    get :ping, params: { :id => smart_proxies(:one).to_param }, session: set_session_user
+    assert_response :success
+    show_response = ActiveSupport::JSON.decode(@response.body)
+    assert_match(/versions do not match/, show_response['message']['warning']['message'])
+  end
+
+  test "smart proxy version with different x warns" do
+    foreman_version = Foreman::Version.new
+    foreman_x, foreman_y, foreman_z = foreman_version.major.to_i, foreman_version.minor.to_i, foreman_version.build.to_i
+    expected_response = {'version' => "#{foreman_x - 1}.#{foreman_y}.#{foreman_z}", 'modules' => {'dns' => '1.11'}}
     ProxyStatus::Version.any_instance.stubs(:version).returns(expected_response)
     get :ping, params: { :id => smart_proxies(:one).to_param }, session: set_session_user
     assert_response :success
@@ -227,9 +245,9 @@ class SmartProxiesControllerTest < ActionController::TestCase
           {
             "timestamp" => 1453890750.9860077,
             "level"     => "DEBUG",
-            "message"   => "A debug message"
-          }
-        ]
+            "message"   => "A debug message",
+          },
+        ],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -247,9 +265,9 @@ class SmartProxiesControllerTest < ActionController::TestCase
           {
             "timestamp" => 1453890750.9860077,
             "level"     => "DEBUG",
-            "message"   => "A debug message"
-          }
-        ]
+            "message"   => "A debug message",
+          },
+        ],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -266,9 +284,9 @@ class SmartProxiesControllerTest < ActionController::TestCase
       {
         'info' => {
           "failed_modules" => {
-            "BMC" => "Initialization error"
-          }
-        }
+            "BMC" => "Initialization error",
+          },
+        },
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -283,14 +301,14 @@ class SmartProxiesControllerTest < ActionController::TestCase
     fake_data = ::SmartProxies::LogBuffer.new(
       {
         "info" => {
-          "failed_modules" => {}
+          "failed_modules" => {},
         },
         "logs" => [
           { "timestamp" => 1000, "level" => "INFO", "message" => "Message" },
           { "timestamp" => 1001, "level" => "INFO", "message" => "Message" },
           { "timestamp" => 1002, "level" => "ERROR", "message" => "Message" },
-          { "timestamp" => 1003, "level" => "FATAL", "message" => "Message" }
-        ]
+          { "timestamp" => 1003, "level" => "FATAL", "message" => "Message" },
+        ],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -306,9 +324,9 @@ class SmartProxiesControllerTest < ActionController::TestCase
     fake_data = ::SmartProxies::LogBuffer.new(
       {
         "info" => {
-          "failed_modules" => {}
+          "failed_modules" => {},
         },
-        "logs" => []
+        "logs" => [],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -328,10 +346,10 @@ class SmartProxiesControllerTest < ActionController::TestCase
         "info" => {
           "failed_modules" => {
             "BMC" => "Message",
-            "Puppet" => "Another message"
-          }
+            "Puppet" => "Another message",
+          },
         },
-        "logs" => []
+        "logs" => [],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)
@@ -347,9 +365,9 @@ class SmartProxiesControllerTest < ActionController::TestCase
     fake_data = ::SmartProxies::LogBuffer.new(
       {
         "info" => {
-          "failed_modules" => {}
+          "failed_modules" => {},
         },
-        "logs" => []
+        "logs" => [],
       }
     )
     ProxyStatus::Logs.any_instance.expects(:logs).returns(fake_data)

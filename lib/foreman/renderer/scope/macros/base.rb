@@ -5,6 +5,7 @@ module Foreman
         module Base
           include Foreman::Renderer::Errors
           include ::Foreman::ForemanUrlRenderer
+          include ActiveSupport::NumberHelper
 
           attr_reader :template_name, :medium_provider
 
@@ -19,6 +20,10 @@ module Foreman
             raise FilteredGlobalSettingAccessed.new(name: name) if Setting[:safemode_render] && !Foreman::Renderer.config.allowed_global_settings.include?(name.to_sym)
             setting = Setting.find_by_name(name.to_sym)
             (setting.settings_type != "boolean" && setting.value.blank?) ? blank_default : setting.value
+          end
+
+          def plugin_present?(name)
+            Foreman::Plugin.find(name).present?
           end
 
           def subnet_param(subnet, param_name)
@@ -48,23 +53,30 @@ module Foreman
             "cat << EOF > #{filename}\n#{content}EOF"
           end
 
-          def indent(count)
+          def indent(count, skip1: false)
             return unless block_given? && (text = yield.to_s)
-            prefix = " " * count
-            prefix + text.gsub(/\n/, "\n#{prefix}")
+            prefix = ' ' * count
+            result = []
+            text.each_line.with_index do |line, line_no|
+              if line_no == 0 && skip1
+                result << line
+              else
+                result << prefix + line
+              end
+            end
+            result.join('')
           end
 
           def dns_lookup(name_or_ip)
             resolver = Resolv::DNS.new
-            Timeout.timeout(Setting[:dns_conflict_timeout]) do
-              begin
-                resolver.getname(name_or_ip)
-              rescue Resolv::ResolvError
-                resolver.getaddress(name_or_ip)
-              end
+            resolver.timeouts = Setting[:dns_timeout]
+            begin
+              resolver.getname(name_or_ip)
+            rescue Resolv::ResolvError
+              resolver.getaddress(name_or_ip)
             end
           rescue StandardError => e
-            log_warn "Template helper dns_lookup failed: #{e}"
+            log_warn "Template helper dns_lookup failed: #{e} (timeout set to #{Setting[:dns_timeout]})"
             raise e
           end
 
@@ -79,8 +91,8 @@ module Foreman
                     :host => host, :port => port)
           end
 
-          def load_hosts(search: '', includes: nil)
-            load_resource(klass: Host, search: search, permission: 'view_hosts', includes: includes)
+          def load_hosts(search: '', includes: nil, preload: nil)
+            load_resource(klass: Host, search: search, permission: 'view_hosts', includes: includes, preload: preload)
           end
 
           def all_host_statuses
@@ -95,6 +107,14 @@ module Foreman
             klass = all_host_statuses.find { |status| status.status_name == name }
             raise UnknownHostStatusError.new(status: name, statuses: all_host_statuses.map(&:status_name).join(',')) if klass.nil?
             host.get_status(klass)
+          end
+
+          def load_users(search: '', includes: nil, preload: nil)
+            load_resource(klass: User, search: search, permission: :view_users, includes: includes, preload: preload)
+          end
+
+          def user_auth_source_name(user)
+            user.auth_source&.name
           end
 
           def preview?
@@ -117,6 +137,26 @@ module Foreman
             host&.kernel_release&.value
           end
 
+          def host_uptime_seconds(host)
+            host&.uptime_seconds
+          end
+
+          def host_memory(host)
+            host&.ram
+          end
+
+          def host_sockets(host)
+            host&.sockets
+          end
+
+          def host_cores(cores)
+            host&.cores
+          end
+
+          def host_virtual(host)
+            host&.virtual
+          end
+
           private
 
           def validate_subnet(subnet)
@@ -127,14 +167,18 @@ module Foreman
           #   .each { |batch| batch.each { |record| record.name }}
           # or
           #   .each_record { |record| record.name }
-          def load_resource(klass:, search:, permission:, batch: 1_000, includes: nil, limit: nil)
+          def load_resource(klass:, search:, permission:, batch: 1_000, includes: nil, limit: nil, select: nil, joins: nil, where: nil, preload: nil)
             limit ||= 10 if preview?
 
             base = klass
             base = base.search_for(search)
+            base = base.preload(preload) unless preload.nil?
             base = base.includes(includes) unless includes.nil?
+            base = base.joins(joins) unless joins.nil?
             base = base.authorized(permission) unless permission.nil?
             base = base.limit(limit) unless limit.nil?
+            base = base.where(where) unless where.nil?
+            base = base.select(select) unless select.nil?
             base.in_batches(of: batch)
           end
         end

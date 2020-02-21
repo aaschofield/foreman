@@ -8,6 +8,7 @@ module Host
     include DestroyFlag
     include InterfaceCloning
     include Hostext::Ownership
+    include Hostext::FactData
     include Foreman::TelemetryHelper
     include Facets::BaseHostExtensions
 
@@ -46,8 +47,8 @@ module Host
     default_scope -> { where(taxonomy_conditions) }
 
     def self.taxonomy_conditions
-      org = Organization.expand(Organization.current) if SETTINGS[:organizations_enabled]
-      loc = Location.expand(Location.current) if SETTINGS[:locations_enabled]
+      org = Organization.expand(Organization.current)
+      loc = Location.expand(Location.current)
       conditions = {}
       conditions[:organization_id] = Array(org).map { |o| o.subtree_ids }.flatten.uniq unless org.nil?
       conditions[:location_id] = Array(loc).map { |l| l.subtree_ids }.flatten.uniq unless loc.nil?
@@ -89,15 +90,15 @@ module Host
     end
 
     delegate :ip, :ip6, :mac,
-             :subnet, :subnet_id, :subnet_name,
-             :subnet6, :subnet6_id, :subnet6_name,
-             :domain, :domain_id, :domain_name,
-             :hostname, :fqdn, :shortname,
-             :to => :primary_interface, :allow_nil => true
+      :subnet, :subnet_id, :subnet_name,
+      :subnet6, :subnet6_id, :subnet6_name,
+      :domain, :domain_id, :domain_name,
+      :hostname, :fqdn, :shortname,
+      :to => :primary_interface, :allow_nil => true
     delegate :name=, :ip=, :ip6=, :mac=,
-             :subnet=, :subnet_id=, :subnet_name=,
-             :subnet6=, :subnet6_id=, :subnet6_name=,
-             :domain=, :domain_id=, :domain_name=, :to => :primary_interface
+      :subnet=, :subnet_id=, :subnet_name=,
+      :subnet6=, :subnet6_id=, :subnet6_name=,
+      :domain=, :domain_id=, :domain_name=, :to => :primary_interface
 
     attr_writer :updated_virtuals
     def updated_virtuals
@@ -157,6 +158,9 @@ module Host
       time = time.to_time if time.is_a?(String)
       self.last_compile = time if time
 
+      # taxonomy must be set before populate_fields_from_facts call
+      set_taxonomies(facts)
+
       unless build?
         parser = FactParser.parser_for(type).new(facts)
 
@@ -164,8 +168,6 @@ module Host
           populate_fields_from_facts(parser, type, source_proxy)
         end
       end
-
-      set_taxonomies(facts)
 
       # we are saving here with no validations, as we want this process to be as fast
       # as possible, assuming we already have all the right settings in Foreman.
@@ -179,9 +181,15 @@ module Host
       [ :model ]
     end
 
+    def primary_interface_type(parser)
+      return unless parser.parse_interfaces?
+      identifier, = parser.suggested_primary_interface(self)
+      interface_class(identifier).to_s
+    end
+
     def populate_fields_from_facts(parser, type, source_proxy)
       # we must create interface if it's missing so we can store domain
-      build_required_interfaces(:managed => false)
+      build_required_interfaces(managed: false, type: primary_interface_type(parser))
       set_non_empty_values(parser, attributes_to_import_from_facts)
       set_interfaces(parser) if parser.parse_interfaces?
     end
@@ -199,7 +207,17 @@ module Host
       # is saved to primary interface so we match it in updating code below
       if !self.managed? && self.primary_interface.mac.blank? && self.primary_interface.identifier.blank?
         identifier, values = parser.suggested_primary_interface(self)
-        self.primary_interface.mac = Net::Validations.normalize_mac(values[:macaddress]) if values.present?
+        if values.present?
+          logger.debug "Suggested #{identifier} NIC as a primary interface."
+          self.primary_interface.mac = Net::Validations.normalize_mac(values[:macaddress])
+          interface_klass = interface_class(identifier)
+          # bridge interfaces are not attached to parent interface so save would not be possible
+          if interface_klass != Nic::Bridge
+            self.primary_interface.virtual = !!values[:virtual]
+            self.primary_interface.attached_to = values[:attached_to] || ''
+            self.primary_interface.tag = values[:tag] || ''
+          end
+        end
         self.primary_interface.update_attribute(:identifier, identifier)
         self.primary_interface.save!
       end
@@ -241,7 +259,6 @@ module Host
 
     def set_taxonomies(facts)
       ['location', 'organization'].each do |taxonomy|
-        next unless SETTINGS["#{taxonomy.pluralize}_enabled".to_sym]
         taxonomy_class = taxonomy.classify.constantize
         taxonomy_fact = Setting["#{taxonomy}_fact"]
 
@@ -251,13 +268,14 @@ module Host
           default_taxonomy = taxonomy_class.find_by_title(Setting["default_#{taxonomy}"])
         end
 
-        if self.send(taxonomy.to_s).present?
+        if self.send(taxonomy).present?
           # Change taxonomy to fact taxonomy if set, otherwise leave it as is
           self.send("#{taxonomy}=", taxonomy_from_fact) unless taxonomy_from_fact.nil?
         else
           # No taxonomy was set, set to fact taxonomy or default taxonomy
           self.send "#{taxonomy}=", (taxonomy_from_fact || default_taxonomy)
         end
+        taxonomy_class.current = self.send(taxonomy)
       end
     end
 
@@ -357,6 +375,37 @@ module Host
 
     private
 
+    def parse_ip_address(address, ignore_link_local: true)
+      return nil unless address
+
+      begin
+        addr = IPAddr.new(address)
+      rescue IPAddr::InvalidAddressError
+        # https://tickets.puppetlabs.com/browse/FACT-1935 facter can return an
+        # address with the link local identifier. Ruby can't parse because of
+        # https://bugs.ruby-lang.org/issues/8464 so we manually strip it off
+        # if the interface identifier if present
+        if address.is_a?(String) && address.include?('%')
+          addr = IPAddr.new(address.split('%').first)
+        else
+          logger.warn "Ignoring invalid IP address #{address}"
+          return nil
+        end
+      end
+
+      if ignore_link_local
+        # Ruby 2.5 introduced IPAddr#link_local?
+        if addr.respond_to?(:link_local?)
+          return if addr.link_local?
+        else
+          return if addr.ipv4? && IPAddr.new('169.254.0.0/16').include?(addr)
+          return if addr.ipv6? && IPAddr.new('fe80::/10').include?(addr)
+        end
+      end
+
+      addr.to_s
+    end
+
     def build_values_for_primary_interface!(values_for_primary_interface, args)
       new_attrs = args.shift
       unless new_attrs.nil?
@@ -392,11 +441,22 @@ module Host
     def build_required_interfaces(attrs = {})
       if self.primary_interface.nil?
         if self.interfaces.empty?
-          self.interfaces.build(attrs.merge(:primary => true, :type => 'Nic::Managed'))
+          attrs[:type] ||= 'Nic::Managed'
+          self.interfaces.build(attrs.merge(primary: true))
         else
           interface = self.interfaces.first
           interface.attributes = attrs
           interface.primary = true
+        end
+      elsif attrs[:type] && self.primary_interface.type != attrs[:type]
+        self.primary_interface.type = attrs[:type]
+        if self.primary_interface.persisted?
+          if self.primary_interface.save(validate: false)
+            self.interfaces.reload
+            self.provision_interface&.reload
+          else
+            logger.error "Unable to convert interface #{self} from #{self.primary_interface.type} to #{attrs[:type]}: #{self.primary_interface.errors.full_messages.to_sentence}"
+          end
         end
       end
       self.primary_interface.provision = true if self.provision_interface.nil?
@@ -407,7 +467,7 @@ module Host
         # we search bonds based on identifiers, e.g. ubuntu sets random MAC after each reboot se we can't
         # rely on mac
         when 'Nic::Bond', 'Nic::Bridge'
-          base.virtual.where(:identifier => name)
+          base.where(:identifier => name)
         # for other interfaces we distinguish between virtual and physical interfaces
         # for virtual devices we don't check only mac address since it's not unique,
         # if we want to update the device it must have same identifier
@@ -456,7 +516,14 @@ module Host
       bond.save!
     rescue StandardError => e
       logger.warn "Saving #{bond.identifier} NIC for host #{self.name} failed, skipping because #{e.message}:"
-      bond.errors.full_messages.each { |e| logger.warn " #{e}" }
+      bond.errors.full_messages.each { |message| logger.warn " #{message}" }
+    end
+
+    def update_subnet_from_facts(iface, keep_subnet)
+      return if Setting[:update_subnets_from_facts] == 'none' || keep_subnet
+      return if Setting[:update_subnets_from_facts] == 'provision' && !iface.provision
+      iface.subnet = Subnet.subnet_for(iface.ip) if iface.ip_changed? && !iface.matches_subnet?(:ip, :subnet)
+      iface.subnet6 = Subnet.subnet_for(iface.ip6) if iface.ip6_changed? && !iface.matches_subnet?(:ip6, :subnet6)
     end
 
     def set_interface(attributes, name, iface)
@@ -464,15 +531,10 @@ module Host
       update_bonds(iface, name, attributes) if iface.identifier != name && !iface.virtual? && iface.persisted?
       attributes = attributes.clone
       iface.mac = attributes.delete(:macaddress)
-      iface.ip = attributes.delete(:ipaddress)
-      iface.ip6 = attributes.delete(:ipaddress6)
-      iface.ip6 = nil if (IPAddr.new('fe80::/10').include?(iface.ip6) rescue false)
-      keep_subnet = attributes.delete(:keep_subnet)
+      iface.ip = parse_ip_address(attributes.delete(:ipaddress))
+      iface.ip6 = parse_ip_address(attributes.delete(:ipaddress6))
 
-      if Setting[:update_subnets_from_facts] && !keep_subnet
-        iface.subnet = Subnet.subnet_for(iface.ip) if iface.ip_changed? && !iface.matches_subnet?(:ip, :subnet)
-        iface.subnet6 = Subnet.subnet_for(iface.ip6) if iface.ip6_changed? && !iface.matches_subnet?(:ip6, :subnet6)
-      end
+      update_subnet_from_facts(iface, attributes.delete(:keep_subnet))
 
       iface.virtual = attributes.delete(:virtual) || false
       iface.tag = attributes.delete(:tag) || ''

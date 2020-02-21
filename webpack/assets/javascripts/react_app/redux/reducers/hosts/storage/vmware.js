@@ -5,6 +5,7 @@ import Immutable from 'seamless-immutable';
 import uuidV1 from 'uuid/v1';
 
 import {
+  VMWARE_CLUSTER_CHANGE,
   STORAGE_VMWARE_ADD_CONTROLLER,
   STORAGE_VMWARE_ADD_DISK,
   STORAGE_VMWARE_REMOVE_DISK,
@@ -22,15 +23,23 @@ import {
 
 const initialState = Immutable({
   controllers: [],
+  volumes: [],
 });
 
 const availableControllerKeys = [1000, 1001, 1002, 1003, 1004];
 
 const getAvailableKey = controllers =>
-  head(difference(availableControllerKeys, controllers.map(c => c.key)));
+  head(
+    difference(
+      availableControllerKeys,
+      controllers.map(c => c.key)
+    )
+  );
 
-export default (state = initialState, { type, payload }) => {
+export default (state = initialState, { type, payload, response }) => {
   switch (type) {
+    case VMWARE_CLUSTER_CHANGE:
+      return state.set('cluster', payload.cluster);
     case STORAGE_VMWARE_ADD_CONTROLLER:
       const availableKey = getAvailableKey(state.controllers);
 
@@ -91,12 +100,13 @@ export default (state = initialState, { type, payload }) => {
         controllers: payload.controllers,
         paramsScope: payload.config.paramsScope,
         datastores: [],
-        datastoresLoading: true,
+        datastoresLoading: false,
         datastoresError: undefined,
         storagePods: [],
-        storagePodsLoading: true,
+        storagePodsLoading: false,
         storagePodsError: undefined,
         volumes: payload.volumes.map(volume => ({ ...volume, key: uuidV1() })),
+        cluster: payload.cluster,
       };
       return initialState
         .set('config', payload.config)
@@ -113,10 +123,10 @@ export default (state = initialState, { type, payload }) => {
       });
     case STORAGE_VMWARE_DATASTORES_SUCCESS:
       return state
-        .set('datastores', payload.results)
+        .set('datastores', response.results)
         .set('datastoresLoading', false);
     case STORAGE_VMWARE_DATASTORES_FAILURE:
-      return state.set('datastoresError', payload.error.message);
+      return state.set('datastoresError', response.message);
     case STORAGE_VMWARE_STORAGEPODS_REQUEST:
       return state.merge({
         storagePodsError: undefined,
@@ -125,11 +135,11 @@ export default (state = initialState, { type, payload }) => {
       });
     case STORAGE_VMWARE_STORAGEPODS_SUCCESS:
       return state.merge({
-        storagePods: payload.results,
+        storagePods: response.results,
         storagePodsLoading: false,
       });
     case STORAGE_VMWARE_STORAGEPODS_FAILURE:
-      return state.set('storagePodsError', payload.error.message);
+      return state.set('storagePodsError', response.message);
     default:
       return state;
   }

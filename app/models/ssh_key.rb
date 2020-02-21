@@ -47,7 +47,7 @@ class SshKey < ApplicationRecord
     {
       'type' => type,
       'key' => ssh_key,
-      'comment' => comment
+      'comment' => comment,
     }
   end
 
@@ -72,7 +72,7 @@ class SshKey < ApplicationRecord
   def generate_fingerprint
     self.fingerprint = nil
     return unless self.key.present?
-    self.fingerprint = SSHKey.fingerprint(self.key)
+    self.fingerprint = SSHKey.sha256_fingerprint(self.key)
     true
   rescue SSHKey::PublicKeyError => exception
     Foreman::Logging.exception("Could not calculate SSH key fingerprint", exception)

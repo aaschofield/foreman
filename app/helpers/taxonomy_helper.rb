@@ -3,11 +3,11 @@ module TaxonomyHelper
   include FormHelper
 
   def show_location_tab?
-    SETTINGS[:locations_enabled] && User.current.allowed_to?(:view_locations)
+    User.current.allowed_to?(:view_locations)
   end
 
   def show_organization_tab?
-    SETTINGS[:organizations_enabled] && User.current.allowed_to?(:view_organizations)
+    User.current.allowed_to?(:view_organizations)
   end
 
   def taxonomy_single
@@ -120,10 +120,10 @@ module TaxonomyHelper
                                                        :search => nil,
                                                        :taxonomy_search => nil}).present?
     checkbox_f(f, :ignore_types,
-                 {:label => translated_label(resource, :all),
-                  :multiple => true,
-                  :onchange => 'ignore_checked(this)'},
-                  resource.to_s.classify)
+      {:label => translated_label(resource, :all),
+       :multiple => true,
+       :onchange => 'ignore_checked(this)'},
+      resource.to_s.classify)
   end
 
   def show_resource_if_allowed(f, taxonomy, resource_options)
@@ -140,11 +140,11 @@ module TaxonomyHelper
     content_tag(:div, :id => resource, :class => "tab-pane") do
       all_checkbox(f, resource) +
       multiple_selects(f, association.where(nil).klass.to_s.underscore.pluralize.to_sym, association, taxonomy.selected_or_inherited_ids[ids],
-                           {:disabled => taxonomy.used_and_selected_or_inherited_ids[ids],
-                            :label => translated_label(resource, :select)},
-                           {'data-mismatches' => taxonomy.need_to_be_selected_ids[ids].to_json,
-                            'data-inheriteds' => taxonomy.inherited_ids[ids].to_json,
-                            'data-useds' => taxonomy.used_ids[ids].to_json })
+        {:disabled => taxonomy.used_and_selected_or_inherited_ids[ids],
+         :label => translated_label(resource, :select)},
+        {'data-mismatches' => taxonomy.need_to_be_selected_ids[ids].to_json,
+         'data-inheriteds' => taxonomy.inherited_ids[ids].to_json,
+         'data-useds' => taxonomy.used_ids[ids].to_json })
     end
   end
 
@@ -159,7 +159,7 @@ module TaxonomyHelper
                :domains => { :all => _("All domains"), :select => _("Select domains") },
                :realms => { :all => _("All realms"), :select => _("Select realms") },
                :environments => { :all => _("All environments"), :select => _("Select environments") },
-               :hostgroups => { :all => _("All host groups"), :select => _("Select host groups") }
+               :hostgroups => { :all => _("All host groups"), :select => _("Select host groups") },
     }
     labels[resource][verb]
   end

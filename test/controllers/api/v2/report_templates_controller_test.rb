@@ -7,6 +7,8 @@ class Api::V2::ReportTemplatesControllerTest < ActionController::TestCase
     @report_template = FactoryBot.create(:report_template)
   end
 
+  let(:report_template) { FactoryBot.create(:report_template) }
+
   test "should get index" do
     get :index
     assert_response :success
@@ -174,7 +176,6 @@ class Api::V2::ReportTemplatesControllerTest < ActionController::TestCase
   end
 
   test 'export should export the erb of the template' do
-    report_template = FactoryBot.create(:report_template)
     get :export, params: { :id => report_template.to_param }
     assert_response :success
     assert_equal 'text/plain', response.content_type
@@ -194,36 +195,252 @@ class Api::V2::ReportTemplatesControllerTest < ActionController::TestCase
     assert_equal 'b', ReportTemplate.unscoped.find_by_name(report_template.name).template
   end
 
-  test "should generate report" do
-    report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %>')
-    post :generate, params: { :id => report_template.id }
-    assert_response :success
-    assert_equal '2', response.body
+  describe '#generate' do
+    it "should generate report" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %>')
+      post :generate, params: { id: report_template.id }
+      assert_response :success
+      assert_equal '2', response.body
+    end
+
+    it "should allow generating reports with headers even if data is empty" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_headers(:a); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'csv' }
+      assert_response :success
+      assert_equal "a\n", response.body
+    end
+
+    it "should generate report in csv format" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_row(a: 1); report_row(a: 2); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'csv' }
+      assert_response :success
+      assert_equal 'text/csv', response.content_type
+      assert_equal "a\n1\n2\n", response.body
+    end
+
+    it "should generate report in text format which fallbacks to csv if report_render is used" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_row(a: 1); report_row(a: 2); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'txt' }
+      assert_response :success
+      assert_equal 'text/plain', response.content_type
+      assert_equal "a\n1\n2\n", response.body
+    end
+
+    it "should generate report in yaml format" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_row(a: 1); report_row(a: 2); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'yaml' }
+      assert_response :success
+      assert_equal 'text/yaml', response.content_type
+      assert_equal "---\n- a: 1\n- a: 2\n", response.body
+    end
+
+    it "should generate report in json format" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_row(a: 1); report_row(a: 2); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'json' }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      data = nil
+      assert_nothing_raised do
+        data = JSON.parse response.body
+      end
+      assert_equal 1, data[0]['a']
+      assert_equal 2, data[1]['a']
+    end
+
+    it "should generate report in html format, with data escaping" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= report_row("<b>" => 1); report_row("<b>" => "<br>"); report_render %>')
+      post :generate, params: { id: report_template.id, report_format: 'html' }
+      assert_response :success
+      assert_equal 'text/html', response.content_type
+      assert_includes response.body, "<th>&lt;b&gt;</th>"
+      assert_includes response.body, "<td>1</td>"
+      assert_includes response.body, "<td>&lt;br&gt;</td>"
+    end
+
+    it "should generate report with optional params without value" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
+      input = FactoryBot.create(:template_input, :name => 'hello')
+      report_template.template_inputs = [ input ]
+      post :generate, params: { id: report_template.id }
+      assert_response :success
+      assert_equal '2 ', response.body
+    end
+
+    it "should fail with required params without value" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
+      input = FactoryBot.create(:template_input, :name => 'hello', :required => true)
+      report_template.template_inputs = [ input ]
+      post :generate, params: { id: report_template.id }
+      assert_response :unprocessable_entity
+    end
+
+    it "should generate report with optional params with value" do
+      report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
+      input = FactoryBot.create(:template_input, :name => 'hello', :required => true)
+      report_template.template_inputs = [ input ]
+      post :generate, params: { id: report_template.id, input_values: { hello: 'ohai' } }
+      assert_response :success
+      assert_equal '2 ohai', response.body
+    end
+
+    it "should generate report with in organization scope" do
+      organization = Organization.first
+      location = Location.first
+      report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %>', :organization_ids => [organization.id], :location_ids => [location.id])
+
+      setup_user('generate', 'report_templates')
+      setup_user('view', 'organizations')
+      setup_user('view', 'locations')
+      users(:one).organizations << organization
+
+      post :generate, params: { id: report_template.id, organization_id: organization.id }, session: set_session_user(:one)
+      assert_response :success
+      assert_equal '2', response.body
+    end
   end
 
-  test "should generate report with optional params without value" do
-    report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
-    input = FactoryBot.create(:template_input, :name => 'hello')
-    report_template.template_inputs = [ input ]
-    post :generate, params: { :id => report_template.id }
-    assert_response :success
-    assert_equal '2 ', response.body
+  describe '#schedule_report' do
+    let(:job) { OpenStruct.new('provider_job_id' => 'JOB-UNIQUE-IDENTIFIER') }
+    def expect_job_enque_with(input_values, mail_to: nil, delay_to: nil, format: nil)
+      composer_params = {
+        'template_id' => report_template.id.to_s,
+        'input_values' => input_values,
+        'gzip' => !!mail_to,
+        'send_mail' => !!mail_to,
+        'mail_to' => mail_to,
+        'format' => format,
+      }
+      if delay_to
+        scheduler = mock('TemplateRenderJob')
+        TemplateRenderJob.expects(:set).with(has_key(:wait_until)).returns(scheduler)
+      else
+        scheduler = TemplateRenderJob
+      end
+      scheduler.expects(:perform_later).with(composer_params, user_id: User.current.id).returns(job)
+    end
+
+    it "schedule report and returns data_url" do
+      expect_job_enque_with({})
+      ReportComposer::ApiParams.any_instance.stubs('convert_input_names_to_ids').returns({})
+      post :schedule_report, params: { :id => report_template.id }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['data_url']
+    end
+
+    it "schedule report with parameters" do
+      input_values = { '1' => { 'value' => 'bar' } }
+      expect_job_enque_with(input_values)
+      ReportComposer::ApiParams.any_instance.expects('convert_input_names_to_ids')
+                    .with(report_template.id.to_s, { 'foo' => 'bar' })
+                    .returns(input_values)
+      post :schedule_report, params: { :id => report_template.id, :input_values => { 'foo' => 'bar' } }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['data_url']
+    end
+
+    it "schedule report delivery by e-mail" do
+      expect_job_enque_with({}, mail_to: 'this@email.cz')
+      ReportComposer::ApiParams.any_instance.stubs('convert_input_names_to_ids').returns({})
+      post :schedule_report, params: { :id => report_template.id, mail_to: 'this@email.cz' }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['job_id']
+      refute JSON.parse(response.body).has_key?('data_url')
+    end
+
+    it "schedule report in specific format" do
+      expect_job_enque_with({}, format: 'csv')
+      ReportComposer::ApiParams.any_instance.stubs('convert_input_names_to_ids').returns({})
+      post :schedule_report, params: { :id => report_template.id, report_format: 'csv' }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['job_id']
+    end
+
+    it 'schedule delayed report' do
+      delay_to = Time.now + 2.hours
+      expect_job_enque_with({}, delay_to: delay_to)
+      ReportComposer::ApiParams.any_instance.stubs('convert_input_names_to_ids').returns({})
+      post :schedule_report, params: { :id => report_template.id, generate_at: delay_to }
+      assert_response :success
+      assert_equal 'application/json', response.content_type
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['job_id']
+      assert_match /JOB-UNIQUE-IDENTIFIER/, JSON.parse(response.body)['data_url']
+    end
   end
 
-  test "should fail with required params without value" do
-    report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
-    input = FactoryBot.create(:template_input, :name => 'hello', :required => true)
-    report_template.template_inputs = [ input ]
-    post :generate, params: { :id => report_template.id }
-    assert_response :unprocessable_entity
-  end
+  describe '#report_data' do
+    let(:plan) { OpenStruct.new('id' => 'JOBID', 'progress' => 1.0, 'failure?' => false) }
 
-  test "should generate report with optional params with value" do
-    report_template = FactoryBot.create(:report_template, :template => '<%= 1 + 1 %> <%= input("hello") %>')
-    input = FactoryBot.create(:template_input, :name => 'hello', :required => true)
-    report_template.template_inputs = [ input ]
-    post :generate, params: { :id => report_template.id, :input_values => { :hello => 'ohai' } }
-    assert_response :success
-    assert_equal '2 ohai', response.body
+    before do
+      ReportComposer.any_instance.stubs(:load_report_template).returns(report_template)
+    end
+
+    def stub_plan(opts = {})
+      opts.keys.each { |k| plan.send("#{k}=", opts[k]) }
+      @controller.expects(:load_dynflow_plan).with('JOBID').returns(plan)
+    end
+
+    def stub_plan_arguments(gzip: false, user_id: User.current.id, mail_to: nil)
+      composer_params = { 'template_id' => report_template.id, 'input_values' => nil, 'gzip' => gzip, 'send_mail' => !!mail_to, 'mail_to' => mail_to }
+      @controller.stubs(:plan_arguments).returns([ composer_params, { 'user_id' => user_id } ])
+    end
+
+    describe 'failures' do
+      it 'returns no_content if not ready' do
+        stub_plan('progress' => 0.0)
+        @controller.expects(:plan_arguments).never
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :no_content
+      end
+
+      it 'fails if underlying job failed ' do
+        stub_plan('failure?' => true)
+        @controller.expects(:plan_arguments).never
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :unprocessable_entity
+      end
+
+      it 'fails if job can not be found' do
+        @controller.expects(:load_dynflow_plan).with('JOBID').returns(nil)
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :not_found
+      end
+
+      it 'forbid another user to access the data' do
+        stub_plan_arguments(user_id: User.current.id + 1) # another user_id
+        User.current.stubs('admin?').returns(false)
+
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :forbidden
+      end
+    end
+
+    describe 'rendering' do
+      before { stub_plan }
+
+      it 'return stored_content if job done' do
+        stub_plan_arguments
+        StoredValue.expects('read').with('JOBID').returns('plain response')
+
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :success
+        assert_equal 'text/plain', response.content_type
+        assert_equal 'plain response', response.body
+      end
+
+      it 'return gziped stored_content if job done and has gzip param' do
+        stub_plan_arguments(gzip: true)
+        compressed_value = ActiveSupport::Gzip.compress('plain response')
+        StoredValue.expects('read').with('JOBID').returns(compressed_value)
+
+        get :report_data, params: { id: report_template.id, job_id: 'JOBID' }
+        assert_response :success
+        assert_equal 'application/gzip', response.content_type
+        assert_equal compressed_value, response.body
+      end
+    end
   end
 end

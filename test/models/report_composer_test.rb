@@ -4,7 +4,8 @@ class ReportComposerTest < ActiveSupport::TestCase
   def setup
     @report_template = FactoryBot.create(:report_template, :with_input)
     @template_input = @report_template.template_inputs.first
-    @composer = ReportComposer.new(:template_id => @report_template.id, :input_values => { @template_input.id.to_s => { 'value' => 'hello' } })
+    @composer_params = {:template_id => @report_template.id, :input_values => { @template_input.id.to_s => { 'value' => 'hello' } }}
+    @composer = ReportComposer.new(@composer_params)
   end
 
   test 'template_input_values returns hash of inputs and their values' do
@@ -42,5 +43,31 @@ class ReportComposerTest < ActiveSupport::TestCase
     params.expects(:permit!).returns(params)
     composer = ReportComposer.from_api_params(params)
     assert_equal 'hello', composer.template_input_values[@template_input.name]
+  end
+
+  describe '#generate_at handling' do
+    context 'API' do
+      it 'translate generate_at as UTC time in API' do
+        params = { id: @report_template.id, generate_at: '2019-04-15 15:10' }
+        params.expects(:permit!).returns(params.with_indifferent_access)
+        composer = ReportComposer.from_api_params(params)
+        composer.generate_at.utc.hour == 15
+      end
+
+      it 'respect given timezone' do
+        params = { id: @report_template.id, generate_at: '2019-04-15 15:10 +2' }
+        params.expects(:permit!).returns(params.with_indifferent_access)
+        composer = ReportComposer.from_api_params(params)
+        composer.generate_at.utc.hour == 13
+      end
+    end
+  end
+
+  describe '#render' do
+    it 'render template' do
+      @report_template.update_attribute :template, "<%= 1 + 1 %> <%= input('#{@template_input.name}') %>"
+      composer = ReportComposer.new(@composer_params) # to reload the inner template instance
+      assert_equal composer.render, '2 hello'
+    end
   end
 end

@@ -105,7 +105,7 @@ class SeedHelperTest < ActiveSupport::TestCase
       {
         'name' => 'Test template',
         'model' => 'ProvisioningTemplate',
-        'kind' => 'finish'
+        'kind' => 'finish',
       }
     end
 
@@ -135,8 +135,8 @@ class SeedHelperTest < ActiveSupport::TestCase
     it 'skips templates that require a missing plugin' do
       requirements = {
         'require' => [{
-          'plugin' => 'unknown_plugin'
-        }]
+          'plugin' => 'unknown_plugin',
+        }],
       }
       assert_nil SeedHelper.import_raw_template(get_template(metadata.merge(requirements)))
     end
@@ -145,11 +145,22 @@ class SeedHelperTest < ActiveSupport::TestCase
       requirements = {
         'require' => [{
           'plugin' => 'some_plugin',
-          'version' => '2.0.1'
-        }]
+          'version' => '2.0.1',
+        }],
       }
       Foreman::Plugin.expects(:find).with('some_plugin').returns(mock(:version => '1.9'))
       assert_nil SeedHelper.import_raw_template(get_template(metadata.merge(requirements)))
+    end
+
+    it 'accepts prereleases to satisty version condition ' do
+      requirements = {
+        'require' => [{
+          'plugin' => 'some_plugin',
+          'version' => '2.0.1',
+        }],
+      }
+      Foreman::Plugin.expects(:find).with('some_plugin').returns(mock(:version => '2.0.1.rc2'))
+      refute_nil SeedHelper.import_raw_template(get_template(metadata.merge(requirements)))
     end
 
     it 'imports the template and sets taxonomies' do

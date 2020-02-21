@@ -1,5 +1,9 @@
+/* eslint-disable jquery/no-val */
+/* eslint-disable jquery/no-is */
+
 import $ from 'jquery';
 
+jest.unmock('jquery');
 jest.unmock('./foreman_trends');
 window.trends = require('./foreman_trends');
 

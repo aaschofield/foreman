@@ -1,12 +1,10 @@
 import Jed from 'jed';
 import { addLocaleData } from 'react-intl';
-import { deprecateObjectProperty } from '../../foreman_tools';
-
-const runningInPhantomJS = () => window._phantom !== undefined;
+import forceSingleton from './forceSingleton';
 
 class IntlLoader {
   constructor(locale, timezone) {
-    this.fallbackIntl = !global.Intl || runningInPhantomJS();
+    this.fallbackIntl = !global.Intl;
 
     [this.locale] = locale.split('-');
     this.timezone = this.fallbackIntl ? 'UTC' : timezone;
@@ -16,9 +14,9 @@ class IntlLoader {
   async init() {
     await this.fetchIntl();
     addLocaleData(
-      await import(/* webpackChunkName: 'react-intl/locale/[request]' */ `react-intl/locale-data/${
-        this.locale
-      }`)
+      await import(
+        /* webpackChunkName: 'react-intl/locale/[request]' */ `react-intl/locale-data/${this.locale}`
+      )
     );
     return true;
   }
@@ -26,9 +24,9 @@ class IntlLoader {
   async fetchIntl() {
     if (this.fallbackIntl) {
       global.Intl = await import(/* webpackChunkName: "intl" */ 'intl');
-      await import(/* webpackChunkName: 'intl/locale/[request]' */ `intl/locale-data/jsonp/${
-        this.locale
-      }`);
+      await import(
+        /* webpackChunkName: 'intl/locale/[request]' */ `intl/locale-data/jsonp/${this.locale}`
+      );
     }
   }
 }
@@ -37,17 +35,19 @@ const [htmlElemnt] = document.getElementsByTagName('html');
 const langAttr = htmlElemnt.getAttribute('lang') || 'en';
 const timezoneAttr = htmlElemnt.getAttribute('data-timezone') || 'UTC';
 
-export const intl = new IntlLoader(langAttr, timezoneAttr);
+export const intl = forceSingleton(
+  'Intl',
+  () => new IntlLoader(langAttr, timezoneAttr)
+);
 
 const cheveronPrefix = () => (window.I18N_MARK ? '\u00BB' : '');
 const cheveronSuffix = () => (window.I18N_MARK ? '\u00AB' : '');
 
-const documentLocale = () =>
-  document.getElementsByTagName('html')[0].lang.replace(/-/g, '_');
+export const documentLocale = () => langAttr;
 
 const getLocaleData = () => {
   const locales = window.locales || {};
-  const locale = documentLocale();
+  const locale = documentLocale().replace(/-/g, '_');
 
   if (locales[locale] === undefined) {
     // eslint-disable-next-line no-console
@@ -60,7 +60,7 @@ const getLocaleData = () => {
   return locales[locale];
 };
 
-export const jed = new Jed(getLocaleData());
+export const jed = forceSingleton('Jed', () => new Jed(getLocaleData()));
 
 export const translate = (...args) =>
   `${cheveronPrefix()}${jed.gettext(...args)}${cheveronSuffix()}`;
@@ -80,8 +80,3 @@ export default i18n;
 
 window.__ = translate;
 window.n__ = ngettext;
-window.Jed = jed;
-window.i18n = jed;
-
-deprecateObjectProperty(window, 'i18n', 'tfm.i18n');
-deprecateObjectProperty(window, 'Jed', 'tfm.i18n.jed');

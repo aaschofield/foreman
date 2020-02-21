@@ -1,67 +1,29 @@
 import {
-  NOTIFICATIONS_GET_NOTIFICATIONS,
+  NOTIFICATIONS,
   NOTIFICATIONS_TOGGLE_DRAWER,
   NOTIFICATIONS_SET_EXPANDED_GROUP,
   NOTIFICATIONS_MARK_AS_READ,
   NOTIFICATIONS_MARK_GROUP_AS_READ,
   NOTIFICATIONS_MARK_AS_CLEAR,
   NOTIFICATIONS_MARK_GROUP_AS_CLEARED,
-  NOTIFICATIONS_POLLING_STARTED,
   NOTIFICATIONS_LINK_CLICKED,
 } from '../../consts';
 import { notificationsDrawer as sessionStorage } from '../../../common/sessionStorage';
-import API from '../../../API';
+import { API, get } from '../../API';
+import {
+  stopInterval,
+  withInterval,
+} from '../../middlewares/IntervalMiddleware';
+import { DEFAULT_INTERVAL } from './constants';
 
-const defaultNotificationsPollingInterval = 10000;
-const notificationsInterval =
-  process.env.NOTIFICATIONS_POLLING || defaultNotificationsPollingInterval;
+const interval = process.env.NOTIFICATIONS_POLLING || DEFAULT_INTERVAL;
 
-const getNotifications = url => dispatch => {
-  const isDocumentVisible =
-    document.visibilityState === 'visible' ||
-    document.visibilityState === 'prerender';
+const getNotifications = url => get({ key: NOTIFICATIONS, url });
 
-  if (isDocumentVisible) {
-    API.get(url)
-      .then(onGetNotificationsSuccess)
-      .catch(onGetNotificationsFailed)
-      .then(triggerPolling);
-  } else {
-    // document is not visible, keep polling without api call
-    triggerPolling();
-  }
+export const startNotificationsPolling = url =>
+  withInterval(getNotifications(url), interval);
 
-  function onGetNotificationsSuccess({ data }) {
-    dispatch({
-      type: NOTIFICATIONS_GET_NOTIFICATIONS,
-      payload: {
-        notifications: data.notifications,
-      },
-    });
-  }
-
-  function onGetNotificationsFailed(error) {
-    if (error.response.status === 401) {
-      window.location.replace('/users/login');
-    }
-  }
-
-  function triggerPolling() {
-    if (notificationsInterval) {
-      setTimeout(() => dispatch(getNotifications(url)), notificationsInterval);
-    }
-  }
-};
-
-export const startNotificationsPolling = url => (dispatch, getState) => {
-  if (getState().notifications.isPolling) {
-    return;
-  }
-  dispatch({
-    type: NOTIFICATIONS_POLLING_STARTED,
-  });
-  dispatch(getNotifications(url));
-};
+export const stopNotificationsPolling = () => stopInterval(NOTIFICATIONS);
 
 export const markAsRead = (group, id) => dispatch => {
   dispatch({

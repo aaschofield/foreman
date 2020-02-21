@@ -40,7 +40,7 @@ module Api::V2::LookupKeysCommonController
       scope = model.authorized(:"view_#{model_string.pluralize}")
       begin
         instance_variable_set("@#{model_string}",
-                              resource_finder(scope, params["#{model_string}_id"]))
+          resource_finder(scope, params["#{model_string}_id"]))
       rescue ActiveRecord::RecordNotFound
         model_not_found(model_string)
       end
@@ -49,7 +49,7 @@ module Api::V2::LookupKeysCommonController
 
   def find_smart_variable
     id = params.key?('smart_variable_id') ? params['smart_variable_id'] : params['id']
-    @smart_variable   = VariableLookupKey.authorized(:view_external_variables).smart_variables.find_by_id(id.to_i) if id.to_i > 0
+    @smart_variable = VariableLookupKey.authorized(:view_external_variables).smart_variables.find_by_id(id.to_i) if id.to_i > 0
     @smart_variable ||= begin
                           puppet_cond = { :puppetclass_id => @puppetclass.id } if @puppetclass
                           VariableLookupKey.authorized(:view_external_variables).smart_variables.where(puppet_cond).find_by_key(id.to_s)

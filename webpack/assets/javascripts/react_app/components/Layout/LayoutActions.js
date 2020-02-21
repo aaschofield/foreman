@@ -1,11 +1,13 @@
 import { combineMenuItems } from './LayoutHelper';
-import { selectMenuItems } from './LayoutSelectors';
 import {
   LAYOUT_SHOW_LOADING,
   LAYOUT_HIDE_LOADING,
   LAYOUT_UPDATE_ITEMS,
   LAYOUT_CHANGE_LOCATION,
+  LAYOUT_CHANGE_ACTIVE,
   LAYOUT_CHANGE_ORG,
+  LAYOUT_EXPAND,
+  LAYOUT_COLLAPSE,
 } from './LayoutConstants';
 
 export const showLoading = () => ({
@@ -16,18 +18,11 @@ export const hideLoading = () => ({
   type: LAYOUT_HIDE_LOADING,
 });
 
-export const changeActiveMenu = primary => (dispatch, getState) => {
-  const items = selectMenuItems(getState()).map(item =>
-    primary.title === item.name
-      ? { ...item, active: true }
-      : { ...item, active: false }
-  );
-
+export const changeActiveMenu = ({ title }) => dispatch => {
   dispatch({
-    type: LAYOUT_UPDATE_ITEMS,
+    type: LAYOUT_CHANGE_ACTIVE,
     payload: {
-      items,
-      activeMenu: primary.title,
+      activeMenu: title,
     },
   });
 };
@@ -57,3 +52,11 @@ export const changeLocation = location => dispatch => {
     },
   });
 };
+
+export const onExpand = () => ({
+  type: LAYOUT_EXPAND,
+});
+
+export const onCollapse = () => ({
+  type: LAYOUT_COLLAPSE,
+});

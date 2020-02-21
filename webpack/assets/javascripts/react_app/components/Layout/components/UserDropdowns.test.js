@@ -1,5 +1,5 @@
 import React from 'react';
-import { shallow } from 'enzyme';
+import { shallow } from '@theforeman/test';
 import { testComponentSnapshotsWithFixtures } from '../../../common/testHelpers';
 
 import UserDropdowns from '../components/UserDropdowns';
@@ -10,7 +10,10 @@ const createStubs = () => ({
 });
 
 const fixtures = {
-  'render switcher w/loading': { ...userDropdownProps, ...createStubs() },
+  'render switcher w/loading': {
+    ...userDropdownProps,
+    ...createStubs(),
+  },
 };
 
 describe('UserDropdown', () => {

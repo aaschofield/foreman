@@ -1,11 +1,13 @@
-import toJson from 'enzyme-to-json';
 import { shallowRenderComponentWithFixtures } from '../../../common/testHelpers';
 import AuditsList from '../../AuditsList';
 
 import { AuditsProps } from './AuditsList.fixtures';
 
 const auditsFixtures = {
-  'render resources list': { data: { ...AuditsProps } },
+  'render resources list': {
+    data: { ...AuditsProps },
+    fetchAndPush: jest.fn(),
+  },
 };
 
 describe('AuditsList', () => {
@@ -16,7 +18,7 @@ describe('AuditsList', () => {
     );
     components.forEach(({ description, component }) => {
       it(description, () => {
-        expect(toJson(component)).toMatchSnapshot();
+        expect(component).toMatchSnapshot();
       });
     });
   });

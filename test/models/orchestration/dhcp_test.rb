@@ -52,7 +52,7 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
 
   test "DHCP record contains jumpstart attributes" do
     h = FactoryBot.build_stubbed(:host, :with_dhcp_orchestration,
-                          :model => FactoryBot.create(:model, :vendor_class => 'Sun-Fire-V210'))
+      :model => FactoryBot.create(:model, :vendor_class => 'Sun-Fire-V210'))
     h.expects(:jumpstart?).at_least_once.returns(true)
     h.os.expects(:dhcp_record_type).at_least_once.returns(Net::DHCP::SparcRecord)
     h.os.expects(:jumpstart_params).at_least_once.with(h, h.model.vendor_class).returns(:vendor => '<Sun-Fire-V210>')
@@ -116,8 +116,9 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
 
       def host_with_loader(loader)
         subnet = FactoryBot.build(:subnet_ipv4, :dhcp, :tftp, :httpboot)
+        subnet.httpboot.stubs(:setting).returns(1234)
         as_admin do
-          FactoryBot.create(:host, :with_tftp_orchestration, :subnet => subnet, :pxe_loader => loader)
+          FactoryBot.create(:host, :with_tftp_orchestration_and_httpboot, :subnet => subnet, :pxe_loader => loader)
         end
       end
 
@@ -142,11 +143,12 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
       end
 
       test "with Grub2 UEFI HTTP without httpboot feature" do
-        subnet = FactoryBot.build(:subnet_ipv4, :dhcp, :tftp)
+        subnet = FactoryBot.build(:subnet_ipv4, :dhcp, :tftp, :httpboot)
+        subnet.httpboot.stubs(:setting).returns(1234)
         host = as_admin do
-          FactoryBot.create(:host, :with_tftp_orchestration, :subnet => subnet, :pxe_loader => 'Grub2 UEFI HTTP')
+          FactoryBot.create(:host, :with_tftp_orchestration_and_httpboot, :subnet => subnet, :pxe_loader => 'Grub2 UEFI HTTP')
         end
-        assert_equal 'http://foreman.some.host.fqdn:80/httpboot/grub2/grubx64.efi', host.provision_interface.dhcp_records.first.filename
+        assert_match(%r"http://somewhere\d+.net:1234/httpboot/grub2/grubx64.efi", host.provision_interface.dhcp_records.first.filename)
       end
 
       test "host has httpboot proxy" do
@@ -154,30 +156,29 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
       end
 
       test "with Grub2 UEFI HTTP" do
-        assert_match(%r"http://somewhere\d+.net:8443/httpboot/grub2/grubx64.efi", host_with_loader('Grub2 UEFI HTTP').provision_interface.dhcp_records.first.filename)
+        assert_match(%r"http://somewhere\d+.net:1234/httpboot/grub2/grubx64.efi", host_with_loader('Grub2 UEFI HTTP').provision_interface.dhcp_records.first.filename)
       end
 
       test "with Grub2 UEFI HTTPS" do
-        assert_match(%r"https://somewhere\d+.net:8443/httpboot/grub2/grubx64.efi", host_with_loader('Grub2 UEFI HTTPS').provision_interface.dhcp_records.first.filename)
+        assert_match(%r"https://somewhere\d+.net:1234/httpboot/grub2/grubx64.efi", host_with_loader('Grub2 UEFI HTTPS').provision_interface.dhcp_records.first.filename)
       end
 
       test "with Grub2 UEFI HTTPS SecureBoot" do
-        assert_match(%r"https://somewhere\d+.net:8443/httpboot/grub2/shimx64.efi", host_with_loader('Grub2 UEFI HTTPS SecureBoot').provision_interface.dhcp_records.first.filename)
+        assert_match(%r"https://somewhere\d+.net:1234/httpboot/grub2/shimx64.efi", host_with_loader('Grub2 UEFI HTTPS SecureBoot').provision_interface.dhcp_records.first.filename)
       end
 
       test "with iPXE UEFI HTTP" do
-        assert_match(%r"http://somewhere\d+.net:8443/httpboot/ipxe-x64.efi", host_with_loader('iPXE UEFI HTTP').provision_interface.dhcp_records.first.filename)
+        assert_match(%r"http://somewhere\d+.net:1234/httpboot/ipxe-x64.efi", host_with_loader('iPXE UEFI HTTP').provision_interface.dhcp_records.first.filename)
       end
     end
   end
 
-  test "provision interface DHCP records should not contain explicit filename attribute when PXE loader is set to None" do
-    ProxyAPI::TFTP.any_instance.expects(:bootServer).returns('192.168.1.1')
+  test "provision interface DHCP records should not contain explicit filename and next server when PXE loader is set to None" do
     subnet = FactoryBot.build(:subnet_ipv4, :dhcp, :tftp)
     h = FactoryBot.create(:host, :with_dhcp_orchestration, :with_tftp_orchestration, :subnet => subnet, :pxe_loader => 'None')
     assert_equal 1, h.provision_interface.dhcp_records.size
     assert_nil h.provision_interface.dhcp_records.first.filename
-    assert_equal '192.168.1.1', h.provision_interface.dhcp_records.first.nextServer
+    assert_nil h.provision_interface.dhcp_records.first.nextServer
   end
 
   context 'host with bond interface' do
@@ -195,24 +196,24 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
                           :mac => '00:53:67:ab:dd:00',
                           :ip => subnet.network.sub(/0\Z/, '2')),
         FactoryBot.build(:nic_interface,
-                          :identifier => 'eth0',
-                          :mac => '00:53:67:ab:dd:00'
-                         ),
+          :identifier => 'eth0',
+          :mac => '00:53:67:ab:dd:00'
+        ),
         FactoryBot.build(:nic_interface,
-                          :identifier => 'eth1',
-                          :mac => '00:53:67:ab:dd:01'
-                         )
+          :identifier => 'eth1',
+          :mac => '00:53:67:ab:dd:01'
+        ),
       ]
     end
     let(:host) do
       as_admin do
         FactoryBot.create(:host,
-                           :with_dhcp_orchestration,
-                           :subnet => subnet,
-                           :interfaces => interfaces,
-                           :build => true,
-                           :location => subnet.locations.first,
-                           :organization => subnet.organizations.first)
+          :with_dhcp_orchestration,
+          :subnet => subnet,
+          :interfaces => interfaces,
+          :build => true,
+          :location => subnet.locations.first,
+          :organization => subnet.organizations.first)
       end
     end
 
@@ -450,12 +451,22 @@ class DhcpOrchestrationTest < ActiveSupport::TestCase
     test 'should use boot server provided by proxy' do
       ProxyAPI::TFTP.any_instance.stubs(:bootServer).returns('127.13.0.1')
       assert_equal '127.13.0.1', nic.send(:boot_server)
+      assert_empty nic.errors
     end
 
     test 'should use boot server based on proxy url' do
       ProxyAPI::TFTP.any_instance.stubs(:bootServer).returns(nil)
+      assert_equal URI.parse(host.subnet.tftp.url).host, nic.send(:boot_server)
+      assert_empty nic.errors
+    end
+
+    test 'should error out on no capabilities' do
+      Foreman::Deprecation.expects(:deprecation_warning).once
+      SmartProxy.any_instance.expects(:capabilities).with(:DHCP).returns([])
+      ProxyAPI::TFTP.any_instance.stubs(:bootServer).returns('proxy.example.com')
       Resolv::DNS.any_instance.expects(:getaddress).once.returns("127.12.0.1")
       assert_equal '127.12.0.1', nic.send(:boot_server)
+      assert_empty nic.errors
     end
   end
 end

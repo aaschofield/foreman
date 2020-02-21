@@ -141,23 +141,23 @@ class TFTPOrchestrationTest < ActiveSupport::TestCase
                           :mac => nil,
                           :ip => subnet.network.sub(/0\Z/, '2')),
         FactoryBot.build(:nic_interface,
-                          :identifier => 'eth0',
-                          :mac => '00:53:67:ab:dd:00'
-                         ),
+          :identifier => 'eth0',
+          :mac => '00:53:67:ab:dd:00'
+        ),
         FactoryBot.build(:nic_interface,
-                          :identifier => 'eth1',
-                          :mac => '00:53:67:ab:dd:01'
-                         )
+          :identifier => 'eth1',
+          :mac => '00:53:67:ab:dd:01'
+        ),
       ]
     end
     let(:host) do
       FactoryBot.create(:host,
-                         :with_tftp_orchestration,
-                         :subnet => subnet,
-                         :interfaces => interfaces,
-                         :build => true,
-                         :location => subnet.locations.first,
-                         :organization => subnet.organizations.first)
+        :with_tftp_orchestration,
+        :subnet => subnet,
+        :interfaces => interfaces,
+        :build => true,
+        :location => subnet.locations.first,
+        :organization => subnet.organizations.first)
     end
 
     test '#setTFTP should provision tftp for all bond child macs' do
@@ -195,12 +195,12 @@ class TFTPOrchestrationTest < ActiveSupport::TestCase
     Setting[:unattended_url] = "http://ahost.com:3000"
 
     template = h.send(:generate_pxe_template, :PXELinux).to_s.tr! '~', "\n"
-    expected = <<-EXPECTED
-default linux
-label linux
-kernel boot/centos-5-4-hZvopwDGZA-vmlinuz
-append initrd=boot/centos-5-4-hZvopwDGZA-initrd.img ks=http://ahost.com:3000/unattended/kickstart ksdevice=bootif network kssendmac
-EXPECTED
+    expected = <<~EXPECTED
+      default linux
+      label linux
+      kernel boot/centos-5-4-uWCeq9vTUar3-vmlinuz
+      append initrd=boot/centos-5-4-uWCeq9vTUar3-initrd.img ks=http://ahost.com:3000/unattended/kickstart ksdevice=bootif network kssendmac
+    EXPECTED
     assert_equal expected.strip, template
     assert h.build
   end
@@ -217,19 +217,19 @@ EXPECTED
     assert !h.build
 
     template = h.send(:generate_pxe_template, :PXELinux).to_s.tr! '~', "\n"
-    expected = <<-EXPECTED
-DEFAULT menu
-PROMPT 0
-MENU TITLE PXE Menu
-TIMEOUT 200
-TOTALTIMEOUT 6000
-ONTIMEOUT local
+    expected = <<~EXPECTED
+      DEFAULT menu
+      PROMPT 0
+      MENU TITLE PXE Menu
+      TIMEOUT 200
+      TOTALTIMEOUT 6000
+      ONTIMEOUT local
 
-LABEL local
-MENU LABEL (local)
-MENU DEFAULT
-LOCALBOOT 0
-EXPECTED
+      LABEL local
+      MENU LABEL (local)
+      MENU DEFAULT
+      LOCALBOOT 0
+    EXPECTED
     assert_equal template, expected.strip
   end
 
@@ -369,12 +369,12 @@ EXPECTED
     h.location.update_attribute :ignore_types, h.location.ignore_types + ['ProvisioningTemplate']
 
     template = h.send(:generate_pxe_template, :PXELinux).to_s.tr! '~', "\n"
-    expected = <<-EXPECTED
-DEFAULT linux
-LABEL linux
-KERNEL boot/opensuse-vEX5RaXkI7-linux
-APPEND initrd=boot/opensuse-vEX5RaXkI7-initrd ramdisk_size=65536 install=http://download.opensuse.org/distribution/12.3/repo/oss autoyast=http://ahost.com:3000/unattended/provision textmode=1
-EXPECTED
+    expected = <<~EXPECTED
+      DEFAULT linux
+      LABEL linux
+      KERNEL boot/opensuse-Ek8x7Rr7itxO-linux
+      APPEND initrd=boot/opensuse-Ek8x7Rr7itxO-initrd ramdisk_size=65536 install=http://download.opensuse.org/distribution/12.3/repo/oss autoyast=http://ahost.com:3000/unattended/provision textmode=1
+    EXPECTED
     assert_equal expected.strip, template
     assert h.build
   end

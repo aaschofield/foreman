@@ -59,7 +59,7 @@ class HTTPProxyTest < ActiveSupport::TestCase
 
       test 'when a proxy is already set' do
         refute adapter.proxy_http_request?('http://otherproxy:3128',
-                                           request_host, schema)
+          request_host, schema)
       end
 
       test 'when no request_host is set' do
@@ -75,6 +75,17 @@ class HTTPProxyTest < ActiveSupport::TestCase
         adapter.unstub(:http_proxy_except_list)
         Setting::General.stubs(:find_by_name)
                          .with('http_proxy').returns(nil)
+        Setting::General.stubs(:find_by_name)
+                         .with('http_proxy_except_list')
+                         .returns(nil)
+        refute adapter.proxy_http_request?(nil, request_host, schema)
+      end
+
+      test 'when settings are empty string - after unsetting' do
+        adapter.unstub(:http_proxy)
+        adapter.unstub(:http_proxy_except_list)
+        Setting::General.stubs(:find_by_name)
+                         .with('http_proxy').returns('')
         Setting::General.stubs(:find_by_name)
                          .with('http_proxy_except_list')
                          .returns(nil)

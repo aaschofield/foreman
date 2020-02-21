@@ -19,6 +19,11 @@ module Orchestration::DHCP
         !subnet.nil? && subnet.dhcp? && SETTINGS[:unattended] && (!provision? || operatingsystem.present?)
   end
 
+  def generate_dhcp_task_id(action, interface = self)
+    id = [interface.mac, interface.ip, interface.identifier, interface.id].find {|x| x&.present?}
+    "dhcp_#{action}_#{id}"
+  end
+
   def dhcp_records
     return [] unless dhcp?
     @dhcp_records ||= mac_addresses_for_provisioning.map do |record_mac|
@@ -73,7 +78,6 @@ module Orchestration::DHCP
     end
   end
 
-  # where are we booting from
   def boot_server
     # if we don't manage tftp for IPv4 at all, we dont create a next-server entry.
     return unless tftp?
@@ -82,13 +86,21 @@ module Orchestration::DHCP
     bs = tftp.bootServer
     # if that failed, trying to guess out tftp next server based on the smart proxy hostname
     bs ||= URI.parse(subnet.tftp.url).host
-    # now convert it into an ip address (see http://theforeman.org/issues/show/1381)
-    ip = NicIpResolver.new(:nic => self).to_ip_address(bs) if bs.present?
-    return ip unless ip.nil?
 
-    failure _("Unable to determine the host's boot server. The DHCP smart proxy failed to provide this information and this subnet is not provided with TFTP services.")
-  rescue => e
-    failure _("failed to detect boot server: %s") % e, e
+    # only smart proxies with V2 API are supported
+    if subnet.dhcp.has_capability?(:DHCP, :dhcp_filename_hostname)
+      # we no longer convert the boot server to IPv4 - smart proxy modules are required to do so if they don't support hostname
+      return bs
+    else
+      begin
+        Foreman::Deprecation.deprecation_warning('1.25', "DHCP proxy does not report dhcp_filename_* capability and reverse DNS search in Foreman will be removed.")
+        ip = NicIpResolver.new(:nic => self).to_ip_address(bs) if bs.present?
+        return ip unless ip.nil?
+        failure _("Unable to determine the host's boot server. The DHCP smart proxy failed to provide this information and this subnet is not provided with TFTP services.")
+      rescue => e
+        failure _("failed to detect boot server: %s") % e, e
+      end
+    end
   end
 
   private
@@ -114,11 +126,11 @@ module Orchestration::DHCP
       :mac => record_mac,
       :proxy => subnet.dhcp_proxy,
       :network => subnet.network,
-      :related_macs => mac_addresses_for_provisioning - [record_mac]
+      :related_macs => mac_addresses_for_provisioning - [record_mac],
     }
 
     if provision?
-      dhcp_attr[:nextServer] = boot_server
+      dhcp_attr[:nextServer] = boot_server unless self.host.pxe_loader == 'None'
       filename = operatingsystem.boot_filename(self.host)
       dhcp_attr[:filename] = filename if filename.present?
       if jumpstart?
@@ -146,14 +158,14 @@ module Orchestration::DHCP
 
   def queue_dhcp_create
     logger.debug "Scheduling new DHCP reservations for #{self}"
-    queue.create(id: "dhcp_create_#{self.mac}", name: _("Create DHCP Settings for %s") % self, priority: 10, action: [self, :set_dhcp]) if dhcp?
+    queue.create(id: generate_dhcp_task_id("create"), name: _("Create DHCP Settings for %s") % self, priority: 10, action: [self, :set_dhcp]) if dhcp?
   end
 
   def queue_dhcp_update
     return unless dhcp_update_required?
     logger.debug("Detected a changed required for DHCP record")
-    queue.create(id: "dhcp_remove_#{old.mac}", name: _("Remove DHCP Settings for %s") % old, priority: 5, action: [old, :del_dhcp]) if old.dhcp?
-    queue.create(id: "dhcp_create_#{self.mac}", name: _("Create DHCP Settings for %s") % self, priority: 9, action: [self, :set_dhcp]) if dhcp?
+    queue.create(id: generate_dhcp_task_id("remove", old), name: _("Remove DHCP Settings for %s") % old, priority: 5, action: [old, :del_dhcp]) if old.dhcp?
+    queue.create(id: generate_dhcp_task_id("create"), name: _("Create DHCP Settings for %s") % self, priority: 9, action: [self, :set_dhcp]) if dhcp?
   end
 
   # do we need to update our dhcp reservations
@@ -178,7 +190,7 @@ module Orchestration::DHCP
 
   def queue_dhcp_destroy
     return unless dhcp? && errors.empty?
-    queue.create(id: "dhcp_remove_#{self.mac}", name: _("Remove DHCP Settings for %s") % self, priority: 5, action: [self, :del_dhcp])
+    queue.create(id: generate_dhcp_task_id("remove"), name: _("Remove DHCP Settings for %s") % self, priority: 5, action: [self, :del_dhcp])
     true
   end
 
@@ -186,7 +198,7 @@ module Orchestration::DHCP
     return if !dhcp? || !overwrite?
 
     logger.debug "Scheduling DHCP conflicts removal"
-    queue.create(id: "dhcp_conflicts_remove_#{self.mac}", name: _("DHCP conflicts removal for %s") % self, priority: 5, action: [self, :del_dhcp_conflicts])
+    queue.create(id: generate_dhcp_task_id("conflicts_remove"), name: _("DHCP conflicts removal for %s") % self, priority: 5, action: [self, :del_dhcp_conflicts])
   end
 
   def dhcp_conflict_detected?

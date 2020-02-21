@@ -24,6 +24,7 @@ class RoleTest < ActiveSupport::TestCase
   should allow_value('a role name').for(:name)
   should allow_value('トメル３４；。').for(:name)
   should allow_value('test@example.com').for(:name)
+  should allow_values(*valid_name_list).for(:name)
 
   it "should strip leading space on name" do
     role = Role.new(:name => " a role name")
@@ -242,7 +243,7 @@ class RoleTest < ActiveSupport::TestCase
         FactoryBot.build_stubbed(:permission, :name => 'a'),
         FactoryBot.build_stubbed(:permission, :name => 'b'),
         FactoryBot.build_stubbed(:permission, :name => 'a'),
-        FactoryBot.build_stubbed(:permission, :name => 'b')
+        FactoryBot.build_stubbed(:permission, :name => 'b'),
       ]
     end
   end

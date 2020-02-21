@@ -5,6 +5,7 @@ class Hostgroup < ApplicationRecord
   friendly_id :title
   include Taxonomix
   include HostCommon
+  include Foreman::ObservableModel
 
   include NestedAncestryCommon
   include NestedAncestryCommon::Search
@@ -45,7 +46,11 @@ class Hostgroup < ApplicationRecord
   has_many :trends, :as => :trendable, :class_name => "ForemanTrend"
 
   nested_attribute_for :compute_profile_id, :environment_id, :domain_id, :puppet_proxy_id, :puppet_ca_proxy_id, :compute_resource_id,
-                       :operatingsystem_id, :architecture_id, :medium_id, :ptable_id, :subnet_id, :subnet6_id, :realm_id, :pxe_loader
+    :operatingsystem_id, :architecture_id, :medium_id, :ptable_id, :subnet_id, :subnet6_id, :realm_id, :pxe_loader
+
+  set_crud_hooks :hostgroup do |hostgroup|
+    { id: hostgroup.id, name: hostgroup.name }
+  end
 
   # with proc support, default_scope can no longer be chained
   # include all default scoping here
@@ -102,7 +107,7 @@ class Hostgroup < ApplicationRecord
     allow :name, :diskLayout, :puppetmaster, :operatingsystem, :architecture,
       :environment, :ptable, :url_for_boot, :params, :puppetproxy,
       :puppet_ca_server, :indent, :os, :arch, :domain, :subnet,
-      :subnet6, :realm, :root_pass, :description, :pxe_loader
+      :subnet6, :realm, :root_pass, :description, :pxe_loader, :title
   end
 
   # TODO: add a method that returns the valid os for a hostgroup
@@ -147,7 +152,7 @@ class Hostgroup < ApplicationRecord
   end
 
   def inherited_lookup_value(key)
-    if key.path_elements.flatten.include?("hostgroup") && Setting["host_group_matchers_inheritance"]
+    if key.path_elements.flatten.include?("hostgroup") && Setting["matchers_inheritance"]
       ancestors.reverse_each do |hg|
         if (v = LookupValue.find_by(:lookup_key_id => key.id, :id => hg.lookup_values))
           return v.value, hg.to_label
@@ -164,7 +169,10 @@ class Hostgroup < ApplicationRecord
     # otherwise we might be overwriting the hash in the wrong order.
     groups = Hostgroup.sort_by_ancestry(Hostgroup.includes(:group_parameters).find(ids))
     groups.each do |hg|
-      hg.group_parameters.authorized(:view_params).each {|p| hash[p.name] = include_source ? {:value => p.value, :source => p.associated_type, :safe_value => p.safe_value, :source_name => hg.title} : p.value }
+      params_arr = hg.group_parameters.authorized(:view_params)
+      params_arr.each do |p|
+        hash[p.name] = include_source ? p.hash_for_include_source(p.associated_type, hg.title) : p.value
+      end
     end
     hash
   end
@@ -172,7 +180,9 @@ class Hostgroup < ApplicationRecord
   # returns self and parent parameters as a hash
   def parameters(include_source = false)
     hash = parent_params(include_source)
-    group_parameters.each {|p| hash[p.name] = include_source ? {:value => p.value, :source => p.associated_type, :safe_value => p.safe_value, :source_name => title} : p.value }
+    group_parameters.each do |p|
+      hash[p.name] = include_source ? p.hash_for_include_source(p.associated_type, title) : p.value
+    end
     hash
   end
 

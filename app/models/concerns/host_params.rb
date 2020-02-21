@@ -8,7 +8,7 @@ module HostParams
     include ParameterValidators
 
     def params
-      host_params.update(HostInfoProviders::PuppetInfo.new(self).smart_variables)
+      host_params
     end
 
     def clear_host_parameters_cache!
@@ -26,12 +26,10 @@ module HostParams
 
     def params_to_hash(params)
       params.each_with_object({}) do |param, hash|
-        source = param.associated_type
-        options = {:value => param.value,
-                   :source => source,
-                   :safe_value => param.safe_value }
-        options[:source_name] = param.associated_label if source != 'global'
-        hash[param.name] = options
+        hash[param.name] = param.hash_for_include_source(
+          param.associated_type,
+          (param.associated_type != 'global') ? param.associated_label : nil
+        )
       end
     end
 
@@ -61,14 +59,8 @@ module HostParams
 
     def host_inherited_params_objects
       params = CommonParameter.all
-      if SETTINGS[:organizations_enabled] && organization
-        params += extract_params_from_object_ancestors(organization)
-      end
-
-      if SETTINGS[:locations_enabled] && location
-        params += extract_params_from_object_ancestors(location)
-      end
-
+      params += extract_params_from_object_ancestors(organization) if organization
+      params += extract_params_from_object_ancestors(location) if location
       params += domain.domain_parameters.authorized(:view_params) if domain
       params += subnet.subnet_parameters.authorized(:view_params) if subnet
       params += subnet6.subnet_parameters.authorized(:view_params) if subnet6

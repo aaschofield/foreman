@@ -7,13 +7,13 @@ module Api
       resource_description do
         api_version "v2"
         app_info N_("Foreman API v2 is currently the default API version.")
-        param :location_id, Integer, :required => false, :desc => N_("Scope by locations") if SETTINGS[:locations_enabled]
-        param :organization_id, Integer, :required => false, :desc => N_("Scope by organizations") if SETTINGS[:organizations_enabled]
+        param :location_id, Integer, :required => false, :desc => N_("Set the current location context for the request")
+        param :organization_id, Integer, :required => false, :desc => N_("Set the current organization context for the request")
       end
 
       def_param_group :pagination do
-        param :page, String, :desc => N_("paginate results")
-        param :per_page, String, :desc => N_("number of entries per request")
+        param :page, :number, :desc => N_("Page number, starting at 1")
+        param :per_page, :number, :desc => N_("Number of results per page to return")
       end
 
       def_param_group :search_and_pagination do
@@ -23,13 +23,13 @@ module Api
       end
 
       def_param_group :taxonomies do
-        param :location_ids, Array, :required => false, :desc => N_("REPLACE locations with given ids") if SETTINGS[:locations_enabled]
-        param :organization_ids, Array, :required => false, :desc => N_("REPLACE organizations with given ids.") if SETTINGS[:organizations_enabled]
+        param :location_ids, Array, :required => false, :desc => N_("REPLACE locations with given ids")
+        param :organization_ids, Array, :required => false, :desc => N_("REPLACE organizations with given ids.")
       end
 
       def_param_group :taxonomy_scope do
-        param :location_id, Integer, :required => false, :desc => N_("Scope by locations") if SETTINGS[:locations_enabled]
-        param :organization_id, Integer, :required => false, :desc => N_("Scope by organizations") if SETTINGS[:organizations_enabled]
+        param :location_id, Integer, :required => false, :desc => N_("Scope by locations")
+        param :organization_id, Integer, :required => false, :desc => N_("Scope by organizations")
       end
 
       def_param_group :template_import_options do
@@ -49,7 +49,7 @@ module Api
       layout 'api/v2/layouts/index_layout', :only => :index
 
       helper_method :root_node_name, :metadata_total, :metadata_subtotal, :metadata_search,
-                    :metadata_order, :metadata_by, :metadata_page, :metadata_per_page
+        :metadata_order, :metadata_by, :metadata_page, :metadata_per_page
       def root_node_name
         @root_node_name ||= if Rabl.configuration.use_controller_name_as_json_root
                               controller_name.split('/').last

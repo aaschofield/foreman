@@ -68,9 +68,9 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
       assert_os_idempotent
     end
 
-    test "release_name should be nil when lsbdistcodename isn't set on Debian" do
+    test "release_name should be unknown when lsbdistcodename isn't set on Debian" do
       @importer = PuppetFactParser.new(debian_facts.delete_if { |k, v| k == "lsbdistcodename" })
-      assert_nil os.release_name
+      assert_equal 'unknown', os.release_name
       assert_os_idempotent
     end
 
@@ -78,6 +78,17 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
       @importer = PuppetFactParser.new(debian_facts)
       assert_equal 'wheezy', os.release_name
       assert_os_idempotent
+    end
+
+    test "should not alter lsbdistcodename and set it to unknown" do
+      @importer = PuppetFactParser.new(debian_facts)
+      assert_equal 'wheezy', os.release_name
+      first_os = @importer.operatingsystem
+      assert first_os.present?
+      @importer = PuppetFactParser.new(debian_facts.delete_if { |k, v| k == "lsbdistcodename" })
+      second_os = @importer.operatingsystem
+      assert_equal 'wheezy', os.release_name
+      assert_equal first_os, second_os
     end
 
     test "should not set os.release_name to the lsbdistcodename on non-Debian OS" do
@@ -208,9 +219,9 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
     assert_empty parser.send(:get_interfaces)
 
     interfaces = FactoryBot.build(:fact_value,
-                                    :fact_name => FactoryBot.build(:fact_name, :name => 'interfaces'),
-                                    :host => host,
-                                    :value => '')
+      :fact_name => FactoryBot.build(:fact_name, :name => 'interfaces'),
+      :host => host,
+      :value => '')
     parser = get_parser(host.facts_hash.merge(facterversion: '2.7.9'))
     assert_empty parser.send(:get_interfaces)
 
@@ -246,37 +257,37 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
   test "#get_facts_for_interface(interface) uses legacy facts when facter < v3.0" do
     host = FactoryBot.build(:host, :hostgroup => FactoryBot.build(:hostgroup))
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'link_eth0'),
-                       :host => host,
-                       :value => 'true')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'link_eth0'),
+      :host => host,
+      :value => 'true')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'macaddress_eth0'),
-                       :host => host,
-                       :value => '00:00:00:00:00:ab')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'macaddress_eth0'),
+      :host => host,
+      :value => '00:00:00:00:00:ab')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'ipaddress_eth0'),
-                       :host => host,
-                       :value => '192.168.0.1')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'ipaddress_eth0'),
+      :host => host,
+      :value => '192.168.0.1')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'custom_fact_eth0'),
-                       :host => host,
-                       :value => 'custom_value')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'custom_fact_eth0'),
+      :host => host,
+      :value => 'custom_value')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'link_eth0_0'),
-                       :host => host,
-                       :value => 'false')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'link_eth0_0'),
+      :host => host,
+      :value => 'false')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'macaddress_eth0_0'),
-                       :host => host,
-                       :value => '00:00:00:00:00:cd')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'macaddress_eth0_0'),
+      :host => host,
+      :value => '00:00:00:00:00:cd')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'ipaddress_eth0_0'),
-                       :host => host,
-                       :value => '192.168.0.2')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'ipaddress_eth0_0'),
+      :host => host,
+      :value => '192.168.0.2')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'custom_fact_eth0_0'),
-                       :host => host,
-                       :value => 'another_value')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'custom_fact_eth0_0'),
+      :host => host,
+      :value => 'another_value')
     parser = get_parser(host.facts_hash.merge(facterversion: '2.7.9'))
 
     result = parser.send(:get_facts_for_interface, 'eth0')
@@ -324,13 +335,13 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
     assert_equal({}, result)
 
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'ipmi_ipaddress'),
-                       :host => host,
-                       :value => '192.168.0.1')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'ipmi_ipaddress'),
+      :host => host,
+      :value => '192.168.0.1')
     FactoryBot.create(:fact_value,
-                       :fact_name => FactoryBot.create(:fact_name, :name => 'ipmi_custom'),
-                       :host => host,
-                       :value => 'custom_value')
+      :fact_name => FactoryBot.create(:fact_name, :name => 'ipmi_custom'),
+      :host => host,
+      :value => 'custom_value')
     parser = get_parser(host.facts_hash)
 
     result = parser.ipmi_interface
@@ -383,6 +394,14 @@ class PuppetFactsParserTest < ActiveSupport::TestCase
     assert_nil parser.interfaces['ethernet_0']
     assert_nil parser.interfaces['Ethernet.0']
     assert_nil parser.interfaces['eth1_1']
+  end
+
+  test "#test boot time based on uptime" do
+    host = FactoryBot.build(:host, :hostgroup => FactoryBot.build(:hostgroup))
+    freeze_time do
+      parser = get_parser(host.facts_hash.merge({:uptime_seconds => (60 * 5).to_s}))
+      assert_equal 5.minutes.ago.to_i, parser.boot_timestamp
+    end
   end
 
   private

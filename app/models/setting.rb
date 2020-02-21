@@ -6,13 +6,14 @@ class Setting < ApplicationRecord
   friendly_id :name
   include ActiveModel::Validations
   include EncryptValue
+  include HiddenValue
   self.inheritance_column = 'category'
 
   TYPES = %w{integer boolean hash array string}
   FROZEN_ATTRS = %w{name category full_name}
   NONZERO_ATTRS = %w{puppet_interval idle_timeout entries_per_page max_trend outofsync_interval}
-  BLANK_ATTRS = %w{ host_owner trusted_hosts login_delegation_logout_url authorize_login_delegation_auth_source_user_autocreate root_pass default_location default_organization websockets_ssl_key websockets_ssl_cert oauth_consumer_key oauth_consumer_secret login_text
-                    smtp_address smtp_domain smtp_user_name smtp_password smtp_openssl_verify_mode smtp_authentication sendmail_arguments sendmail_location http_proxy http_proxy_except_list ssl_certificate ssl_ca_file ssl_priv_key default_pxe_item_global default_pxe_item_local }
+  BLANK_ATTRS = %w{ host_owner trusted_hosts login_delegation_logout_url root_pass default_location default_organization websockets_ssl_key websockets_ssl_cert oauth_consumer_key oauth_consumer_secret login_text oidc_audience oidc_issuer oidc_algorithm
+                    smtp_address smtp_domain smtp_user_name smtp_password smtp_openssl_verify_mode smtp_authentication sendmail_arguments sendmail_location http_proxy http_proxy_except_list default_locale default_timezone ssl_certificate ssl_ca_file ssl_priv_key default_pxe_item_global default_pxe_item_local oidc_jwks_url }
   ARRAY_HOSTNAMES = %w{trusted_hosts}
   URI_ATTRS = %w{foreman_url unattended_url}
   URI_BLANK_ATTRS = %w{login_delegation_logout_url}
@@ -47,7 +48,7 @@ class Setting < ApplicationRecord
   validates :value, :regexp => true, :if => Proc.new { |s| REGEXP_ATTRS.include? s.name }
   validates :value, :array_type => true, :if => Proc.new { |s| s.settings_type == "array" }
   validates_with ValueValidator, :if => Proc.new {|s| s.respond_to?("validate_#{s.name}") }
-  validates :value, :array_hostnames => true, :if => Proc.new { |s| ARRAY_HOSTNAMES.include? s.name }
+  validates :value, :array_hostnames_ips => true, :if => Proc.new { |s| ARRAY_HOSTNAMES.include? s.name }
   validates :value, :email => true, :if => Proc.new { |s| EMAIL_ATTRS.include? s.name }
   before_validation :set_setting_type_from_value
   before_save :clear_value_when_default
@@ -58,15 +59,6 @@ class Setting < ApplicationRecord
 
   # Filer out settings from disabled plugins
   scope :disabled_plugins, -> { where(:category => self.descendants.map(&:to_s)) unless Rails.env.development? }
-
-  def self.deprecated_scope(scope)
-    Foreman::Deprecation.deprecation_warning('1.23', "the Setting.#{scope} scope no longer filters anything, taxonomies cannot be disabled since 1.21.")
-    where(nil)
-  end
-  scope :default_organization, -> { deprecated_scope(:default_organization) }
-  scope :organization_fact, -> { deprecated_scope(:organization_fact) }
-  scope :default_location, -> { deprecated_scope(:default_location) }
-  scope :location_fact, -> { deprecated_scope(:location_fact) }
 
   scope :order_by, ->(attr) { except(:order).order(attr) }
 
@@ -108,7 +100,7 @@ class Setting < ApplicationRecord
 
   def self.[]=(name, value)
     name   = name.to_s
-    record = where(:name => name).first_or_create
+    record = where(:name => name).first!
     record.value = value
     record.save!
   end
@@ -242,9 +234,15 @@ class Setting < ApplicationRecord
       attrs = column_check([:default, :description, :full_name, :encrypted])
       to_update = Hash[opts.select { |k, v| attrs.include? k }]
       to_update[:value] = readonly_value(s.name.to_sym) if s.has_readonly_value?
-      s.update(to_update)
+      # default is converted to yaml so we need to convert the yaml here too,
+      # in order to check, if the update of default is needed
+      # if it is the same, we don't try to update default, it would trigger
+      # update query for every setting
+      to_update.delete(:default) if to_update[:default].to_yaml.strip == s[:default]
+      s.attributes = to_update
+      s.save if s.changed? # to bypass name uniqueness validator to query db
       s.update_column :category, opts[:category] if s.category != opts[:category]
-      s.update_column :full_name, opts[:full_name] unless column_check([:full_name]).empty?
+      s.update_column :full_name, opts[:full_name] if column_check([:full_name]).present? && s.full_name != opts[:full_name]
       raw_value = s.read_attribute(:value)
       if s.is_encryptable?(raw_value) && attrs.include?(:encrypted) && opts[:encrypted]
         s.update_column :value, s.encrypt_field(raw_value)
@@ -269,10 +267,19 @@ class Setting < ApplicationRecord
 
   # Methods for loading default settings
 
+  def self.default_settings
+    []
+  end
+
   def self.load_defaults
-    # We may be executing something like rake db:migrate:reset, which destroys this table; only continue if the table exists
-    Setting.first rescue return false
-    # STI classes will load their own defaults
+    return false unless table_exists?
+    dbcache = Hash[Setting.where(:category => self.name).map { |s| [s.name, s] }]
+    self.transaction do
+      default_settings.compact.each do |s|
+        val = s.update(:category => self.name).symbolize_keys
+        dbcache.key?(val[:name]) ? create_existing(dbcache[val[:name]], s) : create!(s)
+      end
+    end
     true
   end
 
@@ -315,6 +322,10 @@ class Setting < ApplicationRecord
     else
       !default.nil?
     end
+  end
+
+  def hidden_value?
+    encrypted
   end
 
   private

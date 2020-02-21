@@ -1,6 +1,6 @@
+/* eslint-disable promise/prefer-await-to-then */
 // Configure Enzyme
-import { mount } from 'enzyme';
-import toJson from 'enzyme-to-json';
+import { mount } from '@theforeman/test';
 import React from 'react';
 import ShortDateTime from './ShortDateTime';
 import { i18nProviderWrapperFactory } from '../../../common/i18nProviderWrapperFactory';
@@ -18,7 +18,22 @@ describe('ShortDateTime', () => {
 
     intl.ready.then(() => {
       wrapper.update();
-      expect(toJson(wrapper.find('ShortDateTime'))).toMatchSnapshot();
+      expect(wrapper.find('ShortDateTime')).toMatchSnapshot();
+    });
+  });
+
+  it('formats date with relative tooltip', () => {
+    const wrapper = mount(
+      <IntlDate
+        date={date}
+        defaultValue="Default value"
+        showRelativeTimeTooltip
+      />
+    );
+
+    intl.ready.then(() => {
+      wrapper.update();
+      expect(wrapper.find('ShortDateTime')).toMatchSnapshot();
     });
   });
 
@@ -29,7 +44,7 @@ describe('ShortDateTime', () => {
 
     intl.ready.then(() => {
       wrapper.update();
-      expect(toJson(wrapper.find('ShortDateTime'))).toMatchSnapshot();
+      expect(wrapper.find('ShortDateTime')).toMatchSnapshot();
     });
   });
 
@@ -40,7 +55,7 @@ describe('ShortDateTime', () => {
 
     intl.ready.then(() => {
       wrapper.update();
-      expect(toJson(wrapper.find('ShortDateTime'))).toMatchSnapshot();
+      expect(wrapper.find('ShortDateTime')).toMatchSnapshot();
     });
   });
 });

@@ -35,11 +35,14 @@ module Foreman::Controller::Parameters::ComputeResource
         filter.permit :allow_external_network,
           :key_pair,
           :tenant,
-          :domain
+          :domain,
+          :project_domain_name,
+          :project_domain_id
 
         # ovirt
         filter.permit :datacenter,
           :ovirt_quota,
+          :keyboard_layout,
           :use_v4,
           :public_key,
           :uuid

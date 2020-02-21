@@ -18,7 +18,7 @@ class Api::V2::LocationsControllerTest < ActionController::TestCase
     show_response = ActiveSupport::JSON.decode(@response.body)
     assert !show_response.empty?
     # assert child nodes are included in response'
-    NODES = ["users", "smart_proxies", "subnets", "compute_resources", "media", "config_templates",
+    NODES = ["users", "smart_proxies", "subnets", "compute_resources", "media",
              "provisioning_templates", "domains", "ptables", "realms", "environments", "hostgroups",
              "organizations", "parameters"].sort
     NODES.each do |node|
@@ -103,7 +103,7 @@ class Api::V2::LocationsControllerTest < ActionController::TestCase
       assert_difference('@location.domains.count', 2) do
         put :update, params: {
           :id => @location.to_param,
-          :location => { :domain_ids => Domain.unscoped.pluck(:id) }
+          :location => { :domain_ids => Domain.unscoped.pluck(:id) },
         }
         User.current = users(:admin)
         # as_admin gets invalidated after the call, so we need to restore it
@@ -364,7 +364,7 @@ class Api::V2::LocationsControllerTest < ActionController::TestCase
     deleted_id = domain.id
     domain.destroy
     post :create, params: { :location => { :domain_ids => [deleted_id] } }
-    assert_response 404
+    assert_response :unprocessable_entity
   end
 
   test "should update with valid name" do
@@ -377,12 +377,7 @@ class Api::V2::LocationsControllerTest < ActionController::TestCase
 
   test "should update with valid description" do
     location = FactoryBot.create(:location)
-    if ActiveRecord::Base.connection.adapter_name.downcase =~ /mysql/
-      # UTF is known to be problematic on MySQL < 5.7
-      description = RFauxFactory.gen_alpha(300)
-    else
-      description = RFauxFactory.gen_utf8(300)
-    end
+    description = RFauxFactory.gen_utf8(300)
     post :update, params: {:id => location.id, :location => {:description => description} }, session: set_session_user
     updated_location = Location.find_by_id(location.id)
     assert_equal description, updated_location.description

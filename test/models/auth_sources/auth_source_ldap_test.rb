@@ -4,6 +4,7 @@ class AuthSourceLdapTest < ActiveSupport::TestCase
   def setup
     @auth_source_ldap = FactoryBot.create(:auth_source_ldap)
     User.current = users(:admin)
+    User.unscoped.find_by_login('test').update_column(:auth_source_id, @auth_source_ldap.id)
   end
 
   should validate_presence_of(:name)
@@ -32,6 +33,16 @@ class AuthSourceLdapTest < ActiveSupport::TestCase
   test "after initialize if port == 0 should automatically change to 389" do
     other_auth_source_ldap = AuthSourceLdap.new
     assert_equal 389, other_auth_source_ldap.port
+  end
+
+  test "after initialize should set default ldap attributes" do
+    auth_source_ldap = AuthSourceLdap.new
+
+    assert_equal 'uid', auth_source_ldap.attr_login
+    assert_equal 'givenName', auth_source_ldap.attr_firstname
+    assert_equal 'sn', auth_source_ldap.attr_lastname
+    assert_equal 'mail', auth_source_ldap.attr_mail
+    assert_equal 'jpegPhoto', auth_source_ldap.attr_photo
   end
 
   test "should strip the ldap attributes before validate" do
@@ -85,24 +96,29 @@ class AuthSourceLdapTest < ActiveSupport::TestCase
     assert_equal 'Bär', attrs[:firstname]
   end
 
-  test 'update_usergroups returns if entry does not belong to any group' do
-    setup_ldap_stubs
-    ExternalUsergroup.any_instance.expects(:refresh).never
-    LdapFluff.any_instance.expects(:group_list).with('test').returns([])
-    @auth_source_ldap.send(:update_usergroups, 'test')
-  end
-
-  context 'refresh ldap' do
+  context 'refresh usergroups according to ldap' do
     setup do
       setup_ldap_stubs
       LdapFluff.any_instance.expects(:group_list).with('test').returns(['ipausers'])
     end
 
-    test 'update_usergroups calls refresh_ldap if entry belongs to some group' do
+    test 'update_usergroups add user to a group' do
+      LdapFluff.any_instance.expects(:user_list).with('ipausers').returns(['test'])
+      ldap_user = User.unscoped.find_by_login('test')
       @auth_source_ldap.expects(:valid_group?).with('ipausers').returns(true)
-      FactoryBot.create(:external_usergroup, :name => 'ipausers', :auth_source => @auth_source_ldap)
-      ExternalUsergroup.any_instance.expects(:refresh)
+      external = FactoryBot.create(:external_usergroup, :name => 'ipausers', :auth_source => @auth_source_ldap)
       @auth_source_ldap.send(:update_usergroups, 'test')
+      assert_include ldap_user.usergroups, external.usergroup
+    end
+
+    test 'update_usergroups removes user from a group' do
+      LdapFluff.any_instance.expects(:user_list).with('ipausers2').returns([])
+      ldap_user = User.unscoped.find_by_login('test')
+      @auth_source_ldap.expects(:valid_group?).with('ipausers2').returns(true)
+      external = FactoryBot.create(:external_usergroup, :name => 'ipausers2', :auth_source => @auth_source_ldap)
+      ldap_user.usergroup_ids = [external.usergroup_id]
+      @auth_source_ldap.send(:update_usergroups, 'test')
+      refute_includes ldap_user.reload.usergroups, external.usergroup
     end
 
     test 'update_usergroups matches LDAP gids with external user groups case insensitively' do
@@ -114,11 +130,16 @@ class AuthSourceLdapTest < ActiveSupport::TestCase
       assert_include ldap_user.usergroups, external.usergroup
     end
 
-    test 'update_usergroups refreshes on all external user groups, in LDAP and in Foreman auth source' do
-      @auth_source_ldap.expects(:valid_group?).with('new external group').returns(true)
-      external = FactoryBot.create(:external_usergroup, :name => 'new external group', :auth_source => @auth_source_ldap)
-      User.any_instance.expects(:external_usergroups).returns([external])
+    test 'update_usergroups does not remove user from a group if belongs to one of two mapped external groups' do
+      LdapFluff.any_instance.expects(:user_list).with('ipausers').returns(['test'])
+      LdapFluff.any_instance.expects(:user_list).with('ipausers2').returns([])
+      ldap_user = User.unscoped.find_by_login('test')
+      @auth_source_ldap.expects(:valid_group?).with('ipausers').returns(true)
+      @auth_source_ldap.expects(:valid_group?).with('ipausers2').returns(true)
+      external = FactoryBot.create(:external_usergroup, :name => 'ipausers', :auth_source => @auth_source_ldap)
+      FactoryBot.create(:external_usergroup, usergroup: external.usergroup, :name => 'ipausers2', :auth_source => @auth_source_ldap)
       @auth_source_ldap.send(:update_usergroups, 'test')
+      assert_include ldap_user.usergroups, external.usergroup
     end
   end
 
@@ -210,20 +231,18 @@ class AuthSourceLdapTest < ActiveSupport::TestCase
     end
 
     test 'store_avatar can save 8bit ascii files' do
-      begin
-        auth = AuthSourceLdap.new
-        file = File.open("#{temp_dir}/out.txt", 'wb+')
-        file_string = File.open(file, 'rb') {|f| f.read} # set the file_string to binary
-        file_string += 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVQYV2P4DwABAQEAWk1v8QAAAABJRU5ErkJggg=='
-        avatar_hash = Digest::SHA1.hexdigest(file_string)
-        assert_equal(Encoding::ASCII_8BIT, file_string.encoding)
-        assert_nothing_raised do
-          auth.send(:store_avatar, file_string)
-        end
-        assert(File.exist?("#{temp_dir}/#{avatar_hash}.jpg"))
-      ensure
-        FileUtils.remove_entry temp_dir
+      auth = AuthSourceLdap.new
+      file = File.open("#{temp_dir}/out.txt", 'wb+')
+      file_string = File.open(file, 'rb') {|f| f.read} # set the file_string to binary
+      file_string += 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVQYV2P4DwABAQEAWk1v8QAAAABJRU5ErkJggg=='
+      avatar_hash = Digest::SHA1.hexdigest(file_string)
+      assert_equal(Encoding::ASCII_8BIT, file_string.encoding)
+      assert_nothing_raised do
+        auth.send(:store_avatar, file_string)
       end
+      assert(File.exist?("#{temp_dir}/#{avatar_hash}.jpg"))
+    ensure
+      FileUtils.remove_entry temp_dir
     end
   end
 

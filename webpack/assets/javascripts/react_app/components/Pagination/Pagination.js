@@ -4,11 +4,10 @@ import { isEmpty } from 'lodash';
 import { Paginator } from 'patternfly-react';
 import { translateObject } from '../../common/helpers';
 import {
-  getURI,
   getURIpage,
   getURIperPage,
   changeQuery,
-} from './PaginationHelper';
+} from '../../common/urlHelpers';
 import './pagination.scss';
 
 const Pagination = props => {
@@ -18,6 +17,8 @@ const Pagination = props => {
     onPageSet,
     onPerPageSelect,
     dropdownButtonId,
+    disableNext,
+    disablePrev,
     ...otherProps
   } = props;
 
@@ -32,7 +33,7 @@ const Pagination = props => {
       pagination={
         isEmpty(pagination)
           ? {
-              page: urlPage || 1,
+              page: urlPage,
               perPage: urlPerPage || data.perPage,
               perPageOptions: data.perPageOptions,
             }
@@ -42,6 +43,8 @@ const Pagination = props => {
       itemCount={data.itemCount}
       onPageSet={onPageSet}
       onPerPageSelect={onPerPageSelect}
+      disableNext={disableNext}
+      disablePrev={disablePrev}
       messages={translateObject(Paginator.defaultProps.messages)}
       className={className}
       dropdownButtonId={dropdownButtonId}
@@ -56,10 +59,15 @@ Pagination.propTypes = {
     perPageOptions: PropTypes.arrayOf(PropTypes.number),
     itemCount: PropTypes.number,
     perPage: PropTypes.number,
+    classNames: PropTypes.shape({
+      pagination_classes: PropTypes.string,
+    }),
   }).isRequired,
   onPageSet: PropTypes.func,
   onPerPageSelect: PropTypes.func,
   dropdownButtonId: PropTypes.string,
+  disableNext: PropTypes.bool,
+  disablePrev: PropTypes.bool,
   pagination: PropTypes.shape({
     page: PropTypes.number,
     perPage: PropTypes.number,
@@ -68,10 +76,12 @@ Pagination.propTypes = {
 };
 
 Pagination.defaultProps = {
-  onPageSet: page => changeQuery(getURI(), { page }),
-  onPerPageSelect: perPage => changeQuery(getURI(), { per_page: perPage }),
+  onPageSet: page => changeQuery({ page }),
+  onPerPageSelect: perPage => changeQuery({ page: 1, per_page: perPage }),
   dropdownButtonId: 'pagination-row-dropdown',
   pagination: null,
+  disableNext: false,
+  disablePrev: false,
 };
 
 export default Pagination;

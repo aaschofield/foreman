@@ -1,12 +1,10 @@
 module LayoutHelper
-  def mount_layout
-    mount_react_component('Layout', "#layout", layout_data.to_json)
+  def mount_react_app
+    mount_react_component('ReactApp', "#react-app-root", { layout: layout_data, metadata: app_metadata }.to_json)
   end
 
   def fetch_menus
-    menus_array = [ Menu::Manager.to_hash(:top_menu), Menu::Manager.to_hash(:admin_menu), Menu::Manager.to_hash(:side_menu) ]
-    menus_array << Menu::Manager.to_hash(:labs_menu) if Setting[:lab_features]
-    menus_array.flatten
+    UserMenu.new.menus.flatten
   end
 
   def taxonomies_booleans
@@ -26,11 +24,11 @@ module LayoutHelper
   end
 
   def current_organization
-    Organization&.current&.name
+    Organization&.current&.title
   end
 
   def current_location
-    Location&.current&.name
+    Location&.current&.title
   end
 
   def fetch_organizations
@@ -46,13 +44,14 @@ module LayoutHelper
   end
 
   def fetch_user
-    { current_user: User.current, user_dropdown: Menu::Manager.to_hash(:side_menu) }
+    { current_user: User.current, user_dropdown: Menu::Manager.to_hash(:side_menu), impersonated_by: User.unscoped.find_by_id(session[:impersonated_by]) }
   end
 
   def layout_data
     { menu: fetch_menus,
       logo: image_path("header_logo.svg", :class => "header-logo"),
       notification_url: main_app.notification_recipients_path,
+      stop_impersonation_url: main_app.stop_impersonation_users_path,
       user: fetch_user, brand: 'foreman',
       taxonomies: taxonomies_booleans, root: main_app.root_path,
       locations: fetch_locations, orgs: fetch_organizations }
@@ -88,11 +87,11 @@ module LayoutHelper
   end
 
   def stylesheet(*args)
-    content_for(:stylesheets) { stylesheet_link_tag(*args.push("data-turbolinks-track" => true)) }
+    content_for(:stylesheets) { stylesheet_link_tag(*args) }
   end
 
   def javascript(*args)
-    content_for(:javascripts) { javascript_include_tag(*args.push("data-turbolinks-track" => true)) }
+    content_for(:javascripts) { javascript_include_tag(*args) }
   end
 
   # The target should have class="collapse [out|in]" out means collapsed on load and in means expanded.

@@ -6,16 +6,12 @@ class Coreos < Operatingsystem
   end
 
   def mediumpath(medium_provider)
-    medium_provider.medium_uri("/$arch").to_s do |vars|
+    medium_provider.medium_uri('$arch-usr/') do |vars|
       transform_vars(vars)
-    end
+    end.to_s
   end
 
-  def url_for_boot(file)
-    PXEFILES[file]
-  end
-
-  def pxedir
+  def pxedir(medium_provider = nil)
     '$arch-usr/$version'
   end
 

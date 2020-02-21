@@ -3,7 +3,7 @@ begin
   require 'robottelo/reporter/rake/minitest'
 
   namespace :jenkins do
-    task :unit => ['jenkins:setup:minitest', 'rake:test:units', 'rake:test:functionals']
+    task :unit => ['jenkins:setup:minitest', 'rake:test:units', 'rake:test:functionals', 'rake:test:graphql']
     task :integration => ['webpack:compile', 'jenkins:setup:minitest', 'rake:test:integration']
     task :functionals => ["jenkins:setup:minitest", 'rake:test:functionals']
     task :units => ["jenkins:setup:minitest", 'rake:test:units']
@@ -13,7 +13,7 @@ begin
         ENV["CI_REPORTS"] = 'jenkins/reports/unit/'
         gem 'ci_reporter'
       end
-      minitest_plugins = [:pre_ci, 'webpack:try_compile', 'ci:setup:minitest']
+      minitest_plugins = [:pre_ci, 'ci:setup:minitest']
       minitest_plugins << 'robottelo:setup:minitest' if ENV['GENERATE_ROBOTTELO_REPORT'] == 'true'
       task :minitest => minitest_plugins
     end

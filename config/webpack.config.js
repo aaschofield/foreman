@@ -3,11 +3,11 @@
 
 var path = require('path');
 var webpack = require('webpack');
+var ForemanVendorPlugin = require('@theforeman/vendor').WebpackForemanVendorPlugin;
 var UglifyJsPlugin = require('uglifyjs-webpack-plugin');
 var StatsWriterPlugin = require("webpack-stats-plugin").StatsWriterPlugin;
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
 var CompressionPlugin = require('compression-webpack-plugin');
-var LodashModuleReplacementPlugin = require('lodash-webpack-plugin');
 var pluginUtils = require('../script/plugin_webpack_directories');
 var vendorEntry = require('./webpack.vendor');
 var SimpleNamedModulesPlugin = require('../webpack/simple_named_modules');
@@ -71,6 +71,12 @@ module.exports = env => {
   if (env && env.pluginName !== undefined) {
     var pluginEntries = {};
     pluginEntries[env.pluginName] = plugins['entries'][env.pluginName];
+    for (var entry of Object.keys(plugins['entries'])) {
+      if (entry.startsWith(env.pluginName + ":")) {
+          pluginEntries[entry] = plugins['entries'][entry]
+      }
+    };
+
     var outputPath = path.join(plugins['plugins'][env.pluginName]['root'], 'public', 'webpack');
     var jsFilename = production ? env.pluginName + '/[name]-[chunkhash].js' : env.pluginName + '/[name].js';
     var cssFilename = production ? env.pluginName + '/[name]-[chunkhash].css' : env.pluginName + '/[name].css';
@@ -128,18 +134,8 @@ module.exports = env => {
           exclude: /node_modules(?!\/(@novnc|unidiff))/,
           loader: 'babel-loader',
           options: {
-            'presets': [
-              path.join(__dirname, '..', 'node_modules/babel-preset-react'),
-              path.join(__dirname, '..', 'node_modules/babel-preset-env')
-            ],
-            'plugins': [
-              path.join(__dirname, '..', 'node_modules/babel-plugin-transform-class-properties'),
-              path.join(__dirname, '..', 'node_modules/babel-plugin-transform-object-rest-spread'),
-              path.join(__dirname, '..', 'node_modules/babel-plugin-transform-object-assign'),
-              path.join(__dirname, '..', 'node_modules/babel-plugin-lodash'),
-              path.join(__dirname, '..', 'node_modules/babel-plugin-syntax-dynamic-import')
-            ]
-          }
+            presets: [require.resolve('@theforeman/builder/babel')]
+          },
         },
         {
           test: /\.css$/,
@@ -163,12 +159,7 @@ module.exports = env => {
     },
 
     plugins: [
-      new LodashModuleReplacementPlugin({
-        paths: true,
-        collections: true,
-        flattening: true,
-        shorthands: true
-      }),
+      new ForemanVendorPlugin({ mode: production ? 'production' : 'development' }),
       // must match config.webpack.manifest_filename
       new StatsWriterPlugin({
         filename: manifestFilename,
@@ -189,7 +180,8 @@ module.exports = env => {
       new webpack.DefinePlugin({
         'process.env': {
           NODE_ENV: JSON.stringify(production ? 'production' : 'development'),
-          NOTIFICATIONS_POLLING: process.env.NOTIFICATIONS_POLLING
+          NOTIFICATIONS_POLLING: process.env.NOTIFICATIONS_POLLING,
+          REDUX_LOGGER: process.env.REDUX_LOGGER
         }
       }),
       // limit locales from intl only to supported ones

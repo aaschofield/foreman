@@ -1,7 +1,10 @@
+/* eslint-disable jquery/no-size */
+
 import $ from 'jquery';
 
 import { checkForUnavailablePuppetclasses } from './foreman_hostgroups';
 
+jest.unmock('jquery');
 jest.unmock('./foreman_hostgroups');
 
 describe('checkForUnavailablePuppetclasses', () => {

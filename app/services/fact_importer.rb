@@ -37,7 +37,7 @@ class FactImporter
       Setting[:excluded_facts],
       {
         :prefix => '(\A|.*::|.*_)',
-        :suffix => '(\Z|::.*)'
+        :suffix => '(\Z|::.*)',
       }
     )
   end
@@ -105,11 +105,9 @@ class FactImporter
       ensure_no_active_transaction
 
       ActiveRecord::Base.transaction(:requires_new => true) do
-        begin
-          save_name_record(name_record)
-        rescue ActiveRecord::RecordNotUnique
-          name_record = nil
-        end
+        save_name_record(name_record)
+      rescue ActiveRecord::RecordNotUnique
+        name_record = nil
       end
 
       # if the record could not be saved in the previous transaction,
@@ -130,19 +128,13 @@ class FactImporter
 
   def fact_name_attributes(fact_name)
     {
-      name: fact_name
+      name: fact_name,
     }
   end
 
   def delete_removed_facts
     delete_query = FactValue.joins(:fact_name).where(:host => host, 'fact_names.type' => fact_name_class_name).where.not(:fact_name => fact_names.values).reorder('')
-    if ActiveRecord::Base.connection.adapter_name.downcase.starts_with? 'mysql'
-      # MySQL does not handle delete with inner query correctly (slow) so we will do two queries on purpose
-      @counters[:deleted] = FactValue.where(:id => delete_query.pluck(:id)).delete_all
-    else
-      # deletes all facts using a single SQL query with inner query otherwise
-      @counters[:deleted] = delete_query.delete_all
-    end
+    @counters[:deleted] = delete_query.delete_all
   end
 
   def add_new_fact(name)
@@ -164,7 +156,8 @@ class FactImporter
     time = Time.now.utc
     updated = 0
     db_facts_names = []
-    db_facts.find_each do |record|
+    host.fact_values.joins(:fact_name).where('fact_names.type' => fact_name_class_name).reorder('').find_each do |record|
+      next unless fact_names.include?(record.name)
       new_value = facts[record.name]
       if record.value != new_value
         # skip callbacks/validations
@@ -188,17 +181,17 @@ class FactImporter
     normalized_facts
   end
 
-  def db_facts
-    query = host.fact_values
-    if ActiveRecord::Base.connection.adapter_name.downcase.starts_with? 'mysql'
-      # MySQL query optimizer does not appear to pick the correct index here: https://projects.theforeman.org/issues/25053
-      query = query.from("fact_values USE INDEX(index_fact_values_on_fact_name_id_and_host_id)")
-    end
-    query.where(:fact_name => fact_names.values).reorder('')
-  end
-
   def ensure_no_active_transaction
-    raise 'Fact names should be added outside of global transaction' if ActiveRecord::Base.connection.transaction_open?
+    message = 'Fact names should be added outside of global transaction.'
+    if Rails.env.test?
+      message += <<-TEST_ERROR
+        You are updating facts from a test, you can use allow_transactions_for or
+        allow_transactions_for_any_importer from fact_importer_test_helper.rb if you
+        wish to continue with facts upload. Please be aware that fact uploading in tests
+        could not run in parallel.
+      TEST_ERROR
+    end
+    raise message if ActiveRecord::Base.connection.transaction_open?
   end
 
   def save_name_record(name_record)

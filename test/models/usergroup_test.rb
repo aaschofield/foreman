@@ -1,13 +1,5 @@
 require 'test_helper'
 
-def valid_names
-  if ActiveRecord::Base.connection.adapter_name.downcase =~ /mysql/
-    RFauxFactory.gen_strings(1..230, :exclude => [:utf8]).values
-  else
-    valid_name_list
-  end
-end
-
 class UsergroupTest < ActiveSupport::TestCase
   setup do
     User.current = users :admin
@@ -32,6 +24,8 @@ class UsergroupTest < ActiveSupport::TestCase
   should have_many(:users).dependent(:destroy)
   should_not allow_value(*invalid_name_list).for(:name)
   should allow_value(*valid_name_list).for(:name)
+  should have_many(:cached_users)
+  should have_many(:cached_usergroups)
 
   test 'should not update with multiple invalid names' do
     usergroup = FactoryBot.create(:usergroup)
@@ -51,7 +45,7 @@ class UsergroupTest < ActiveSupport::TestCase
   end
 
   test 'should create with valid role' do
-    valid_names.each do |name|
+    valid_name_list.each do |name|
       role = FactoryBot.create(:role, :name => name)
       usergroup = FactoryBot.build(:usergroup, :role_ids => [role.id])
       assert usergroup.valid?, "Can't create usergroup with valid role #{role}"
@@ -71,7 +65,7 @@ class UsergroupTest < ActiveSupport::TestCase
   end
 
   test 'should create with valid usergroup' do
-    valid_names.each do |name|
+    valid_name_list.each do |name|
       sub_usergroup = FactoryBot.create(:usergroup, :name => name)
       usergroup = FactoryBot.build(:usergroup, :usergroup_ids => [sub_usergroup.id])
       assert usergroup.valid?, "Can't create usergroup with valid usergroup #{sub_usergroup}"
@@ -220,9 +214,11 @@ class UsergroupTest < ActiveSupport::TestCase
   context 'external usergroups' do
     setup do
       @usergroup = FactoryBot.create(:usergroup)
-      @external = @usergroup.external_usergroups.new(:auth_source_id => FactoryBot.create(:auth_source_ldap).id,
+      auth_source_ldap = FactoryBot.create(:auth_source_ldap)
+      @external = @usergroup.external_usergroups.new(:auth_source_id => auth_source_ldap.id,
                                                      :name           => 'aname')
       LdapFluff.any_instance.stubs(:ldap).returns(Net::LDAP.new)
+      users(:one).update_column(:auth_source_id, auth_source_ldap.id)
     end
 
     test "can be associated with external_usergroups" do
@@ -240,8 +236,8 @@ class UsergroupTest < ActiveSupport::TestCase
     end
 
     test "delete user if not in LDAP directory" do
-      LdapFluff.any_instance.stubs(:valid_group?).with('aname').returns(false)
-      @usergroup.users << users(:one)
+      LdapFluff.any_instance.stubs(:valid_group?).with('aname').returns(true)
+      @usergroup.user_ids = [users(:one).id]
       @usergroup.save
 
       AuthSourceLdap.any_instance.expects(:users_in_group).with('aname').returns([])
@@ -255,18 +251,18 @@ class UsergroupTest < ActiveSupport::TestCase
       @usergroup.save
 
       AuthSourceLdap.any_instance.expects(:users_in_group).with('aname').returns([users(:one).login])
-      @usergroup.external_usergroups.find { |eu| eu.name == 'aname'}.refresh
+      @usergroup.external_usergroups.find { |eu| eu.name == 'aname' }.refresh
       assert_includes @usergroup.users, users(:one)
     end
 
     test "keep user if in LDAP directory" do
       LdapFluff.any_instance.stubs(:valid_group?).with('aname').returns(true)
-      @usergroup.users << users(:one)
+      @usergroup.user_ids = [users(:one).id]
       @usergroup.save
 
       AuthSourceLdap.any_instance.expects(:users_in_group).with('aname').returns([users(:one).login])
       @usergroup.external_usergroups.find { |eu| eu.name == 'aname'}.refresh
-      assert_includes @usergroup.users, users(:one)
+      assert_includes @usergroup.reload.users, users(:one)
     end
 
     test 'internal auth source users remain after refresh' do
@@ -274,11 +270,10 @@ class UsergroupTest < ActiveSupport::TestCase
         :user,
         :auth_source => @external.auth_source,
         :login => 'external_user'
-        )
+      )
       internal_user = FactoryBot.create(:user)
       LdapFluff.any_instance.stubs(:valid_group?).with('aname').returns(true)
-      @usergroup.users << internal_user
-      @usergroup.users << external_user
+      @usergroup.user_ids = [internal_user.id, external_user.id]
       @usergroup.save
 
       AuthSourceLdap.any_instance.expects(:users_in_group).with('aname').
@@ -310,86 +305,116 @@ class UsergroupTest < ActiveSupport::TestCase
   end
 
   context 'audit usergroup' do
-    setup do
-      @usergroup = FactoryBot.create(:usergroup, :with_auditing)
-    end
-
     context 'child usergroups' do
-      setup do
-        @child_usergroup = FactoryBot.create(:usergroup)
-        @usergroup.usergroup_ids = [@child_usergroup.id]
-        @usergroup.save
+      let (:usergroup) { FactoryBot.create(:usergroup, :with_auditing) }
+      let (:child_usergroup) { FactoryBot.create(:usergroup) }
+
+      before do
+        usergroup.usergroup_ids = [child_usergroup.id]
+        usergroup.save
       end
 
       test 'should audit when a child-usergroup is assigned to a parent-usergroup' do
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:usergroup_ids]
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['usergroup_ids']
         assert audited_changes, 'No audits found for usergroups'
         assert_empty audited_changes.first
-        assert_equal [@child_usergroup.id], audited_changes.last
+        assert_equal [child_usergroup.id], audited_changes.last
       end
 
       test 'should audit when a child-usergroup is removed/de-assigned from a parent-usergroup' do
-        @usergroup.usergroup_ids = []
-        @usergroup.save
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:usergroup_ids]
+        usergroup.usergroup_ids = []
+        usergroup.save
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['usergroup_ids']
         assert audited_changes, 'No audits found for usergroups'
-        assert_equal [@child_usergroup.id], audited_changes.first
+        assert_equal [child_usergroup.id], audited_changes.first
         assert_empty audited_changes.last
       end
     end
 
     context 'roles' do
-      setup do
-        @role = FactoryBot.create(:role)
-        @usergroup.role_ids = [@role.id]
-        @usergroup.save
+      let (:usergroup) { FactoryBot.create(:usergroup, :with_auditing) }
+      let (:role) { FactoryBot.create(:role) }
+
+      before do
+        usergroup.role_ids = [role.id]
+        usergroup.save
       end
 
       test 'should audit when a role is assigned to a usergroup' do
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:role_ids]
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['role_ids']
         assert audited_changes, 'No audits found for user-roles'
         assert_empty audited_changes.first
-        assert_equal [@role.id], audited_changes.last
+        assert_equal [role.id], audited_changes.last
       end
 
       test 'should audit when a role is removed/de-assigned from a usergroup' do
-        @usergroup.role_ids = []
-        @usergroup.save
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:role_ids]
+        usergroup.role_ids = []
+        usergroup.save
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['role_ids']
         assert audited_changes, 'No audits found for usergroup-roles'
-        assert_equal [@role.id], audited_changes.first
+        assert_equal [role.id], audited_changes.first
         assert_empty audited_changes.last
       end
     end
 
     context 'users' do
-      setup do
-        @user = users :one # FactoryBot.create(:user)
-        @usergroup.user_ids = [@user.id]
-        @usergroup.save
+      let (:usergroup) { FactoryBot.create(:usergroup, :with_auditing) }
+      let (:user) { users(:one) }
+
+      before do
+        usergroup.user_ids = [user.id]
+        usergroup.save
       end
 
       test 'should audit when a user is assigned to a usergroup' do
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:user_ids]
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['user_ids']
         assert audited_changes, 'No audits found for users'
         assert_empty audited_changes.first
-        assert_equal [@user.id], audited_changes.last
+        assert_equal [user.id], audited_changes.last
       end
 
       test 'should audit when a user is removed/de-assigned from a usergroup' do
-        @usergroup.user_ids = []
-        @usergroup.save
-        recent_audit = @usergroup.audits.last
-        audited_changes = recent_audit.audited_changes[:user_ids]
+        usergroup.user_ids = []
+        usergroup.save
+        recent_audit = usergroup.audits.last
+        audited_changes = recent_audit.audited_changes['user_ids']
         assert audited_changes, 'No audits found for users'
-        assert_equal [@user.id], audited_changes.first
+        assert_equal [user.id], audited_changes.first
         assert_empty audited_changes.last
       end
     end
+  end
+
+  test 'should list all usergroups but current' do
+    5.times { FactoryBot.create(:usergroup) }
+    group = Usergroup.all
+    last = Usergroup.last
+    res = Usergroup.except_current last
+    assert_equal(group.count - 1, res.count)
+    refute res.include?(last)
+  end
+
+  it 'provides data for export' do
+    user = FactoryBot.create(:user, :with_usergroup, :with_ssh_key)
+    usergroup = user.usergroups.first
+
+    expected = {
+      user.login => {
+        'firstname' => user.firstname,
+        'lastname' => user.lastname,
+        'mail' => user.mail,
+        'description' => user.description,
+        'fullname' => user.fullname,
+        'name' => user.name,
+        'ssh_authorized_keys' => user.ssh_keys.map(&:to_export_hash),
+      },
+    }
+
+    assert_equal expected, usergroup.to_export
   end
 end

@@ -1,9 +1,13 @@
+require:
+  - rubocop-performance
+  - rubocop-rails
+
 # TODO: remove this file by either moving cops here or fixing code
 inherit_from:
   - .rubocop_todo.yml
 
 AllCops:
-  TargetRubyVersion: 2.3
+  TargetRubyVersion: 2.5
   TargetRailsVersion: 5.2
   Exclude:
     - 'db/schema.rb'
@@ -37,9 +41,8 @@ Style/StringLiterals:
 Style/FrozenStringLiteralComment:
   Enabled: false
 
-Metrics/ClassLength:
-  Exclude:
-    - 'test/**/*'
+Metrics:
+  Enabled: false
 
 Performance/Casecmp:
   Enabled: false
@@ -66,7 +69,7 @@ Style/TernaryParentheses:
 Style/InverseMethods:
   Enabled: false
 
-Layout/FirstParameterIndentation:
+Layout/IndentFirstArgument:
   EnforcedStyle: consistent
 
 Bundler/OrderedGems:
@@ -104,4 +107,30 @@ Style/ParallelAssignment:
   Enabled: false
 
 Style/PreferredHashMethods:
+  Enabled: false
+
+# Won't work with sqlite
+Rails/BulkChangeTable:
+  Enabled: false
+
+Style/MultipleComparison:
+  Enabled: false
+
+Rails/RefuteMethods:
+  Enabled: false
+
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: comma
+
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: comma
+
+Style/NumericPredicate:
+  Enabled: false
+
+Layout/AlignArguments:
+  EnforcedStyle: with_fixed_indentation
+  IndentationWidth: 2
+
+Performance/RegexpMatch:
   Enabled: false

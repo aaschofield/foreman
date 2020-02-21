@@ -1,4 +1,15 @@
+/* eslint-disable jquery/no-each */
+/* eslint-disable jquery/no-text */
+/* eslint-disable jquery/no-data */
+/* eslint-disable jquery/no-sizzle */
+/* eslint-disable jquery/no-hide */
+/* eslint-disable jquery/no-attr */
+/* eslint-disable jquery/no-ajax */
+/* eslint-disable jquery/no-trigger */
+/* eslint-disable jquery/no-val */
+/* eslint-disable jquery/no-prop */
 /* eslint-disable func-names */
+
 import $ from 'jquery';
 import { showSpinner } from '../foreman_tools';
 import { testConnection } from '../foreman_compute_resource';
@@ -6,7 +17,7 @@ import { testConnection } from '../foreman_compute_resource';
 export function templateSelected(item) {
   const template = $(item).val();
 
-  if (item.disabled || template === null) {
+  if (template === null) {
     return;
   }
 
@@ -43,8 +54,8 @@ export function templateSelected(item) {
       });
       const templateSelector = $('#host_compute_attributes_template');
 
-      if (templateSelector.is(':disabled')) {
-        templateSelector.val(result.id).trigger('change');
+      if (templateSelector.siblings('.select2-container-disabled').length > 0) {
+        templateSelector.val(result.id);
       }
     },
     complete() {
@@ -111,6 +122,7 @@ function addNetworkInterface({ name, network }) {
 function addVolume({
   size_gb: sizeGb,
   storage_domain: storageDomain,
+  sparse,
   bootable,
   id,
   disk_interface: diskInterface,
@@ -120,10 +132,12 @@ function addVolume({
   const newId = add_child_node($('#storage_volumes .add_nested_fields'));
 
   disableElement($(`[id$=${newId}_size_gb]`).val(sizeGb));
-  disableElement($(`[id$=${newId}_storage_domain]`).val(storageDomain));
-  disableElement($(`[id$=${newId}_wipe_after_delete]`).val(wipeAfterDelete));
+  $(`[id$=${newId}_storage_domain]`).val(storageDomain);
   disableElement($(`[id$=${newId}_interface]`).val(diskInterface));
   disableElement($(`[id$=${newId}_bootable_true]`).attr('checked', bootable));
+  disableElement(
+    $(`[id$=${newId}_wipe_after_delete]`).prop('checked', wipeAfterDelete)
+  );
   if (id) {
     $(`[id$=${newId}_id]`).val(id);
   }
@@ -152,7 +166,7 @@ export function bootableRadio(item) {
 }
 export function clusterSelected(item) {
   const cluster = $(item).val();
-  const url = $(item).attr('data-url');
+  const url = $(item).data('url');
 
   showSpinner();
   $.ajax({

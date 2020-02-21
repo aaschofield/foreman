@@ -4,7 +4,7 @@ require 'pagelets_test_helper'
 class SmartProxyIntegrationTest < ActionDispatch::IntegrationTest
   setup do
     ProxyStatus::Version.any_instance.stubs(:version).returns({'version' => '1.11', 'modules' => {'dhcp' => '1.11'}})
-    ProxyAPI::Features.any_instance.stubs(:features => Feature.name_map.keys)
+    stub_smart_proxy_v2_features
   end
 
   test "index page" do
@@ -14,7 +14,6 @@ class SmartProxyIntegrationTest < ActionDispatch::IntegrationTest
   end
 
   test "create new page" do
-    ProxyAPI::Features.any_instance.stubs(:features => Feature.name_map.keys)
     assert_new_button(smart_proxies_path, "Create Smart Proxy", new_smart_proxy_path)
     fill_in "smart_proxy_name", :with => "DNS Worldwide"
     fill_in "smart_proxy_url", :with => "http://dns.example.com"
@@ -62,17 +61,17 @@ class SmartProxyIntegrationTest < ActionDispatch::IntegrationTest
 
     test 'show page passes subject into pagelets' do
       Pagelets::Manager.add_pagelet("smart_proxies/show", :main_tabs,
-                                                          :name => "VisibleTab",
-                                                          :partial => "/test",
-                                                          :onlyif => Proc.new { |subject| subject.has_feature? "DHCP" })
+        :name => "VisibleTab",
+        :partial => "/test",
+        :onlyif => Proc.new { |subject| subject.has_feature? "DHCP" })
       Pagelets::Manager.add_pagelet("smart_proxies/show", :main_tabs,
-                                                          :name => "HiddenTab",
-                                                          :partial => "/test",
-                                                          :onlyif => Proc.new { |subject| subject.has_feature? "TFTP" })
+        :name => "HiddenTab",
+        :partial => "/test",
+        :onlyif => Proc.new { |subject| subject.has_feature? "TFTP" })
       proxy = smart_proxies(:one)
       visit smart_proxy_path(proxy)
       assert page.has_link?("VisibleTab")
-      refute page.has_link?("HiddenTab")
+      assert page.has_no_link?("HiddenTab")
     end
   end
 end

@@ -1,3 +1,5 @@
+/* eslint-disable jquery/no-each */
+/* eslint-disable jquery/no-ready */
 /* eslint-disable no-param-reassign */
 /* eslint-disable func-names */
 
@@ -10,6 +12,7 @@ $(() => {
   $.widget('ui.limitedSpinner', $.ui.spinner, {
     options: {
       softMaximum: 0,
+      min: 1,
       errorTarget: null,
     },
     validate() {
@@ -105,53 +108,72 @@ $(() => {
   });
 });
 
-export function initAll() {
-  initByte();
-  initCounter();
+export function initAll(selection = null) {
+  // might be called with Event-argument, if used as EventHandler
+  if (
+    selection !== null &&
+    typeof selection === 'object' &&
+    (selection.hasOwnProperty('originalEvent') ||
+      selection.constructor === $.Event)
+  ) {
+    selection = null;
+  }
+  initByte(selection);
+  initCounter(selection);
 }
 
-export function initCounter() {
-  $('input.counter_spinner').each(function() {
-    const field = $(this);
-    const errorMessage = field.closest('.form-group').find('.maximum-limit');
+export function initCounter(selection = null) {
+  // Do not initialize form_templates
+  $('input.counter_spinner', selection)
+    .not('.form_template input.counter_spinner')
+    .each(function() {
+      const field = $(this);
+      const errorMessage = field.closest('.form-group').find('.maximum-limit');
+      let min = field.data('min');
+      min = typeof min === 'number' ? min : 1;
 
-    field.limitedSpinner({
-      softMaximum: field.data('softMax'),
-      errorTarget: errorMessage,
-      min: 1,
+      field.limitedSpinner({
+        softMaximum: field.data('softMax'),
+        errorTarget: errorMessage,
+        min,
+      });
+
+      field.change(() => {
+        field.limitedSpinner('validate');
+      });
+
+      field
+        .parents('div.form-group')
+        .find('label a')
+        .popover();
     });
-
-    field.change(() => {
-      field.limitedSpinner('validate');
-    });
-
-    field
-      .parents('div.form-group')
-      .find('label a')
-      .popover();
-  });
 }
 
-export function initByte() {
-  $('input.byte_spinner').each(function() {
-    const field = $(this);
-    const errorMessage = field.closest('.form-group').find('.maximum-limit');
-    const valueTarget = field.closest('.form-group').find('.real-hidden-value');
+export function initByte(selection = null) {
+  // Do not initialize form_templates
+  $('input.byte_spinner', selection)
+    .not('.form_template input.byte_spinner')
+    .each(function() {
+      const field = $(this);
+      const errorMessage = field.closest('.form-group').find('.maximum-limit');
+      const valueTarget = field
+        .closest('.form-group')
+        .find('.real-hidden-value');
 
-    field.byteSpinner({
-      valueTarget,
-      softMaximum: field.data('softMax'),
-      errorTarget: errorMessage,
+      field.byteSpinner({
+        valueTarget,
+        softMaximum: field.data('softMax'),
+        errorTarget: errorMessage,
+      });
+
+      field.change(() => {
+        field.byteSpinner('updateValueTarget');
+        field.byteSpinner('validate');
+      });
+
+      field
+        .parents('div.form-group')
+        .find('label a')
+        .popover();
     });
-
-    field.change(() => {
-      field.byteSpinner('updateValueTarget');
-      field.byteSpinner('validate');
-    });
-
-    field
-      .parents('div.form-group')
-      .find('label a')
-      .popover();
-  });
 }

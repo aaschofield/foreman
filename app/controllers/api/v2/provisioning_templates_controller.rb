@@ -35,12 +35,13 @@ module Api
       def_param_group :provisioning_template do
         param :provisioning_template, Hash, :required => true, :action_aware => true do
           param :name, String, :required => true, :desc => N_("template name")
+          param :description, String
           param :template, String, :required => true
           param :snippet, :bool, :allow_nil => true
           param :audit_comment, String, :allow_nil => true
           param :template_kind_id, :number, :allow_nil => true, :desc => N_("not relevant for snippet")
           param :template_combinations_attributes, Array,
-                :desc => N_("Array of template combinations (hostgroup_id, environment_id)")
+            :desc => N_("Array of template combinations (hostgroup_id, environment_id)")
           param :operatingsystem_ids, Array, :desc => N_("Array of operating system IDs to associate with the template")
           param :locked, :bool, :desc => N_("Whether or not the template is locked for editing")
           param_group :taxonomies, ::Api::V2::BaseController

@@ -1,6 +1,6 @@
 module AuditsHelper
-  MAIN_OBJECTS = %w(Host::Base Hostgroup User Operatingsystem Environment Puppetclass Parameter Architecture ComputeResource ProvisioningTemplate ComputeProfile ComputeAttribute
-                    Location Organization Domain Subnet SmartProxy AuthSource Image Role Usergroup Bookmark ConfigGroup Ptable ReportTemplate)
+  AUDIT_ADD = 'add'
+  AUDIT_REMOVE = 'remove'
 
   # lookup the Model representing the numerical id and return its label
   def id_to_label(name, change, audit: @audit, truncate: true)
@@ -12,13 +12,13 @@ module AuditsHelper
         label = change.to_s(:short)
       when /.*_id$/
         begin
-          label = key_to_class(name, audit)&.find(change)&.to_label
+          label = find_associated_records_using_key(name, change, audit)&.to_label
         rescue NameError
           # fallback to the value only instead of N/A that is in generic rescue below
           return _("Missing(ID: %s)") % change
         end
       when /.*_ids$/
-        existing = key_to_class(name, audit)&.where(id: change)&.index_by(&:id)
+        existing = find_associated_records_using_key(name, change, audit)
         label = change.map do |id|
           if existing&.has_key?(id)
             existing[id].to_label
@@ -44,7 +44,7 @@ module AuditsHelper
     type_name = audited_type audit
     case type_name
       when 'Puppet Class'
-        (id_to_label audit.audited_changes.keys[0], audit.audited_changes.values[0]).to_s
+        (id_to_label audit.audited_changes.keys[0], audit.audited_changes.values[0], audit: audit).to_s
       else
         name = if audit.auditable_name.blank?
                  revision = audit.revision
@@ -84,8 +84,14 @@ module AuditsHelper
         end
       end
     elsif !main_object? audit
-      ["#{audit_action_name(audit).humanize} #{id_to_label audit.audited_changes.keys[0], audit.audited_changes.values[0], audit: audit}
-       #{(audit_action_name(audit) == 'removed') ? 'from' : 'to'} #{audit.associated_name || id_to_label(audit.audited_changes.keys[1], audit.audited_changes.values[1], audit: audit)}"]
+      from = id_to_label(audit.audited_changes.keys[0], audit.audited_changes.values[0], audit: audit)
+      to = audit.associated_name || id_to_label(audit.audited_changes.keys[1], audit.audited_changes.values[1], audit: audit)
+      case audit_action_name(audit)
+      when AUDIT_ADD
+        [_("Added %{from} to %{to}") % {:from => from, :to => to}]
+      when AUDIT_REMOVE
+        [_("Removed %{from} to %{to}") % {:from => from, :to => to}]
+      end
     else
       []
     end
@@ -102,15 +108,15 @@ module AuditsHelper
   end
 
   def audit_action_name(audit)
-    return (audit.action == 'destroy') ? 'deleted' : "#{audit.action}d" if main_object? audit
+    return audit.action if main_object? audit
 
     case audit.action
       when 'create'
-        'added'
+        AUDIT_ADD
       when 'destroy'
-        'removed'
+        AUDIT_REMOVE
       else
-        'updated'
+        'update'
     end
   end
 
@@ -195,16 +201,16 @@ module AuditsHelper
       items: [
         {
           caption: _("Hosts"),
-          url: (url_for(hosts_path) if authorized_for(hash_for_hosts_path))
+          url: (hosts_path if authorized_for(hash_for_hosts_path)),
         },
         {
           caption: @host.name,
-          url: (host_path(@host) if authorized_for(hash_for_host_path(@host)))
+          url: (host_path(@host) if authorized_for(hash_for_host_path(@host))),
         },
         {
           caption: _('Audits'),
-          url: url_for(audits_path)
-        }
+          url: audits_path,
+        },
       ]
     )
   end
@@ -231,22 +237,49 @@ module AuditsHelper
   private
 
   def additional_details_if_any(audit, action_display_name)
-    %[added removed].include?(action_display_name) ? details(audit) : []
+    [AUDIT_ADD, AUDIT_REMOVE].include?(action_display_name) ? details(audit) : []
   end
 
   def main_object?(audit)
-    return true if MAIN_OBJECTS.include?(audit.auditable_type)
+    main_objects_names = Audit.main_object_names
+    return true if main_objects_names.include?(audit.auditable_type)
     type = audit.auditable_type.split("::").last rescue ''
-    MAIN_OBJECTS.include?(type)
+    main_objects_names.include?(type)
   end
 
-  def key_to_class(key, audit)
+  def find_auditable_type_class(audit)
     auditable_type = (audit.auditable_type == 'Host::Base') ? 'Host::Managed' : audit.auditable_type
-    auditable_type.constantize.reflect_on_association(key.sub(/_id(s?)$/, '\1'))&.klass
+    auditable_type.constantize
+  end
+
+  def key_to_association_class(key, auditable_class)
+    association_name = key.gsub(/_id(s?)$/, '')
+    association_name = association_name.pluralize if key =~ /_ids$/
+    reflection_obj = auditable_class.reflect_on_association(association_name)
+    reflection_obj ? reflection_obj&.klass : nil
+  end
+
+  def find_associated_records_using_key(key, change, audit)
+    auditable_class = find_auditable_type_class(audit)
+    association_class = key_to_association_class(key, auditable_class)
+
+    if association_class
+      if key =~ /_ids$/
+        association_class&.where(id: change)&.index_by(&:id)
+      elsif key =~ /_id$/
+        association_class&.find(change)
+      end
+    elsif auditable_class.respond_to?('audit_hook_to_find_records')
+      auditable_class.audit_hook_to_find_records(key, change, audit)
+    end
   end
 
   def rebuild_audit_changes(audit)
     css_class_name = css_class_by_action(audit.action == 'destroy')
+    # update data for created template for better view
+    if audit.action == 'create' && (change = audit.audited_changes['template']).present?
+      audit.audited_changes['template'] = ['', change]
+    end
     audit.audited_changes.map do |name, change|
       next if change.nil? || change.to_s.empty?
       next if name == 'template'
@@ -271,7 +304,7 @@ module AuditsHelper
   end
 
   def fetch_affected_locations(audit)
-    base = audit.locations.authorized(:view_locations)
+    base = (audit.locations.authorized(:view_locations) + (audit.locations & User.current.my_locations)).uniq
     return [] if base.empty?
 
     authorizer = Authorizer.new(User.current, base)
@@ -282,7 +315,7 @@ module AuditsHelper
   end
 
   def fetch_affected_organizations(audit)
-    base = audit.organizations.authorized(:view_organizations)
+    base = (audit.organizations.authorized(:view_organizations) + (audit.organizations & User.current.my_organizations)).uniq
     return [] if base.empty?
 
     authorizer = Authorizer.new(User.current, base)
@@ -313,7 +346,7 @@ module AuditsHelper
       'display_name' => audit.username.gsub(_('User'), ''),
       'login' => login,
       'search_path' => audits_path(:search => login ? "user = #{login}" : "username = \"#{audit.username}\""),
-      'audit_path' => audits_path(:search => "id=#{audit.id}")
+      'audit_path' => audits_path(:search => "id=#{audit.id}"),
     }
   end
 

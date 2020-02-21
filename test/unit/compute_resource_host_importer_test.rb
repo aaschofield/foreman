@@ -20,6 +20,20 @@ class ComputeResourceHostImporterTest < ActiveSupport::TestCase
     end
     let(:uuid) { '5032c8a5-9c5e-ba7a-3804-832a03e16381' }
 
+    context 'can import unmanaged hosts' do
+      let(:importer) do
+        ComputeResourceHostImporter.new(
+          :compute_resource => compute_resource,
+          :vm => vm,
+          :managed => false
+        )
+      end
+
+      test 'imported host is unmanaged' do
+        refute host.managed
+      end
+    end
+
     context 'with existing domain' do
       setup do
         @domain = FactoryBot.create(:domain, :name => 'virt.bos.redhat.com')
@@ -28,9 +42,10 @@ class ComputeResourceHostImporterTest < ActiveSupport::TestCase
       test 'imports the VM with all parameters' do
         expected_compute_attributes = {
           'network' => 'network1',
-          'type' => 'VirtualE1000'
+          'type' => 'VirtualE1000',
         }
 
+        assert host.managed
         assert_equal 'dhcp75-197', host.name
         assert_equal uuid, host.uuid
         assert_equal @domain, host.domain
@@ -50,8 +65,8 @@ class ComputeResourceHostImporterTest < ActiveSupport::TestCase
       end
 
       test 'does not create an invalid domain' do
-        Fog::Compute::Vsphere::Server.any_instance.stubs(:name).returns('mytestvm')
-        Fog::Compute::Vsphere::Server.any_instance.stubs(:hostname).returns(nil)
+        Fog::Vsphere::Compute::Server.any_instance.stubs(:name).returns('mytestvm')
+        Fog::Vsphere::Compute::Server.any_instance.stubs(:hostname).returns(nil)
         assert_equal 'mytestvm', host.name
         assert_nil host.domain
       end
@@ -90,8 +105,22 @@ class ComputeResourceHostImporterTest < ActiveSupport::TestCase
   end
 
   context 'on gce' do
-    let(:compute_resource) { compute_resources(:gce) }
-    let(:vm) { compute_resource.vms.first }
+    let(:compute_resource) { FactoryBot.build(:gce_cr) }
+    let(:vm) do
+      # TODO - please remove this mock vm object
+      # once fog-google mocks are available
+      mock_vm = mock()
+      mock_vm.stubs(:identity).returns('test-google')
+      mock_vm.stubs(:vm_ip_address).returns('192.168.100.122')
+      mock_vm.stubs(:attributes).returns(
+        :identity => 'test-google',
+        :public_ip_address => '192.168.100.122',
+        :zone => 'foo'
+      )
+      compute_resource.stubs(:vms).returns([mock_vm])
+      compute_resource.stubs(:find_vm_by_uuid).returns(mock_vm)
+      mock_vm
+    end
 
     test 'imports the VM with all parameters' do
       assert_equal vm.identity, host.name
@@ -143,7 +172,7 @@ class ComputeResourceHostImporterTest < ActiveSupport::TestCase
       assert_equal uuid, host.uuid
       assert_nil host.domain
       assert_equal '00:1a:4a:23:1b:8f', host.mac
-      assert_empty host.primary_interface.compute_attributes
+      assert_equal host.primary_interface.compute_attributes, { "name" => "nic1", "network" => "00000000-0000-0000-0000-000000000009", "interface" => "virtio" }
       assert_equal compute_resource, host.compute_resource
     end
   end

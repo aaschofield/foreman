@@ -71,7 +71,7 @@ class AuthSourceLdap < AuthSource
       return
     end
 
-    attrs.each { |k, v| attrs[k] = v.force_encoding('UTF-8') }
+    attrs.each { |k, v| attrs[k] = v.force_encoding('UTF-8') unless v == ''}
 
     logger.debug "Retrieved LDAP Attributes for #{login}: #{attrs}"
 
@@ -124,19 +124,43 @@ class AuthSourceLdap < AuthSource
     end
 
     logger.debug "Updating user groups for user #{login}"
-    internal = User.unscoped.find_by_login(login).external_usergroups.map(&:name)
-    external = ldap_con.group_list(login) # this list may return all groups in lowercase
-    (internal | external).each do |name|
-      begin
-        external_usergroup = external_usergroups.where('lower(name) = ?', name.downcase).last
-        if external_usergroup.present?
-          logger.debug "Refreshing external user group #{external_usergroup.name}"
-          external_usergroup.refresh
-        end
-      rescue => error
-        logger.warn "Could not update user group #{name}: #{error}"
-      end
+    user = User.unscoped.find_by_login(login)
+    external = ldap_con.group_list(login).map(&:downcase)
+    group_name_arel = ExternalUsergroup.arel_table[:name].lower
+
+    # User's external user groups localy
+    usergroup_ids = user.usergroups
+                        .joins(:external_usergroups)
+                        .where(ExternalUsergroup.arel_table[:auth_source_id].eq(id))
+                        .pluck(:id)
+    # User's external user groups as of auth_source
+    usergroup_ids.concat(
+      ExternalUsergroup.where(auth_source_id: id)
+        .where(group_name_arel.in(external))
+        .pluck(:usergroup_id)
+    )
+
+    Usergroup.where(id: usergroup_ids.uniq).find_each do |usergroup|
+      refresh_usergroup_members(usergroup)
     end
+  end
+
+  ##
+  #  Sync group with external usergroup
+  def refresh_usergroup_members(usergroup)
+    external_groups = usergroup.external_usergroups.where(auth_source_id: id).to_a
+    # Do not sync groups which are not connected with external groups
+    return unless external_groups.any?
+    logins = external_groups.map(&:users).select { |a| !!a }.flatten.map(&:downcase).uniq
+
+    user_ids = User.unscoped.where(auth_source_id: id).fetch_ids_by_list(logins)
+    current_user_ids = usergroup.users.where(auth_source_id: id).pluck(:id)
+
+    usergroup.user_ids -= (current_user_ids - user_ids)
+    usergroup.user_ids += (user_ids - current_user_ids)
+
+    # audit changes - see #23377
+    usergroup.save
   end
 
   def valid_user?(name)
@@ -181,6 +205,11 @@ class AuthSourceLdap < AuthSource
 
   def set_defaults
     self.port ||= DEFAULT_PORTS[:ldap]
+    self.attr_login ||= 'uid'
+    self.attr_firstname ||= 'givenName'
+    self.attr_lastname ||= 'sn'
+    self.attr_mail ||= 'mail'
+    self.attr_photo ||= 'jpegPhoto'
   end
 
   def required_ldap_attributes
@@ -189,7 +218,7 @@ class AuthSourceLdap < AuthSource
       :lastname  => attr_lastname,
       :mail      => attr_mail,
       :login     => attr_login,
-      :dn        => :dn
+      :dn        => :dn,
     }
   end
 

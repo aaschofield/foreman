@@ -24,22 +24,15 @@ namespace :seed do
       names = ['example.com', 'example.org', 'example.net']
 
       User.as_anonymous_admin do
-        if SETTINGS[:organizations_enabled]
-          Organization.all.each do |organization|
-            Organization.current = organization
-            # TODO: Select a number of locations? All?
-            locations = SETTINGS[:locations_enabled] ? [] : nil
-            generate(Domain, get_desired(5)) do |count, generator|
-              create(:domain,
-                     :name => build_domain(names, generator),
-                     :organizations => [organization],
-                     :locations => locations)
-            end
-          end
-        else
-          generate(Domain, get_desired(50)) do |count, generator|
+        Organization.all.each do |organization|
+          Organization.current = organization
+          # TODO: Select a number of locations? All?
+          locations = []
+          generate(Domain, get_desired(5)) do |count, generator|
             create(:domain,
-                   :name => build_domain(names, generator))
+              :name => build_domain(names, generator),
+              :organizations => [organization],
+              :locations => locations)
           end
         end
       end
@@ -48,27 +41,23 @@ namespace :seed do
     task :hosts => :load_factories do
       User.as_anonymous_admin do
         domains = Domain.all
-        if SETTINGS[:organizations_enabled]
-          organizations = Organization.all
-        end
+        organizations = Organization.all
         operatingsystems = Operatingsystem.all
         owner = User.anonymous_admin
 
         generate(Host::Managed, get_desired(100)) do |count, generator|
           os = operatingsystems.sample
 
-          if SETTINGS[:organizations_enabled]
-            Organization.current = organizations.sample
-            domains = Domain.all
-          end
+          Organization.current = organizations.sample
+          domains = Domain.all
 
           create(:host,
-                 :hostname => generator.next_random_name,
-                 :domain => domains.sample,
-                 :operatingsystem => os,
-                 :architecture => os.architectures.sample,
-                 :organization => Organization.current,
-                 :owner => owner)
+            :hostname => generator.next_random_name,
+            :domain => domains.sample,
+            :operatingsystem => os,
+            :architecture => os.architectures.sample,
+            :organization => Organization.current,
+            :owner => owner)
         end
       end
     end
@@ -86,10 +75,8 @@ namespace :seed do
 
     task :organizations => :load_factories do
       User.as_anonymous_admin do
-        if SETTINGS[:organizations_enabled]
-          generate(Organization, get_desired(10)) do |count, generator|
-            create(:organization, :name => generator.next_random_name)
-          end
+        generate(Organization, get_desired(10)) do |count, generator|
+          create(:organization, :name => generator.next_random_name)
         end
       end
     end
@@ -139,7 +126,7 @@ namespace :seed do
         # Ubuntu
         build(:operatingsystem, :name => 'Ubuntu', :major => '12', :minor => '04', :release_name => 'precise', :architectures => architectures),
         build(:operatingsystem, :name => 'Ubuntu', :major => '14', :minor => '04', :release_name => 'trusty', :architectures => architectures),
-        build(:operatingsystem, :name => 'Ubuntu', :major => '16', :minor => '04', :release_name => 'xenial', :architectures => architectures)
+        build(:operatingsystem, :name => 'Ubuntu', :major => '16', :minor => '04', :release_name => 'xenial', :architectures => architectures),
       ]
     end
 

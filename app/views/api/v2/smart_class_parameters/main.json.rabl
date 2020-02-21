@@ -11,14 +11,13 @@ node :override_values_count do |lk|
 end
 
 attributes :description, :override, :parameter_type, :hidden_value?,
-           :omit, :required, :validator_type, :validator_rule, :merge_overrides,
-           :merge_default, :avoid_duplicates, :override_value_order, :created_at, :updated_at
+  :omit, :required, :validator_type, :validator_rule, :merge_overrides,
+  :merge_default, :avoid_duplicates, :override_value_order, :created_at, :updated_at
 
 node do
   partial("api/v2/common/show_hidden", :locals => { :value => :default_value }, :object => @object)
 end
 
-# compatibility
-attribute :omit => :use_puppet_default
-
-attribute :param_class, :as => :puppetclass_name
+node :puppetclass_name do |lk|
+  lk.param_class.name
+end

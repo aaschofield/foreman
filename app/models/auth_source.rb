@@ -22,11 +22,11 @@ class AuthSource < ApplicationRecord
 
   has_many Taxonomix::TAXONOMY_JOIN_TABLE, :dependent => :destroy, :as => :taxable
   has_many :locations, -> { where(:type => 'Location') },
-           :through => Taxonomix::TAXONOMY_JOIN_TABLE, :source => :taxonomy,
-           :validate => false
+    :through => Taxonomix::TAXONOMY_JOIN_TABLE, :source => :taxonomy,
+    :validate => false
   has_many :organizations, -> { where(:type => 'Organization') },
-           :through => Taxonomix::TAXONOMY_JOIN_TABLE, :source => :taxonomy,
-           :validate => false
+    :through => Taxonomix::TAXONOMY_JOIN_TABLE, :source => :taxonomy,
+    :validate => false
 
   scoped_search :relation => :locations, :on => :name, :rename => :location, :complete_value => true, :only_explicit => true
   scoped_search :relation => :locations, :on => :id, :rename => :location_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
@@ -48,6 +48,7 @@ class AuthSource < ApplicationRecord
 
   scope :non_internal, -> { where("auth_sources.type NOT IN (?)", ['AuthSourceInternal', 'AuthSourceHidden']) }
   scope :except_hidden, -> { where('auth_sources.type <> ?', 'AuthSourceHidden') }
+  scope :only_ldap, -> { where("auth_sources.type = ?", 'AuthSourceLdap') }
 
   def authenticate(login, password)
   end
@@ -79,6 +80,9 @@ class AuthSource < ApplicationRecord
   def update_usergroups(login)
   end
 
+  def refresh_usergroup_members(usergroup)
+  end
+
   # Does the user exist?
   def valid_user?(name)
     false
@@ -101,5 +105,9 @@ class AuthSource < ApplicationRecord
       return attrs if attrs
     end
     nil
+  end
+
+  def supports_refresh?
+    true
   end
 end

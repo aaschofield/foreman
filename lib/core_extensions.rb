@@ -38,16 +38,17 @@ class ActiveRecord::Base
 
     def before_destroy(record)
       klasses.each do |klass, klass_name = klass|
-        record.association(klass.to_sym).association_scope.each do |what|
-          error_message = _("%{record} is used by %{what}")
-          unless what.is_a? String
-            authorized_associations = AssociationAuthorizer.authorized_associations(record.class.reflect_on_association(klass.to_sym).klass, klass_name, false)
-            if !authorized_associations.respond_to?(:to_a) || authorized_associations.to_a.include?(what)
-              what = what.to_label
-            else
-              what = _(what.class.name)
-              error_message = _("%{record} is being used by a hidden %{what} resource")
-            end
+        association = record.association(klass.to_sym)
+        association_scope = ActiveRecord::Associations::AssociationScope.scope(association)
+        next if association_scope.empty?
+        authorized_associations = AssociationAuthorizer.authorized_associations(association.klass, klass_name, false).all.pluck(:id)
+        association_scope.find_each do |what|
+          if authorized_associations.include?(what.id)
+            what = what.to_label
+            error_message = _("%{record} is used by %{what}")
+          else
+            what = _(what.class.name)
+            error_message = _("%{record} is being used by a hidden %{what} resource")
           end
           record.errors.add :base, error_message % { :record => record, :what => what }
         end
@@ -64,7 +65,7 @@ class ActiveRecord::Base
 
     def initialize(base, source, target)
       @source, @target = source, target
-      @base  = base.map { |record| [record.send(@source), record.send(@target)] }
+      @base = base.map { |record| [record.send(@source), record.send(@target)] }
       @nodes = @base.flatten.uniq
       @graph = Hash.new { |h, k| h[k] = [] }
       @base.each { |s, t| @graph[s] << t }
@@ -162,11 +163,52 @@ class String
   def contains_erb?
     self =~ /<%.*%>/
   end
+
+  # TODO Remove me after Rails 6 upgrade: https://github.com/rails/rails/commit/4940cc49ddb361d584d51bc3eb4675ff8ece4a2b
+  def truncate_bytes(truncate_at, omission: "…")
+    omission ||= ""
+
+    if bytesize <= truncate_at
+      dup
+    elsif omission.bytesize > truncate_at
+      raise ArgumentError, "Omission #{omission.inspect} is #{omission.bytesize}, larger than the truncation length of #{truncate_at} bytes"
+    elsif omission.bytesize == truncate_at
+      omission.dup
+    else
+      self.class.new.tap do |cut|
+        cut_at = truncate_at - omission.bytesize
+
+        scan(/\X/) do |grapheme|
+          if cut.bytesize + grapheme.bytesize <= cut_at
+            cut << grapheme
+          else
+            break
+          end
+        end
+
+        cut << omission
+      end
+    end
+  end
+
+  def integer?
+    self.to_i.to_s == self
+  end
 end
 
 class Object
   def contains_erb?
     false
+  end
+
+  def integer?
+    false
+  end
+end
+
+class Integer
+  def integer?
+    true
   end
 end
 

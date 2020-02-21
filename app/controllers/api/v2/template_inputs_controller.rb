@@ -12,6 +12,7 @@ module Api
       api :GET, '/templates/:template_id/template_inputs', N_('List template inputs')
       param :template_id, :identifier, :required => true
       param_group :search_and_pagination, ::Api::V2::BaseController
+      add_scoped_search_description_for(TemplateInput)
       def index
         @template_inputs = nested_obj.template_inputs.search_for(*search_options).paginate(paginate_options)
       end
@@ -34,6 +35,9 @@ module Api
           param :puppet_class_name, String, :required => false, :desc => N_('Puppet class name, used when input type is puppet_parameter')
           param :puppet_parameter_name, String, :required => false, :desc => N_('Puppet parameter name, used when input type is puppet_parameter')
           param :options, Array, :required => false, :desc => N_('Selectable values for user inputs')
+          param :default, String, :required => false, :desc => N_('Default value for user input')
+          param :value_type, TemplateInput::VALUE_TYPE, :required => false, :desc => N_('Value type, defaults to plain')
+          param :resource_type, Permission.resources, :required => false, :desc => N_('For values of type search, this is the resource the value searches in')
         end
       end
 

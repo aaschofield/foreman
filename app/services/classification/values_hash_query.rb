@@ -61,7 +61,7 @@ module Classification
         lookup_values.sort_by do |lv|
           matcher_key, matcher_value = split_matcher(lv)
           # prefer matchers in order of the path, then more specific matches (i.e. hostgroup children)
-          [key.path.index(matcher_key.chomp(',')), -1 * matcher_value.length]
+          [key.path.split.index(matcher_key.chomp(',')), -1 * matcher_value.length]
         end
       end
 
@@ -72,7 +72,7 @@ module Classification
         lookup_value.match.split(LookupKey::KEY_DELM).each do |match_key|
           element = match_key.split(LookupKey::EQ_DELM).first
           matcher_key += element + ','
-          if element == 'hostgroup'
+          if LookupKey::MATCHERS_INHERITANCE.include?(element)
             matcher_value = match_key.split(LookupKey::EQ_DELM).last
           end
         end
@@ -108,7 +108,7 @@ module Classification
         {
           :value => lookup_value.send(value_method),
           :element => element,
-          :element_name => element_name
+          :element_name => element_name,
         }
       end
 

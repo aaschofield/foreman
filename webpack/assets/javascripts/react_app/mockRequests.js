@@ -1,7 +1,7 @@
 import axios from 'axios';
-import MockAdapter from 'axios-mock-adapter';
+import { MockAdapter } from '@theforeman/test';
 
-const mock = new MockAdapter(axios);
+export const mock = new MockAdapter(axios);
 const methods = {
   GET: 'onGet',
   POST: 'onPost',

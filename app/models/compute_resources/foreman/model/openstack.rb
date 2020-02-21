@@ -1,11 +1,12 @@
 module Foreman::Model
   class Openstack < ComputeResource
     include KeyPairComputeResource
-    attr_accessor :tenant, :scheduler_hint_value
+    attr_accessor :scheduler_hint_value
     delegate :flavors, :to => :client
     delegate :security_groups, :to => :client
 
     validates :url, :format => { :with => URI::DEFAULT_PARSER.make_regexp }, :presence => true
+    validate :url_contains_version
     validates :user, :password, :presence => true
     validates :allow_external_network, inclusion: { in: [true, false] }
     validates :domain, :format => { :with => /\A\S+\z/ }, :allow_blank => true
@@ -42,13 +43,39 @@ module Foreman::Model
       attrs[:tenant] = name
     end
 
+    def project_domain_id
+      attrs[:project_domain_id]
+    end
+
+    def project_domain_id=(domain)
+      attrs[:project_domain_id] = domain
+    end
+
+    def project_domain_name
+      attrs[:project_domain_name]
+    end
+
+    def project_domain_name=(domain)
+      attrs[:project_domain_name] = domain
+    end
+
     def tenants
-      if url =~ /\/v3\/auth\/tokens/
+      if identity_version == 3
         user_id = identity_client.current_user_id
-        identity_client.list_user_projects(user_id).body["projects"].map { |p| Fog::Identity::OpenStack::V3::Project.new(p) }
+        identity_client.list_user_projects(user_id).body["projects"].map { |p| Fog::OpenStack::Identity::V3::Project.new(p) }
       else
-        client.tenants
+        identity_client.tenants
       end
+    end
+
+    def identity_version
+      return 3 if url =~ /\/v3/
+      return 2 if url =~ /\/v2/
+      0
+    end
+
+    def url_contains_version
+      errors.add(:url, _("must end with /v2 or /v3")) if identity_version == 0
     end
 
     def allow_external_network
@@ -100,7 +127,7 @@ module Foreman::Model
         :destination_type => "volume",
         :delete_on_termination => "1",
         :uuid => @boot_vol_id,
-        :boot_index => "0"
+        :boot_index => "0",
       } ]
     end
 
@@ -221,7 +248,7 @@ module Foreman::Model
       normalized['interfaces_attributes'] = nics_ids.map.with_index do |nic_id, idx|
         [idx.to_s, {
           'id' => nic_id,
-          'name' => self.internal_networks.detect { |n| n.id == nic_id }.try(:name)
+          'name' => self.internal_networks.detect { |n| n.id == nic_id }.try(:name),
         }]
       end.to_h
 
@@ -233,20 +260,31 @@ module Foreman::Model
 
     private
 
+    def url_for_fog
+      u = URI.parse(url)
+      "#{u.scheme}://#{u.host}:#{u.port}"
+    end
+
     def fog_credentials
       { :provider           => :openstack,
         :openstack_api_key  => password,
         :openstack_username => user,
-        :openstack_auth_url => url,
-        :openstack_tenant   => tenant,
-        :openstack_identity_endpoint => url,
-        :openstack_user_domain       => domain,
-        :openstack_endpoint_type     => "publicURL"
+        :openstack_auth_url => url_for_fog,
+        :openstack_identity_endpoint => url_for_fog,
       }.tap do |h|
-        if tenant
-          h.merge!(:openstack_domain_name  => domain,
-                   :openstack_project_name => tenant)
+        if tenant.present?
+          if identity_version == 2
+            h[:openstack_tenant] = tenant
+          else
+            h[:openstack_project_name] = tenant
+          end
         end
+        h[:openstack_user_domain] = domain if domain.present?
+        h[:openstack_domain_id] = project_domain_id if project_domain_id.present?
+        h[:openstack_domain_name] = project_domain_name if project_domain_name.present?
+        h[:openstack_identity_api_version] = 'v2.0' if identity_version == 2
+        logger.debug { "OpenStack fog credentials: " + h.dup.delete_if { |key, value| key == :openstack_api_key }.to_s }
+        h
       end
     end
 

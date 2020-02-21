@@ -1,17 +1,18 @@
 import API from '../../../API';
 
-export const ajaxRequestAction = ({
+export const ajaxRequestAction = async ({
   dispatch,
   requestAction,
   successAction,
   failedAction,
   url,
-  item,
+  item = {},
 }) => {
   dispatch({ type: requestAction, payload: item });
-  return API.get(url)
-    .then(({ data }) =>
-      dispatch({ type: successAction, payload: { ...item, ...data } })
-    )
-    .catch(error => dispatch({ type: failedAction, payload: { error, item } }));
+  try {
+    const { data } = await API.get(url, item.headers || {}, item.params || {});
+    return dispatch({ type: successAction, payload: { ...item, ...data } });
+  } catch (error) {
+    return dispatch({ type: failedAction, payload: { error, item } });
+  }
 };

@@ -12,12 +12,12 @@ module Menu
       Manager.map :side_menu do |menu|
         menu.sub_menu :user_menu, :caption => N_('User'), :icon => 'fa fa-user' do
           menu.item :my_account,
-                    :caption => N_('My Account'),
-                    :url_hash => {:controller => '/users', :action => 'edit', :id => Proc.new { User.current.id }}
+            :caption => N_('My Account'),
+            :url_hash => {:controller => '/users', :action => 'edit', :id => Proc.new { User.current.id }}
           menu.item :logout,
-                    :caption => N_('Log Out'),
-                    :html => {:method => :post},
-                    :url_hash => {:controller => '/users', :action => 'logout'}
+            :caption => N_('Log Out'),
+            :html => {:'data-method' => :post},
+            :url_hash => {:controller => '/users', :action => 'logout'}
         end
       end
 
@@ -25,7 +25,7 @@ module Menu
         menu.sub_menu :administer_menu,  :caption => N_('Administer'), :icon => 'fa fa-cog' do
           menu.item :locations,          :caption => N_('Locations') if SETTINGS[:locations_enabled]
           menu.item :organizations,      :caption => N_('Organizations') if SETTINGS[:organizations_enabled]
-          menu.item :auth_source_ldaps,  :caption => N_('LDAP Authentication')
+          menu.item :auth_sources,       :caption => N_('Authentication sources')
           menu.item :users,              :caption => N_('Users')
           menu.item :usergroups,         :caption => N_('User Groups')
           menu.item :roles,              :caption => N_('Roles')
@@ -37,7 +37,7 @@ module Menu
 
       Manager.map :top_menu do |menu|
         menu.sub_menu :monitor_menu,    :caption => N_('Monitor'), :icon => 'fa fa-tachometer' do
-          menu.item :dashboard,         :caption => N_('Dashboard')
+          menu.item :dashboard,         :caption => N_('Dashboard'), :exact => true
           menu.item :fact_values,       :caption => N_('Facts')
           menu.item :statistics,        :caption => N_('Statistics')
           menu.item :trends,            :caption => N_('Trends')
@@ -74,7 +74,6 @@ module Menu
           menu.item :environments,      :caption => N_('Environments')
           menu.item :puppetclasses,     :caption => N_('Classes')
           menu.item :config_groups,     :caption => N_('Config Groups')
-          menu.item :variable_lookup_keys, :caption => N_('Smart Variables')
           menu.item :puppetclass_lookup_keys, :caption => N_('Smart Class Parameters')
         end
 
@@ -92,7 +91,24 @@ module Menu
       end
 
       Manager.map :labs_menu do |menu|
-        menu.sub_menu :lab_features_menu, :caption => N_('Lab Features'), :icon => 'fa fa-flask'
+        menu.sub_menu :lab_features_menu, :caption => N_('Lab Features'), :icon => 'fa fa-flask' do
+          menu.item :host_wizard,
+            :caption => 'Host Wizard',
+            :url => '/host_wizard'
+        end
+      end
+
+      if Rails.env.development? && defined?(::GraphiQL::Rails::Engine)
+        Manager.map :devel_menu do |menu|
+          menu.sub_menu :devel_tools, :caption => 'Toolbox', :icon => 'pficon pficon-maintenance' do
+            menu.item :graphiql,
+              :caption => 'GraphiQL',
+              :url => '/graphiql',
+              :engine => ::GraphiQL::Rails::Engine,
+              :url_hash => { :controller => 'graphiql/rails/editors',
+                             :action => 'show' }
+          end
+        end
       end
     end
   end

@@ -50,10 +50,16 @@ class AccessPermissionsTest < ActiveSupport::TestCase
     # https://github.com/rails/rails/issues/31228
     "active_storage/blobs/show", "active_storage/direct_uploads/create", "active_storage/disk/show",
     "active_storage/disk/update", "active_storage/previews/show", "active_storage/representations/show",
-    "active_storage/variants/show"
+    "active_storage/variants/show",
+
+    # graphql
+    "api/graphql/execute",
+
+    # ping
+    "api/v2/ping/ping"
   ]
 
-  MAY_SKIP_AUTHORIZED = [ "about/index" ]
+  MAY_SKIP_AUTHORIZED = [ "about/index", "react/index", "api/v2/ping/ping" ]
 
   SPECIAL_PATH = ['api/v2/puppet_hosts/puppetrun']
 

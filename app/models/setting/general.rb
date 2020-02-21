@@ -7,6 +7,9 @@ class Setting::General < Setting
     administrator = "root@#{domain}"
     foreman_url = "#{protocol}://#{SETTINGS[:fqdn]}"
 
+    locales = Hash['' => _("Browser locale")].merge(Hash[FastGettext.human_available_locales.map { |lang| [lang[1], lang[0]] }])
+    timezones = Hash['' => _("Browser timezone")].merge(Hash[ActiveSupport::TimeZone.all.map { |tz| [tz.name, "(GMT #{tz.formatted_offset}) #{tz.name}"] }])
+
     [
       self.set('administrator', N_("The default administrator email address"), administrator, N_('Administrator email address')),
       self.set('foreman_url', N_("URL where your Foreman instance is reachable (see also Provisioning > unattended_url)"), foreman_url, N_('Foreman URL')),
@@ -15,26 +18,18 @@ class Setting::General < Setting
       self.set('max_trend', N_("Max days for Trends graphs"), 30, N_('Max trends')),
       self.set('db_pending_migration', N_("Should the `foreman-rake db:migrate` be executed on the next run of the installer modules?"), true, N_('DB pending migration')),
       self.set('db_pending_seed', N_("Should the `foreman-rake db:seed` be executed on the next run of the installer modules?"), true, N_('DB pending seed')),
-      self.set('proxy_request_timeout', N_("Max timeout for REST client requests to smart-proxy"), 60, N_('Proxy request timeout')),
+      self.set('proxy_request_timeout', N_("Open and read timeout for HTTP requests from Foreman to Smart Proxy (in seconds)"), 60, N_('Smart Proxy request timeout')),
       self.set('login_text', N_("Text to be shown in the login-page footer"), nil, N_('Login page footer text')),
       self.set('host_power_status', N_("Show power status on host index page. This feature calls to compute resource providers which may lead to decreased performance on host listing page."), true, N_('Show host power status')),
       self.set('http_proxy', N_('Sets a proxy for all outgoing HTTP connections.'), nil, N_('HTTP(S) proxy')),
       self.set('http_proxy_except_list', N_('Set hostnames to which requests are not to be proxied. Requests to the local host are excluded by default.'), [], N_('HTTP(S) proxy except hosts')),
       self.set('lab_features', N_("Whether or not to show a menu to access experimental lab features (requires reload of page)"), false, N_('Show Experimental Labs')),
       self.set("append_domain_name_for_hosts", N_("Foreman will append domain names when new hosts are provisioned"), true, N_("Append domain names to the host")),
-      self.set('outofsync_interval', N_("Duration in minutes after servers are classed as out of sync."), 30, N_('Out of sync interval'))
+      self.set('outofsync_interval', N_("Duration in minutes after servers are classed as out of sync."), 30, N_('Out of sync interval')),
+      self.set('instance_id', N_("Foreman instance ID, uniquely identifies this Foreman instance."), 'uuid', N_('Foreman UUID'), Foreman.uuid),
+      self.set('default_locale', N_("Language to use for new users"), nil, N_('Default language'), nil, { :collection => Proc.new { locales } }),
+      self.set('default_timezone', N_("Timezone to use for new users"), nil, N_('Default timezone'), nil, { :collection => Proc.new { timezones } }),
     ]
-  end
-
-  def self.load_defaults
-    # Check the table exists
-    return unless super
-
-    self.transaction do
-      default_settings.each { |s| self.create! s.update(:category => "Setting::General")}
-    end
-
-    true
   end
 
   def self.humanized_category

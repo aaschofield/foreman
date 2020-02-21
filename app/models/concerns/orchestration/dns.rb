@@ -55,7 +55,7 @@ module Orchestration::DNS
   end
 
   def queue_dns
-    return log_orchestration_errors unless (dns? || dns6? || reverse_dns? || reverse_dns6?) && errors.empty?
+    return log_orchestration_errors unless (dns? || dns6? || reverse_dns? || reverse_dns6? || old&.dns? || old&.dns6? || old&.reverse_dns? || old&.reverse_dns6?) && errors.empty?
     queue_remove_dns_conflicts if overwrite?
     new_record? ? queue_dns_create : queue_dns_update
   end
@@ -122,11 +122,11 @@ module Orchestration::DNS
       end
     end
     !status # failure method returns 'false'
-  rescue Net::Error => e
+  rescue Resolv::ResolvTimeout, Net::Error => e
     if domain.nameservers.empty?
       failure(_("Error connecting to system DNS server(s) - check /etc/resolv.conf"), e)
     else
-      failure(_("Error connecting to '%{domain}' domain DNS servers: %{servers} - check query_local_nameservers and dns_conflict_timeout settings") % {:domain => domain.try(:name), :servers => domain.nameservers.join(',')}, e)
+      failure(_("Error connecting to '%{domain}' domain DNS servers: %{servers} - check query_local_nameservers and dns_timeout settings") % {:domain => domain.try(:name), :servers => domain.nameservers.join(',')}, e)
     end
   end
 end

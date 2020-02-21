@@ -11,9 +11,9 @@ FactoryBot.define do
       after(:create) do |os, evaluator|
         os.provisioning_templates.each do |tmpl|
           FactoryBot.create(:os_default_template,
-                             :operatingsystem => os,
-                             :provisioning_template => tmpl,
-                             :template_kind => tmpl.template_kind)
+            :operatingsystem => os,
+            :provisioning_template => tmpl,
+            :template_kind => tmpl.template_kind)
         end
       end
     end
@@ -90,6 +90,15 @@ FactoryBot.define do
       title { 'Debian Wheezy' }
     end
 
+    factory :debian7_1, class: Debian do
+      sequence(:name) { 'Debian' }
+      major { '7' }
+      minor { '1' }
+      type { 'Debian' }
+      release_name { 'wheezy' }
+      title { 'Debian Wheezy' }
+    end
+
     factory :suse, class: Suse do
       sequence(:name) { 'OpenSuse' }
       major { '11' }
@@ -99,11 +108,19 @@ FactoryBot.define do
     end
 
     factory :rhel7_5, class: Redhat do
-      sequence(:name) { 'Red Hat Enterprise Linux' }
+      sequence(:name) { |n| "RedHat#{n}" }
       major { '7' }
       minor { '5' }
       type { 'Redhat' }
       title { 'Red Hat Enterprise Linux 7.5' }
+    end
+
+    factory :altlinux, class: Altlinux do
+      sequence(:name) { 'Altlinux' }
+      major { '8' }
+      minor { '2' }
+      type { 'Altlinux' }
+      title { 'Altlinux 8.2' }
     end
 
     factory :solaris, class: Solaris do
@@ -112,6 +129,22 @@ FactoryBot.define do
       minor { '8' }
       type { 'Solaris' }
       title { 'Solaris 10.8' }
+    end
+
+    factory :rancheros, class: Rancheros do
+      sequence(:name) { 'Rancheros' }
+      major { '1' }
+      minor { '4.3' }
+      type { 'Rancheros' }
+      title { 'Rancheros 1.4.3' }
+    end
+
+    factory :freebsd, class: Freebsd do
+      sequence(:name) { 'FreeBSD' }
+      major { '11' }
+      minor { '2' }
+      type { 'Freebsd' }
+      title { 'FreeBSD 11.2' }
     end
   end
 end

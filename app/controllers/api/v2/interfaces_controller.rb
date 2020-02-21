@@ -16,11 +16,10 @@ module Api
       param :host_id, String, :required => true, :desc => N_("ID or name of host")
       param :domain_id, String, :required => false, :desc => N_('ID or name of domain')
       param :subnet_id, String, :required => false, :desc => N_('ID or name of subnet')
-      param :page, String, :desc => N_("paginate results")
-      param :per_page, String, :desc => N_("number of entries per request")
+      param_group :pagination, ::Api::V2::BaseController
 
       def index
-        @interfaces = resource_scope.paginate(paginate_options)
+        @interfaces = resource_scope_for_index
       end
 
       api :GET, '/hosts/:host_id/interfaces/:id', N_("Show an interface for host")
@@ -107,7 +106,7 @@ module Api
         if params[:action] != 'update' || params[:interface].has_key?(:type)
           params[:interface][:type] = InterfaceTypeMapper.map(params[:interface][:type])
         end
-      rescue InterfaceTypeMapper::UnknownTypeExeption => e
+      rescue InterfaceTypeMapper::UnknownTypeException => e
         render_error :custom_error, :status => :unprocessable_entity, :locals => { :message => e.to_s }
       end
     end

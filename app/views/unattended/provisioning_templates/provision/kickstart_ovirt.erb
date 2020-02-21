@@ -54,7 +54,7 @@ liveimg --url=<%= liveimg_url %>
 <% else -%>
 <% dhcp = !@static -%>
 <% end -%>
-network --bootproto <%= dhcp ? 'dhcp' : "static --ip=#{@host.ip} --netmask=#{subnet.mask} --gateway=#{subnet.gateway} --nameserver=#{[subnet.dns_primary, subnet.dns_secondary].select{ |item| item.present? }.join(',')}" %> --hostname <%= @host %> --device=<%= @host.mac -%>
+network --bootproto <%= dhcp ? 'dhcp' : "static --ip=#{@host.ip} --netmask=#{subnet.mask} --gateway=#{subnet.gateway} --nameserver=#{subnet.dns_servers.join(',')}" %> --hostname <%= @host %> --device=<%= @host.mac -%>
 
 rootpw --iscrypted <%= root_pass %>
 <% if host_param_true?('disable-firewall') -%>
@@ -75,6 +75,7 @@ reboot
 nodectl init
 <%= snippet 'redhat_register' %>
 <%= snippet 'kickstart_networking_setup' %>
+<%= snippet 'efibootmgr_netboot' %>
 /usr/sbin/ntpdate -sub <%= host_param('ntp-server') || '0.fedora.pool.ntp.org' %>
 /usr/sbin/hwclock --systohc
 

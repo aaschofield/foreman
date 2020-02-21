@@ -22,7 +22,7 @@ class UsergroupMember < ApplicationRecord
 
   belongs_to :usergroup
 
-  before_validation :ensure_no_cycle
+  before_validation :ensure_no_cycle, :ensure_not_reflexive
   before_update :remove_old_cache_for_old_record
   after_save :add_new_cache
   after_destroy :remove_old_cache
@@ -32,9 +32,18 @@ class UsergroupMember < ApplicationRecord
 
   private
 
+  def ensure_not_reflexive
+    if member_id == usergroup_id && member_type == 'Usergroup'
+      self.errors.add :base, (_('cannot contain itself as member') % Usergroup.find(usergroup_id).name)
+      raise ::Foreman::CyclicGraphException, self
+    end
+  end
+
   def ensure_no_cycle
-    current = UsergroupMember.usergroup_memberships
-    EnsureNoCycle.new(current, :usergroup_id, :member_id).ensure(self)
+    if self.member_type != 'User'
+      current = UsergroupMember.usergroup_memberships
+      EnsureNoCycle.new(current, :usergroup_id, :member_id).ensure(self)
+    end
   end
 
   def add_new_cache
@@ -86,7 +95,9 @@ class UsergroupMember < ApplicationRecord
   end
 
   def recache_memberships
-    find_all_affected_memberships.each(&:save!)
+    memberships = find_all_affected_memberships
+    memberships = memberships.reject(&:destroyed?)
+    memberships.each(&:save!)
   end
 
   def drop_role_cache(users, user_roles)
@@ -114,7 +125,7 @@ class UsergroupMember < ApplicationRecord
   def find_all_affected_memberships
     [
       find_all_affected_memberships_for(member, :usergroups),
-      find_all_affected_memberships_for(usergroup, :parents)
+      find_all_affected_memberships_for(usergroup, :parents),
     ].flatten
   end
 

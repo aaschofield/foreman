@@ -13,6 +13,7 @@ exports[`AuditsList rendering render resources list 1`] = `
           date="2018-08-13 00:34:55 -1100"
           defaultValue="N/A"
           seconds={false}
+          showRelativeTimeTooltip={true}
         />
       </span>
     }
@@ -64,6 +65,7 @@ exports[`AuditsList rendering render resources list 1`] = `
     }
     hideCloseIcon={true}
     id={234}
+    initExpanded={true}
     key="234"
     leftContent={null}
     onCloseCompoundExpand={[Function]}
@@ -119,6 +121,16 @@ exports[`AuditsList rendering render resources list 1`] = `
             },
           ]
         }
+      />
+    </Row>
+    <Row
+      bsClass="row"
+      componentClass="div"
+    >
+      <ShowInlineRequestUuid
+        fetchAndPush={[MockFunction]}
+        id={234}
+        requestUuid="c134239d-8ac3-494b-9962-35133fe153ba"
       />
     </Row>
     <ExpansiveView

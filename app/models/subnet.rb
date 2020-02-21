@@ -17,7 +17,7 @@ class Subnet < ApplicationRecord
   include BelongsToProxies
 
   attr_exportable :name, :network, :mask, :gateway, :dns_primary, :dns_secondary, :from, :to, :boot_mode,
-    :ipam, :vlanid, :mtu, :network_type, :description
+    :ipam, :vlanid, :mtu, :nic_delay, :network_type, :description
 
   # This sets the rails model name of all child classes to the
   # model name of the parent class, i.e. Subnet.
@@ -33,6 +33,8 @@ class Subnet < ApplicationRecord
     end
     super
   end
+
+  graphql_type '::Types::Subnet'
 
   validates_lengths_from_database :except => [:gateway]
   before_destroy EnsureNotUsedBy.new(:hosts, :hostgroups, :interfaces, :domains)
@@ -81,7 +83,8 @@ class Subnet < ApplicationRecord
   validates :type, :inclusion => {:in => Proc.new { Subnet::SUBNET_TYPES.keys.map(&:to_s) }, :message => N_("must be one of [ %s ]" % Subnet::SUBNET_TYPES.keys.map(&:to_s).join(', ')) }
   validates :name, :length => {:maximum => 255}, :uniqueness => true
   validates :vlanid, numericality: { :only_integer => true, :greater_than_or_equal_to => 0, :less_than => 4096}, :allow_blank => true
-  validates :mtu, :presence => true
+  validates :mtu, numericality: { :only_integer => true, :greater_than_or_equal_to => 68}, :presence => true
+  validates :nic_delay, numericality: { :only_integer => true, :greater_than_or_equal_to => 0, :less_than => 1024, allow_nil: true}, :allow_blank => true
 
   before_validation :normalize_addresses
   validate :ensure_ip_addrs_valid
@@ -96,7 +99,7 @@ class Subnet < ApplicationRecord
   }
 
   scoped_search :on => [:name, :network, :mask, :gateway, :dns_primary, :dns_secondary,
-                        :vlanid, :mtu, :ipam, :boot_mode, :type], :complete_value => true
+                        :vlanid, :mtu, :nic_delay, :ipam, :boot_mode, :type], :complete_value => true
 
   scoped_search :relation => :domains, :on => :name, :rename => :domain, :complete_value => true
   scoped_search :relation => :subnet_parameters, :on => :value, :on_key => :name, :complete_value => true, :only_explicit => true, :rename => :params
@@ -104,8 +107,8 @@ class Subnet < ApplicationRecord
   delegate :supports_ipam_mode?, :supported_ipam_modes, :show_mask?, to: 'self.class'
 
   class Jail < ::Safemode::Jail
-    allow :name, :network, :mask, :cidr, :title, :to_label, :gateway, :dns_primary, :dns_secondary,
-          :vlanid, :mtu, :boot_mode, :dhcp?, :nil?, :has_vlanid?, :dhcp_boot_mode?, :description, :present?
+    allow :name, :network, :mask, :cidr, :title, :to_label, :gateway, :dns_primary, :dns_secondary, :dns_servers,
+      :vlanid, :mtu, :nic_delay, :boot_mode, :dhcp?, :nil?, :has_vlanid?, :dhcp_boot_mode?, :description, :present?
   end
 
   # Subnets are displayed in the form of their network network/network mask
@@ -239,6 +242,10 @@ class Subnet < ApplicationRecord
 
   def as_json(options = {})
     super({:methods => [:to_label, :type]}.merge(options))
+  end
+
+  def dns_servers
+    [dns_primary, dns_secondary].select(&:present?)
   end
 
   private

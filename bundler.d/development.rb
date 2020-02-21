@@ -1,6 +1,5 @@
 group :development do
   gem 'maruku', '~> 0.7'
-  gem 'rubocop', '~> 0.59.2'
 
   # for generating i18n files
   gem 'gettext', '>= 3.2.1', '< 4.0.0', :require => false
@@ -9,6 +8,13 @@ group :development do
   gem 'immigrant', '~> 0.1'
 
   gem 'pry'
+  gem 'pry-rails'
+  gem 'pry-byebug', '< 3.7.0'
+  gem 'pry-doc'
+  gem 'pry-stack_explorer'
+  gem 'pry-remote'
+
+  gem 'rainbow', '>= 2.2.1'
 
   gem 'bullet', '>= 5.7.3'
   gem "parallel_tests"
@@ -16,4 +22,5 @@ group :development do
   gem 'benchmark-ips'
   gem 'foreman'
   gem('bootsnap', :require => false)
+  gem 'graphiql-rails', '~> 1.7'
 end

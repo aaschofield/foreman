@@ -86,8 +86,8 @@ module FormHelper
         hidden_fields += f.hidden_field(attr_ids, :multiple => true, :value => unauthorized_value, :id => '')
       end
       hidden_fields + f.collection_select(attr_ids, authorized.sort_by { |a| a.to_s },
-                                          :id, options.delete(:object_label_method) || :to_label, options.merge(:selected => selected_ids),
-                                          html_options.merge(:multiple => true))
+        :id, options.delete(:object_label_method) || :to_label, options.merge(:selected => selected_ids),
+        html_options.merge(:multiple => true))
     end
   end
 
@@ -173,9 +173,13 @@ module FormHelper
   def selectable_f(f, attr, array, select_options = {}, html_options = {})
     html_options[:size] = 'col-md-10' if html_options[:multiple]
     field(f, attr, html_options) do
-      addClass html_options, "form-control"
-      f.select attr, array, select_options, html_options
+      form_select_f(f, attr, array, select_options, html_options)
     end
+  end
+
+  def selectable_f_inline(f, attr, array, select_options = {}, html_options = {})
+    html_options[:size] = 'col-md-10' if html_options[:multiple]
+    form_select_f(f, attr, array, select_options, html_options)
   end
 
   def spinner_button_f(f, caption, action, html_options = {})
@@ -197,32 +201,47 @@ module FormHelper
     end
   end
 
+  # Returns an AutoComplete React input tailored for accessing a specified attribute (identified by +attr+) on an object
+  # assigned to the form (identified by +f+). Additional properties on the input tag can be passed as a
+  # hash with +options+. These options will be tagged onto the React Component as an props as in the example
+  # shown.
+  #
+  # ==== Options
+  # * Creates standard React props for the component.
+  # * <tt>:url</tt> - path where the search results should be fetched from.
+  # * <tt>:disabled</tt> - If set to true, the user will not be able to use this input.
+  # * <tt>:search_query</tt> - Default search query.
+  # * <tt>:use_key_shortcuts</tt> - If set to true, keyboard shortcuts are enabled on the field.
+  #
+  # ==== Examples
+  #   form_for(@user) do |f|
+  #     autocomplete_f(f, :country, url: api_countries_path, search_query: 'Czech')
+  #   end
+  #   # => <AutoComplete id="user_country" name="user[country]" url="/api/countries/auto_complete_country" searchQuery="Czech" />
   def autocomplete_f(f, attr, options = {})
-    field(f, attr, options) do
-      path = options.delete(:path) || send("#{f.object.class.pluralize.underscore}_path") if options[:full_path].nil?
-      auto_complete_search(attr,
-                           f.object.send(attr).try(:squeeze, " "),
-                           options.merge(
-                             :placeholder => _("Filter") + ' ...',
-                             :path        => path,
-                             :name        => "#{f.object_name}[#{attr}]"
-                           )
-      ).html_safe
-    end
+    options.merge!(
+      {
+        url: options[:full_path] || (options[:path] || send("#{auto_complete_controller_name}_path")) + "/auto_complete_#{attr}",
+        controller: options[:path] || auto_complete_controller_name,
+        search_query: options[:search_query] || f.object&.search || '',
+        use_key_shortcuts: options[:use_key_shortcuts] || false,
+      }
+    )
+
+    react_form_input('autocomplete', f, attr, options)
   end
 
   def byte_size_f(f, attr, options = {})
-    options[:class] = options[:class].to_s + ' byte_spinner'
+    options[:class] = options[:class].to_s + ' byte_spinner' unless options[:disabled]
     options[:label_help] = _("When specifying custom value, add 'MB' or 'GB' at the end. Field is not case sensitive and MB is default if unspecified.")
     options[:help_block] ||= soft_limit_warning_block
     options[:help_block] += f.hidden_field(attr, :class => "real-hidden-value", :id => nil)
-    options[:label_help_options] = { :rel => 'popover-modal' }
 
     text_f(f, attr, options)
   end
 
   def counter_f(f, attr, options = {})
-    options[:class] = options[:class].to_s + ' counter_spinner'
+    options[:class] = options[:class].to_s + ' counter_spinner' unless options[:disabled]
     options[:help_block] ||= soft_limit_warning_block
 
     text_f(f, attr, options)
@@ -231,26 +250,9 @@ module FormHelper
   def soft_limit_warning_block
     content_tag(:span, :class => 'maximum-limit hidden') do
       icon_text('warning-triangle-o',
-                content_tag(:span, ' ' + _('Specified value is higher than recommended maximum'), :class => 'error-message'),
-                :kind => 'pficon')
+        content_tag(:span, ' ' + _('Specified value is higher than recommended maximum'), :class => 'error-message'),
+        :kind => 'pficon')
     end
-  end
-
-  def form_to_submit_id(f)
-    object = f.object.respond_to?(:to_model) ? f.object.to_model : f.object
-    key = if object.present?
-            object.persisted? ? :update : :create
-          else
-            :submit
-          end
-    model = if object.class.respond_to?(:humanize_class_name)
-              object.class.humanize_class_name.downcase
-            elsif object.class.respond_to?(:model_name)
-              object.class.model_name.human.downcase
-            else
-              f.object_name.to_s
-            end.gsub(/\W+/, '_')
-    "aid_#{key}_#{model}"
   end
 
   def submit_or_cancel(f, overwrite = false, args = { })
@@ -268,7 +270,6 @@ module FormHelper
     options = {}
     options[:disabled] = true if args[:disabled]
     options[:class] = "btn btn-#{overwrite ? 'danger' : 'primary'} remove_form_templates"
-    options[:'data-id'] = form_to_submit_id(f) unless options.has_key?(:'data-id')
     options[:data] = args[:data] if args.key?(:data)
     options
   end
@@ -311,7 +312,7 @@ module FormHelper
         ""
       when :indicator
         content_tag(:span, content_tag(:div, '', :class => 'hide spinner spinner-xs'),
-                    :class => 'help-block').html_safe
+          :class => 'help-block').html_safe
       else
         content_tag(:span, help_inline, :class => "help-block help-inline")
     end
@@ -323,9 +324,7 @@ module FormHelper
     label_size = options.delete(:label_size) || "col-md-2"
     required_mark = check_required(options, f, attr)
     label = ''.html_safe + options.delete(:label)
-    if label.empty? && f.try(:object) && (clazz = f.object.class).respond_to?(:gettext_translation_for_attribute_name)
-      label = s_(clazz.gettext_translation_for_attribute_name(attr)).titleize.html_safe
-    end
+    label = get_attr_label(f, attr).to_s.html_safe if label.empty?
 
     if options[:label_help].present?
       label += ' '.html_safe + popover("", options[:label_help], options[:label_help_options] || {})
@@ -359,8 +358,10 @@ module FormHelper
   # +partial+    : String containing an optional partial into which we render
   def link_to_add_fields(name, f, association, partial = nil, options = {})
     new_object = f.object.class.reflect_on_association(association).klass.new
+    locals_option = options.delete(:locals) || {}
     fields = f.fields_for(association, new_object, :child_index => "new_#{association}") do |builder|
-      render((partial.nil? ? association.to_s.singularize + "_fields" : partial), :f => builder)
+      render((partial.nil? ? association.to_s.singularize + "_fields" : partial),
+        { :f => builder }.merge(locals_option))
     end
     options[:class] = link_to_add_fields_classes(options)
     link_to_function(name, "add_fields('#{options[:target]}', '#{association}', '#{escape_javascript(fields)}')".html_safe, options)
@@ -368,7 +369,7 @@ module FormHelper
 
   def field(f, attr, options = {})
     table_field = options.delete(:table_field)
-    error       = options.delete(:error) || f.object.errors[attr] if f && f.object.respond_to?(:errors)
+    error       = options.delete(:error) || get_attr_error(f, attr)
     help_inline = help_inline(options.delete(:help_inline), error)
     help_inline += options[:help_inline_permanent] unless options[:help_inline_permanent].nil?
     size_class = options.delete(:size) || "col-md-4"
@@ -401,6 +402,26 @@ module FormHelper
     end
   end
 
+  def datetime_local_f(f, attr, options = {})
+    react_form_input('dateTime', f, attr, options)
+  end
+
+  def orderable_select_f(f, attr, choices, select_options = {}, html_options = {})
+    options = choices.collect { |choice| { label: choice[0], value: choice[1] } } if choices.is_a?(Array)
+    options = choices.collect { |(key, val)| { label: val, value: key } } if choices.is_a?(Hash)
+    input_props = select_options.merge(options: options)
+    react_form_input('orderableSelect', f, attr, html_options.merge(input_props: input_props))
+  end
+
+  def react_form_input(type, f, attr, options = {})
+    options[:label] ||= get_attr_label(f, attr)
+    options[:error] ||= get_attr_error(f, attr)
+    options[:error] = options[:error]&.to_sentence
+    options[:required] = is_required?(f, attr) unless options.key?(:required)
+
+    Tags::ReactInput.new(f.object_name, attr, self, options.merge(type: type, object: f.object)).render
+  end
+
   def advanced_switch_f(default_text, switch_text)
     content_tag :div, :class => 'form-group' do
       content_tag(:div, '', :class => 'col-md-2 control-label') +
@@ -412,6 +433,21 @@ module FormHelper
   end
 
   private
+
+  def get_attr_label(f, attr)
+    if f.try(:object) && (clazz = f.object.class).respond_to?(:gettext_translation_for_attribute_name)
+      s_(clazz.gettext_translation_for_attribute_name(attr)).titleize
+    end
+  end
+
+  def get_attr_error(f, attr)
+    f.object.errors[attr] if f&.object.respond_to?(:errors)
+  end
+
+  def form_select_f(f, attr, array, select_options = {}, html_options = {})
+    addClass html_options, "form-control"
+    f.select attr, array, select_options, html_options
+  end
 
   def link_to_add_fields_classes(options = {})
     classes = "btn btn-default #{options[:class]}"

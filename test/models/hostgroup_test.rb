@@ -10,7 +10,7 @@ def valid_hostgroup_name_list
     RFauxFactory.gen_alpha(1),
     RFauxFactory.gen_alpha(245),
     *RFauxFactory.gen_strings(1..245, exclude: [:html, :punctuation]).values,
-    RFauxFactory.gen_html(rand((1..220)))
+    RFauxFactory.gen_html(rand((1..220))),
   ]
 end
 
@@ -26,6 +26,16 @@ class HostgroupTest < ActiveSupport::TestCase
   should allow_value(nil).for(:root_pass)
   should validate_length_of(:root_pass).is_at_least(8).
     with_message('should be 8 characters or more')
+
+  test 'hooks are defined' do
+    expected = [
+      'hostgroup_created.event.foreman',
+      'hostgroup_updated.event.foreman',
+      'hostgroup_destroyed.event.foreman',
+    ]
+
+    assert_same_elements expected, Hostgroup.event_subscription_hooks
+  end
 
   test "name strips leading and trailing white spaces" do
     host_group = Hostgroup.new :name => " all    hosts in the     world    "
@@ -365,9 +375,7 @@ class HostgroupTest < ActiveSupport::TestCase
 
   test "hostgroup name can't be too big to create lookup value matcher over 255 characters" do
     parent = FactoryBot.create(:hostgroup)
-    # rubocop:disable Performance/FixedSize
     min_lookupvalue_length = "hostgroup=".length + parent.title.length + 1
-    # rubocop:enable Performance/FixedSize
     hostgroup = Hostgroup.new :parent => parent, :name => 'a' * 256
     refute_valid hostgroup
     assert_equal "is too long (maximum is %s characters)" % (255 - min_lookupvalue_length), hostgroup.errors[:name].first
@@ -375,9 +383,7 @@ class HostgroupTest < ActiveSupport::TestCase
 
   test "hostgroup name can be up to 255 characters" do
     parent = FactoryBot.create(:hostgroup)
-    # rubocop:disable Performance/FixedSize
     min_lookupvalue_length = "hostgroup=".length + parent.title.length + 1
-    # rubocop:enable Performance/FixedSize
     hostgroup = Hostgroup.new :parent => parent, :name => 'a' * (255 - min_lookupvalue_length)
     assert_valid hostgroup
   end

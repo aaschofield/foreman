@@ -58,8 +58,8 @@ class ComputeResourcesController < ApplicationController
       end
       if associator.fail_count > 0
         messages << n_('%s VM failed while processing: check logs for more details.',
-                       '%s VMs failed while processing: check logs for more details.',
-                       associator.fail_count) % associator.fail_count
+          '%s VMs failed while processing: check logs for more details.',
+          associator.fail_count) % associator.fail_count
         process_error(:error_msg => messages.join(' '))
       else
         process_success(:success_msg => messages.join(' '))
@@ -91,14 +91,21 @@ class ComputeResourcesController < ApplicationController
   end
 
   def refresh_cache
-    if @compute_resource.respond_to?(:refresh_cache) && @compute_resource.refresh_cache
-      process_success(
-        :success_msg => _('Successfully refreshed the cache.'),
-        :success_redirect => @compute_resource
-      )
+    if @compute_resource.respond_to?(:refresh_cache)
+      if @compute_resource.refresh_cache
+        process_success(
+          :success_msg => _('Successfully refreshed the cache.'),
+          :success_redirect => @compute_resource
+        )
+      else
+        process_error(
+          :error_msg => _('Failed to refresh the cache.'),
+          :redirect => @compute_resource
+        )
+      end
     else
       process_error(
-        :error_msg => _('Failed to refresh the cache.'),
+        :error_msg => _("Cache refreshing is not supported for %s") % @compute_resource.provider_friendly_name,
         :redirect => @compute_resource
       )
     end

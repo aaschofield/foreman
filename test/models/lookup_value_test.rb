@@ -9,14 +9,14 @@ class LookupValueTest < ActiveSupport::TestCase
   def valid_attrs1
     { :match => "fqdn=#{@host2.name}",
       :value => "3001",
-      :lookup_key_id => lookup_keys(:one).id
+      :lookup_key_id => lookup_keys(:one).id,
     }
   end
 
   def valid_attrs2
     { :match => "hostgroup=Common",
       :value => "3001",
-      :lookup_key_id => lookup_keys(:one).id
+      :lookup_key_id => lookup_keys(:one).id,
     }
   end
 
@@ -64,6 +64,19 @@ class LookupValueTest < ActiveSupport::TestCase
       lookup_value = LookupValue.new(attrs)
       refute lookup_value.save
       assert_match /Match hostgroup=non_existing_group does not match an existing host group/, lookup_value.errors.full_messages.join("\n")
+    end
+  end
+
+  test "can create lookup value if match fqdn= does match existing host" do
+    as_admin do
+      Setting[:append_domain_name_for_hosts] = false
+      domain = FactoryBot.create(:domain)
+      host = FactoryBot.create(:host, interfaces: [FactoryBot.build(:nic_managed, identifier: 'fqdn_test', primary: true, domain: domain)])
+      attrs = { :match => "fqdn=#{host.primary_interface.fqdn}", :value => "123", :lookup_key_id => lookup_keys(:one).id }
+      refute_match /#{domain.name}/, host.name, "#{host.name} shouldn't be FQDN"
+      assert_difference('LookupValue.count') do
+        LookupValue.create!(attrs)
+      end
     end
   end
 
@@ -117,33 +130,10 @@ class LookupValueTest < ActiveSupport::TestCase
     assert_equal lk.value_before_type_cast, '{"foo" => "bar"}'
   end
 
-  test "when created, an audit entry should be added" do
-    env = FactoryBot.create(:environment)
-    pc = FactoryBot.create(:puppetclass, :with_parameters, :environments => [env])
-    key = pc.class_params.first
-    lvalue = nil
-    assert_difference('Audit.count') do
-      lvalue = FactoryBot.create :lookup_value, :with_auditing, :lookup_key_id => key.id, :value => 'test', :match => 'os=bar'
-    end
-    assert_equal "#{pc.name}::#{key.key}", lvalue.audits.last.associated_name
-  end
-
-  test "when changed, an audit entry should be added" do
-    env = FactoryBot.create(:environment)
-    pc = FactoryBot.create(:puppetclass, :environments => [env])
-    key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param, :with_override, :puppetclass => pc)
-    lvalue = key.lookup_values.first
-    assert_difference('Audit.count') do
-      lvalue.value = 'new overridden value'
-      lvalue.save!
-    end
-    assert_equal "#{pc.name}::#{key.key}", lvalue.audits.last.associated_name
-  end
-
   test "shuld not cast string with erb" do
     key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
-                            :default_value => [1, 2, 3], :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'array', :merge_overrides => true, :avoid_duplicates => true,
+      :default_value => [1, 2, 3], :puppetclass => puppetclasses(:one))
 
     lv = LookupValue.new(:value => "<%= [4,5,6] %>", :match => "hostgroup=Common", :lookup_key => key)
     # does not cast on save (validate_and_cast_value)
@@ -223,8 +213,8 @@ class LookupValueTest < ActiveSupport::TestCase
   context "when key is a boolean and default_value is a string" do
     def setup
       @key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'boolean',
-                                :default_value => 'whatever', :puppetclass => puppetclasses(:one), :omit => true)
+        :override => true, :key_type => 'boolean',
+        :default_value => 'whatever', :puppetclass => puppetclasses(:one), :omit => true)
       @value = LookupValue.new(:value => 'abc', :match => "hostgroup=Common", :lookup_key_id => @key.id, :omit => true)
     end
 
@@ -241,7 +231,7 @@ class LookupValueTest < ActiveSupport::TestCase
   context "when key type is puppetclass lookup and value is empty" do
     def setup
       @key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                                :with_override, :with_omit, :path => "hostgroup\ncomment",
+        :with_override, :with_omit, :path => "hostgroup\ncomment",
                                 :key_type => 'string',
                                 :puppetclass => puppetclasses(:one))
       @value = FactoryBot.build_stubbed(:lookup_value, :value => "",
@@ -262,15 +252,15 @@ class LookupValueTest < ActiveSupport::TestCase
 
   test "should allow white space in value" do
     key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                             :with_override, :path => "hostgroup\ncomment",
+      :with_override, :path => "hostgroup\ncomment",
                              :key_type => 'string',
                              :puppetclass => puppetclasses(:one))
-    text = <<EOF
+    text = <<~EOF
 
-this is a multiline value
-with leading and trailing whitespace
+      this is a multiline value
+      with leading and trailing whitespace
 
-EOF
+    EOF
     value = LookupValue.new(:value => text, :match => "hostgroup=Common", :lookup_key_id => key.id)
     assert value.save!
     assert_equal value.value, text
@@ -313,7 +303,7 @@ EOF
     as_user :one do
       lookup_value = LookupValue.new({ :match => "os=Common",
                                        :value => 'a' * 280,
-                                       :lookup_key_id => lookup_keys(:complex).id
+                                       :lookup_key_id => lookup_keys(:complex).id,
                                      })
       assert_difference('LookupValue.count') do
         assert lookup_value.save
@@ -323,8 +313,8 @@ EOF
 
   test "should save matcher types as lowercase" do
     key = FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                            :override => true, :key_type => 'string', :path => "HOSTGROUP\nFQDN",
-                            :default_value => "test123", :puppetclass => puppetclasses(:one))
+      :override => true, :key_type => 'string', :path => "HOSTGROUP\nFQDN",
+      :default_value => "test123", :puppetclass => puppetclasses(:one))
 
     lv = LookupValue.new(:value => "lookup_value_lower_test", :match => "HOSTGROUP=Common", :lookup_key => key)
     assert lv.save!

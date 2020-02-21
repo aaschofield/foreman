@@ -25,17 +25,6 @@ class AuditExtensionsTest < ActiveSupport::TestCase
     assert_equal "[redacted]", a.last.audited_changes["value"][1]
   end
 
-  test "audited changes field can be greater then 65K bytes" do
-    prov_template = templates(:mystring)
-    prov_template.template = "0000000000" * 3500
-    as_admin do
-      assert prov_template.save!
-      prov_template.template = "1111111111" * 3500
-      assert prov_template.save!
-    end
-    assert Audit.last.audited_changes.to_s.bytesize > 66000
-  end
-
   context "with multiple taxonomies" do
     def setup
       @loc = taxonomies(:location1)
@@ -297,6 +286,16 @@ class AuditExtensionsTest < ActiveSupport::TestCase
           refute_includes result, location2_audit
         end
       end
+    end
+  end
+
+  describe "#main_object_names" do
+    test "should contain 'Host::Base' classname along with audited_classes" do
+      host = FactoryBot.create(:host, :managed, :with_auditing)
+      audit = host.audits.last
+      assert_equal 'create', audit.action
+      assert_equal 'Host::Base', audit.auditable_type
+      assert_include Audit.main_object_names, audit.auditable_type
     end
   end
 end

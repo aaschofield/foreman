@@ -16,11 +16,11 @@ module Nic
     before_destroy :not_required_interface
 
     validate :mac_uniqueness,
-             :if => Proc.new { |nic| nic.managed? && nic.host && nic.host.managed? && !nic.host.compute? && !nic.virtual? && nic.mac.present? }
+      :if => Proc.new { |nic| nic.managed? && nic.host && nic.host.managed? && !nic.host.compute? && !nic.virtual? && nic.mac.present? }
     validates :mac, :presence => true,
-              :if => Proc.new { |nic| nic.managed? && nic.host_managed? && !nic.host.compute? && !nic.virtual? }
+              :if => Proc.new { |nic| nic.managed? && nic.host_managed? && !nic.host.compute? && !nic.virtual? && (nic.provision? || nic.subnet.present? || nic.subnet6.present?)}
     validate :validate_mac_is_unicast,
-              :if => Proc.new { |nic| nic.managed? && !nic.virtual? }
+      :if => Proc.new { |nic| nic.managed? && !nic.virtual? }
     validates :mac, :mac_address => true, :allow_blank => true
 
     validates :host, :presence => true, :if => Proc.new { |nic| nic.require_host? }
@@ -40,10 +40,10 @@ module Nic
     validate :validate_updating_types
 
     # Validate that subnet's taxonomies are defined for nic's host
-    validates :subnet, :belongs_to_host_taxonomy => {:taxonomy => :location }
-    validates :subnet6, :belongs_to_host_taxonomy => {:taxonomy => :location }
-    validates :subnet, :belongs_to_host_taxonomy => {:taxonomy => :organization }
-    validates :subnet6, :belongs_to_host_taxonomy => {:taxonomy => :organization }
+    validates :subnet, :belongs_to_host_taxonomy => { :taxonomy => :location }
+    validates :subnet6, :belongs_to_host_taxonomy => { :taxonomy => :location }
+    validates :subnet, :belongs_to_host_taxonomy => { :taxonomy => :organization }
+    validates :subnet6, :belongs_to_host_taxonomy => { :taxonomy => :organization }
 
     scope :bmc, -> { where(:type => "Nic::BMC") }
     scope :bonds, -> { where(:type => "Nic::Bond") }
@@ -64,6 +64,13 @@ module Nic
 
     belongs_to_host :inverse_of => :interfaces, :class_name => "Host::Base"
 
+    scoped_search :on => :mac, :complete_value => true, :only_explicit => true
+    scoped_search :on => :ip, :complete_value => true, :only_explicit => true
+    scoped_search :on => :name, :complete_value => true, :only_explicit => true
+    scoped_search :on => :managed, :complete_value => {:true => true, :false => false}, :only_explicit => true
+    scoped_search :on => :primary, :complete_value => {:true => true, :false => false}, :only_explicit => true
+    scoped_search :on => :domain_id, :complete_value => true, :only_explicit => true
+
     # keep extra attributes needed for sub classes.
     serialize :attrs, Hash
 
@@ -72,9 +79,9 @@ module Nic
 
     class Jail < ::Safemode::Jail
       allow :managed?, :subnet, :subnet6, :virtual?, :physical?, :mac, :ip, :ip6, :identifier, :attached_to,
-            :link, :tag, :domain, :vlanid, :mtu, :bond_options, :attached_devices, :mode,
-            :attached_devices_identifiers, :primary, :provision, :alias?, :inheriting_mac,
-            :children_mac_addresses, :fqdn, :shortname
+        :link, :tag, :domain, :vlanid, :mtu, :bond_options, :attached_devices, :mode,
+        :attached_devices_identifiers, :primary, :provision, :alias?, :inheriting_mac,
+        :children_mac_addresses, :nic_delay, :fqdn, :shortname
     end
 
     # include STI inheritance column in audits
@@ -113,6 +120,14 @@ module Nic
       result = super
       sync_name
       result
+    end
+
+    def hostname
+      if domain.present? && name.present?
+        "#{shortname}.#{domain.name}"
+      else
+        name
+      end
     end
 
     def shortname

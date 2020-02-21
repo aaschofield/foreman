@@ -30,7 +30,7 @@ class Setting::Provisioning < Setting
     'qr-*',
     'qg-*',
     'vlinuxbr*',
-    'vovsbr*'
+    'vovsbr*',
   ]
 
   def self.default_settings
@@ -42,7 +42,7 @@ class Setting::Provisioning < Setting
     [
       self.set('host_owner', N_("Default owner on provisioned hosts, if empty Foreman will use current user"), nil, N_('Host owner'), nil, {:collection => Proc.new { select }, :include_blank => _("Select an owner")}),
       self.set('root_pass', N_("Default encrypted root password on provisioned hosts"), nil, N_('Root password')),
-      self.set('unattended_url', N_("URL hosts will retrieve templates from during build (normally http as many installers don't support https)"), unattended_url, N_('Unattended URL')),
+      self.set('unattended_url', N_("URL hosts will retrieve templates from during build, when it starts with https unattended/userdata controllers cannot be accessed via HTTP"), unattended_url, N_('Unattended URL')),
       self.set('safemode_render', N_("Enable safe mode config templates rendering (recommended)"), true, N_('Safemode rendering')),
       self.set('access_unattended_without_build', N_("Allow access to unattended URLs without build mode being used"), false, N_('Access unattended without build')),
       self.set('manage_puppetca', N_("Foreman will automate certificate signing upon provision of new host"), true, N_('Manage PuppetCA')),
@@ -58,7 +58,7 @@ class Setting::Provisioning < Setting
       self.set('libvirt_default_console_address', N_("The IP address that should be used for the console listen address when provisioning new virtual machines via Libvirt"), "0.0.0.0", N_('Libvirt default console address')),
       self.set('update_ip_from_built_request', N_("Foreman will update the host IP with the IP that made the built request"), false, N_('Update IP from built request')),
       self.set('use_shortname_for_vms', N_("Foreman will use the short hostname instead of the FQDN for creating new virtual machines"), false, N_('Use short name for VMs')),
-      self.set('dns_conflict_timeout', N_("Timeout for DNS conflict validation (in seconds)"), 3, N_('DNS conflict timeout')),
+      self.set('dns_timeout', N_("List of timeouts (in seconds) for DNS lookup attempts such as the dns_lookup macro and DNS record conflict validation"), [5, 10, 15, 20], N_('DNS timeout')),
       self.set('clean_up_failed_deployment', N_("Foreman will delete virtual machine if provisioning script ends with non zero exit code"), true, N_('Clean up failed deployment')),
       self.set('name_generator_type', N_("Random gives unique names, MAC-based are longer but stable (and only works with bare-metal)"), 'Random-based', N_("Type of name generator"), nil, {:collection => Proc.new {NameGenerator::GENERATOR_TYPES} }),
       self.set('default_pxe_item_global', N_("Default PXE menu item in global template - 'local', 'discovery' or custom, use blank for template default"), nil, N_("Default PXE global template entry")),
@@ -72,22 +72,12 @@ class Setting::Provisioning < Setting
       ),
       self.set(
         'excluded_facts',
-        N_("Exclude pattern for all types of imported facts (rhsm, puppet e.t.c.). Those facts won't be stored in foreman's database. You can use * wildcard to match names with indexes e.g. macvtap*"),
+        N_("Exclude pattern for all types of imported facts (puppet, ansible, rhsm). Those facts won't be stored in foreman's database. You can use * wildcard to match names with indexes e.g. ignore* will filter out ignore, ignore123 as well as a::ignore or even a::ignore123::b"),
         default_excluded_facts,
         N_('Exclude pattern for facts stored in foreman')
-      )
+      ),
+      self.set('maximum_structured_facts', N_("Maximum amount of keys in structured subtree, statistics stored in foreman::dropped_subtree_facts"), 100, N_('Maximum structured facts')),
     ] + default_global_templates + default_local_boot_templates
-  end
-
-  def self.load_defaults
-    # Check the table exists
-    return unless super
-
-    self.transaction do
-      default_settings.each { |s| self.create! s.update(:category => "Setting::Provisioning")}
-    end
-
-    true
   end
 
   def self.humanized_category

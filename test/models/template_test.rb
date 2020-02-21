@@ -108,26 +108,19 @@ data"
         assert_equal "METADATA\ndata", @template.to_erb
       end
     end
-
-    test "it keeps data that present before original metadata" do
-      @template.template = "<?xml ...>\n" + @template.template
-      @template.stub(:metadata, "METADATA") do
-        assert_equal "<?xml ...>\nMETADATA\ndata", @template.to_erb
-      end
-    end
   end
 
   context "importing" do
     setup do
-      @snippet_text = <<EOS
-<%#
-kind: snippet
-name: epel
-model: ProvisioningTemplate
-snippet: true
--%>
-rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-EOS
+      @snippet_text = <<~EOS
+        <%#
+        kind: snippet
+        name: epel
+        model: ProvisioningTemplate
+        snippet: true
+        -%>
+        rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+      EOS
       @template = Template.new
     end
 
@@ -469,9 +462,9 @@ EOS
         org = FactoryBot.create(:organization, :name => 'TemplateOrg')
         loc = FactoryBot.create(:location, :name => 'TemplateLoc')
         provisioning_template = FactoryBot.create(:provisioning_template,
-                                                  :name => 'exported_template',
-                                                  :organizations => [org],
-                                                  :locations => [loc])
+          :name => 'exported_template',
+          :organizations => [org],
+          :locations => [loc])
         assert_equal org.title, provisioning_template.to_export["organizations"].first
         assert_equal loc.title, provisioning_template.to_export["locations"].first
       end

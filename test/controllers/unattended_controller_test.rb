@@ -25,7 +25,7 @@ class UnattendedControllerTest < ActionController::TestCase
                                     :architecture => architectures(:x86_64),
                                     :organization => @org,
                                     :location => @loc
-                                   )
+      )
     end
 
     test 'returns not_found when no kind is provided' do
@@ -237,7 +237,7 @@ class UnattendedControllerTest < ActionController::TestCase
       ptable_ubuntu = FactoryBot.create(:ptable, :ubuntu, :name => 'ubuntu default',
         :layout => 'd-i partman-auto/disk string /dev/sda\nd-i partman-auto/method string regular...',
                                          :operatingsystem_ids => [operatingsystems(:ubuntu1010).id])
-      # MySQL datetime precision is seconds - explicitly create host1 with tomorrow's created_at
+      # explicitly create host1 with tomorrow's created_at so it's guaranteed to be newer than rh_host
       host1 = FactoryBot.create(:host, :managed, :with_dhcp_orchestration, :build => true,
         :name => "host2_same_mac",
         :created_at => Time.now.tomorrow,
@@ -270,7 +270,7 @@ class UnattendedControllerTest < ActionController::TestCase
                                     :architecture => architectures(:x86_64),
                                     :organization => @org,
                                     :location => @loc
-                                   )
+      )
     end
 
     test "should get a preseed finish script" do
@@ -437,7 +437,7 @@ class UnattendedControllerTest < ActionController::TestCase
                               :location => @loc,
                               :interfaces => [
                                 FactoryBot.build(:nic_managed, :primary => true),
-                                FactoryBot.build(:nic_managed, :provision => true)
+                                FactoryBot.build(:nic_managed, :provision => true),
                               ])
 
     @request.env["REMOTE_ADDR"] = host.provision_interface.ip
@@ -514,7 +514,7 @@ class UnattendedControllerTest < ActionController::TestCase
                               :ptable => ptable_ubuntu,
                               :medium => media(:ubuntu),
                               :architecture => architectures(:x86_64)
-                             )
+      )
     end
 
     test "hosts with a template proxy which supplies a templateServer should use it" do

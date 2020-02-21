@@ -26,7 +26,7 @@ module Foreman
 
       def clear_thread
         if Thread.current[:user] && !Rails.env.test?
-          Rails.logger.warn("Current user is set, but not expected. Clearing")
+          Foreman::Logging.logger('taxonomy').warn("Current user is set, but not expected. Clearing")
           Thread.current[:user] = nil
         end
         yield
@@ -44,7 +44,7 @@ module Foreman
         {
           :user => User.current,
           :organization => Organization.current,
-          :location => Location.current
+          :location => Location.current,
         }
       end
 
@@ -64,6 +64,10 @@ module Foreman
           Thread.current[:user]
         end
 
+        def impersonator=(user)
+          ::Logging.mdc['user_impersonator'] = user&.login
+        end
+
         def current=(o)
           unless o.nil? || o.is_a?(self)
             raise(ArgumentError, "Unable to set current User, expected class '#{self}', got #{o.inspect}")
@@ -73,9 +77,9 @@ module Foreman
             user = o.login
             type = o.admin? ? 'admin' : 'regular'
             if o.hidden?
-              Rails.logger.debug("Current user set to #{user} (#{type})")
+              Foreman::Logging.logger('permissions').debug("Current user set to #{user} (#{type})")
             else
-              Rails.logger.info("Current user set to #{user} (#{type})")
+              Foreman::Logging.logger('permissions').info("Current user set to #{user} (#{type})")
             end
           end
           ::Logging.mdc['user_login'] = o&.login
@@ -95,7 +99,11 @@ module Foreman
         # @param [block] block to execute
         def as(login)
           old_user = current
-          self.current = User.unscoped.find_by_login(login)
+          self.current = if login.is_a?(User)
+                           login
+                         else
+                           User.unscoped.find_by_login(login)
+                         end
           raise ::Foreman::Exception.new(N_("Cannot find user %s when switching context"), login) unless self.current.present?
           yield if block_given?
         ensure
@@ -122,9 +130,13 @@ module Foreman
             raise(ArgumentError, "Unable to set current organization, expected class '#{self}', got #{organization.inspect}")
           end
 
-          Rails.logger.debug "Current organization set to #{organization || 'none'}"
+          Foreman::Logging.logger('taxonomy').debug "Current organization set to #{organization || 'none'}"
           org_id = organization.try(:id)
+          org_name = organization.try(:name)
+          org_label = organization.try(:label)
           ::Logging.mdc['org_id'] = org_id if org_id
+          ::Logging.mdc['org_name'] = org_name if org_name
+          ::Logging.mdc['org_label'] = org_label if org_label
           Thread.current[:organization] = organization
         end
 
@@ -159,9 +171,13 @@ module Foreman
             raise(ArgumentError, "Unable to set current location, expected class '#{self}'. got #{location.inspect}")
           end
 
-          Rails.logger.debug "Current location set to #{location || 'none'}"
+          Foreman::Logging.logger('taxonomy').debug "Current location set to #{location || 'none'}"
           loc_id = location.try(:id)
+          loc_name = location.try(:name)
+          loc_label = location.try(:label)
           ::Logging.mdc['loc_id'] = loc_id if loc_id
+          ::Logging.mdc['loc_name'] = loc_name if loc_name
+          ::Logging.mdc['loc_label'] = loc_label if loc_label
           Thread.current[:location] = location
         end
 

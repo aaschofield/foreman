@@ -82,17 +82,18 @@ class NicTest < ActiveSupport::TestCase
     subnet6 = subnets(:seven)
     domain = (subnet.domains.any? ? subnet.domains : subnet.domains << Domain.first).first
     interface = FactoryBot.build_stubbed(:nic_managed,
-                                  :ip => "3.3.4.127",
-                                  :mac => "cabbccddeeff",
-                                  :host => FactoryBot.create(:host),
-                                  :subnet => subnet,
-                                  :subnet6 => subnet6,
-                                  :name => "a" + FactoryBot.create(:host).name,
-                                  :domain => domain)
+      :ip => "3.3.4.127",
+      :mac => "cabbccddeeff",
+      :host => FactoryBot.create(:host),
+      :subnet => subnet,
+      :subnet6 => subnet6,
+      :name => "a" + FactoryBot.create(:host).name,
+      :domain => domain)
     assert_equal subnet.network, interface.network
     assert_equal subnet6.network, interface.network6
     assert_equal subnet.vlanid, interface.vlanid
     assert_equal 42, interface.vlanid
+    assert_equal 3, subnet.nic_delay
     assert_equal 1496, interface.mtu
     assert_equal subnet.mtu, interface.mtu
   end
@@ -102,13 +103,13 @@ class NicTest < ActiveSupport::TestCase
     subnet6 = subnets(:seven)
     domain = (subnet6.domains.any? ? subnet6.domains : subnet6.domains << Domain.first).first
     interface = FactoryBot.build_stubbed(:nic_managed,
-                                  :ip => "3.3.4.127",
-                                  :mac => "cabbccddeeff",
-                                  :host => FactoryBot.create(:host),
-                                  :subnet => subnet,
-                                  :subnet6 => subnet6,
-                                  :name => "a" + FactoryBot.create(:host).name,
-                                  :domain => domain)
+      :ip => "3.3.4.127",
+      :mac => "cabbccddeeff",
+      :host => FactoryBot.create(:host),
+      :subnet => subnet,
+      :subnet6 => subnet6,
+      :name => "a" + FactoryBot.create(:host).name,
+      :domain => domain)
     assert_equal subnet6.vlanid, interface.vlanid
     assert_equal subnet6.mtu, interface.mtu
     assert_equal subnet6.network, interface.network6
@@ -277,7 +278,6 @@ class NicTest < ActiveSupport::TestCase
     end
 
     test '.proxy chooses BMC SmartProxy in Nic::BMC subnet if available' do
-      @subnet.dhcp.features << Feature.find_by_name('BMC')
       assert_equal @interface.proxy.url, @subnet.dhcp.url + '/bmc'
     end
 

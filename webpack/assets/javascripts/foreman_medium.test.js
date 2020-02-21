@@ -1,6 +1,11 @@
+/* eslint-disable jquery/no-is */
+/* eslint-disable jquery/no-sizzle */
+/* eslint-disable jquery/no-val */
+
 import $ from 'jquery';
 import { nfsVisibility } from './foreman_medium';
 
+jest.unmock('jquery');
 jest.unmock('./foreman_medium');
 const nfsRequired = ['Solaris'];
 

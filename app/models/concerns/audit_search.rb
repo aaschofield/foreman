@@ -16,10 +16,11 @@ module AuditSearch
     belongs_to :search_settings, :class_name => 'Setting', :foreign_key => :auditable_id
 
     scoped_search :on => :id, :complete_value => false
+    scoped_search :on => :request_uuid, :complete_value => false, :only_explicit => true
     scoped_search :on => [:username, :remote_address, :comment], :complete_value => true
     scoped_search :on => :audited_changes, :rename => 'changes'
     scoped_search :on => :created_at, :complete_value => true, :rename => :time, :default_order => :desc
-    scoped_search :on => :action, :complete_value => { :create => 'create', :update => 'update', :delete => 'destroy' }
+    scoped_search :on => :action, :complete_value => true
     scoped_search :on => :auditable_type, :complete_value => auditable_type_complete_values, :rename => :type
     scoped_search :on => :auditable_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
 
@@ -65,7 +66,8 @@ module AuditSearch
         :setting => 'Setting',
         :smart_class_parameter => 'PuppetclassLookupKey',
         :smart_variable => 'VariableLookupKey',
-        :subnet => 'Subnet'
+        :subnet => 'Subnet',
+        :provisioning_template => 'ProvisioningTemplate'
       )
     end
 

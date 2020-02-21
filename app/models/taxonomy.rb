@@ -44,7 +44,7 @@ class Taxonomy < ApplicationRecord
   end
 
   delegate :import_missing_ids, :inherited_ids, :used_and_selected_or_inherited_ids, :selected_or_inherited_ids,
-           :non_inherited_ids, :used_or_inherited_ids, :used_ids, :to => :tax_host
+    :non_inherited_ids, :used_or_inherited_ids, :used_ids, :to => :tax_host
 
   default_scope -> { order(:title) }
 
@@ -55,16 +55,6 @@ class Taxonomy < ApplicationRecord
       Location.completer_scope opts
     end
   }
-
-  def self.locations_enabled
-    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.locations_enabled is always true, settings to disable taxonomies has been removed in 1.21.')
-    true
-  end
-
-  def self.organizations_enabled
-    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.organizations_enabled is always true, settings to disable taxonomies has been removed in 1.21.')
-    true
-  end
 
   def self.no_taxonomy_scope
     as_taxonomy nil, nil do
@@ -80,51 +70,38 @@ class Taxonomy < ApplicationRecord
     end
   end
 
-  def self.enabled?(taxonomy)
-    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.enabled? is always true, settings to disable taxonomies has been removed in 1.21.')
-    true
-  end
-
-  def self.enabled_taxonomies
-    Foreman::Deprecation.deprecation_warning('1.23', 'Taxonomy.enabled_taxonomies is always locations and organizations, settings to disable taxonomies has been removed in 1.21.')
-    true
-    %w(locations organizations)
+  def self.types
+    [Organization, Location]
   end
 
   def self.ignore?(taxable_type)
     current_taxonomies = if self.current.nil? && User.current.present?
                            # "Any context" - all available taxonomies"
-                           User.current.public_send(self.to_s.underscore.pluralize)
+                           User.current.public_send("my_#{self.to_s.underscore.pluralize}")
                          else
-                           self.current
+                           [ self.current ]
                          end
-    Array.wrap(current_taxonomies).each do |current|
-      return true if current.ignore?(taxable_type)
+    current_taxonomies.compact.any? do |current|
+      current.ignore?(taxable_type)
     end
-    false
   end
 
   # if taxonomy e.g. organization was not set by current context (e.g. Any organization)
-  # then we have to compute what this context mean for current user (in what organizations
-  # is he assigned to)
+  # then we have to compute what this context mean for current user (what organizations
+  # they are assigned to)
   #
-  # if user is not assigned to any organization then empty array is returned which means
-  # that we should use all organizations
+  # if user is not assigned to any organization then empty relation is returned.
   #
-  # if user is admin we we return the original value since it does not need any additional scoping
+  # if user is admin we we return the original value (even if nil).
   def self.expand(value)
     if value.blank? && User.current.present? && !User.current.admin?
-      value = self.send("my_#{self.to_s.underscore.pluralize}").all
+      value = self.send("my_#{self.to_s.underscore.pluralize}")
     end
     value
   end
 
   def ignore?(taxable_type)
-    if ignore_types.empty?
-      false
-    else
-      ignore_types.include?(taxable_type.classify)
-    end
+    ignore_types.include?(taxable_type.classify)
   end
 
   def self.all_import_missing_ids
@@ -184,7 +161,9 @@ class Taxonomy < ApplicationRecord
     hash = {}
     elements = parents_with_params
     elements.each do |el|
-      el.send("#{type.downcase}_parameters".to_sym).authorized(:view_params).each {|p| hash[p.name] = include_source ? {:value => p.value, :source => sti_name, :safe_value => p.safe_value, :source_name => el.title} : p.value }
+      el.send("#{type.downcase}_parameters".to_sym).authorized(:view_params).each do |p|
+        hash[p.name] = include_source ? p.hash_for_include_source(sti_name, el.title) : p.value
+      end
     end
     hash
   end
@@ -192,7 +171,9 @@ class Taxonomy < ApplicationRecord
   # returns self and parent parameters as a hash
   def parameters(include_source = false)
     hash = parent_params(include_source)
-    self.send("#{type.downcase}_parameters".to_sym).authorized(:view_params).each {|p| hash[p.name] = include_source ? {:value => p.value, :source => sti_name, :safe_value => p.safe_value, :source_name => el.title} : p.value }
+    self.send("#{type.downcase}_parameters".to_sym).authorized(:view_params).each do |p|
+      hash[p.name] = include_source ? p.hash_for_include_source(sti_name, el.title) : p.value
+    end
     hash
   end
 
@@ -230,11 +211,11 @@ class Taxonomy < ApplicationRecord
   private
 
   delegate :need_to_be_selected_ids, :selected_ids, :used_and_selected_ids, :mismatches, :missing_ids, :check_for_orphans,
-           :to => :tax_host
+    :to => :tax_host
 
   def assign_default_templates
     Template.where(:default => true).group_by { |t| t.class.to_s.underscore.pluralize }.each do |association, templates|
-      self.send("#{association}=", self.send(association) + templates)
+      self.send("#{association}=", self.send(association) + templates.select(&:valid?))
     end
   end
 

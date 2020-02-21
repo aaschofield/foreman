@@ -4,6 +4,7 @@ class User < ApplicationRecord
   audited :except => [:last_login_on, :password_hash, :password_salt, :password_confirmation],
           :associations => :roles
   include Authorizable
+  include Foreman::TelemetryHelper
   extend FriendlyId
   friendly_id :login
   include Foreman::ThreadSession::UserModel
@@ -13,6 +14,7 @@ class User < ApplicationRecord
   include UserUsergroupCommon
   include Exportable
   include TopbarCacheExpiry
+  include JwtAuth
 
   ANONYMOUS_ADMIN = 'foreman_admin'
   ANONYMOUS_API_ADMIN = 'foreman_api_admin'
@@ -23,6 +25,10 @@ class User < ApplicationRecord
   attribute :password
 
   after_save :ensure_default_role
+
+  attribute :locale, :string, default: -> { Setting[:default_locale].presence }
+  attribute :timezone, :string, default: -> { Setting[:default_timezone].presence }
+
   before_destroy EnsureNotUsedBy.new([:direct_hosts, :hosts]), :ensure_hidden_users_are_not_deleted, :ensure_last_admin_is_not_deleted
 
   belongs_to :auth_source
@@ -96,9 +102,9 @@ class User < ApplicationRecord
                        :unless => Proc.new {|user| user.password.empty?}
   validates :firstname, :lastname, :format => {:with => name_format}, :length => {:maximum => 50}, :allow_nil => true
   validate :name_used_in_a_usergroup, :ensure_hidden_users_are_not_renamed, :ensure_hidden_users_remain_admin,
-           :ensure_privileges_not_escalated, :default_organization_inclusion, :default_location_inclusion,
-           :ensure_last_admin_remains_admin, :hidden_authsource_restricted, :ensure_admin_password_changed_by_admin,
-           :check_permissions_for_changing_login
+    :ensure_privileges_not_escalated, :default_organization_inclusion, :default_location_inclusion,
+    :ensure_last_admin_remains_admin, :hidden_authsource_restricted, :ensure_admin_password_changed_by_admin,
+    :check_permissions_for_changing_login
   before_validation :verify_current_password, :if => Proc.new {|user| user == User.current},
                     :unless => Proc.new {|user| user.password.empty?}
   before_validation :prepare_password, :normalize_mail
@@ -118,6 +124,8 @@ class User < ApplicationRecord
   scoped_search :relation => :roles, :on => :name, :rename => :role, :complete_value => true
   scoped_search :relation => :roles, :on => :id, :rename => :role_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
   scoped_search :relation => :cached_usergroups, :on => :name, :rename => :usergroup, :complete_value => true
+  scoped_search :relation => :auth_source, :on => :type, :rename => :auth_source_type, :complete_value => true
+  scoped_search :relation => :auth_source, :on => :name, :rename => :auth_source, :complete_value => true
 
   default_scope lambda {
     with_taxonomy_scope do
@@ -129,8 +137,12 @@ class User < ApplicationRecord
 
   attr_exportable :firstname, :lastname, :mail, :description, :fullname, :name => ->(user) { user.login }, :ssh_authorized_keys => ->(user) { user.ssh_keys.map(&:to_export_hash) }
 
+  def as_json(options = {})
+    super.tap { |h| h.key?('user') ? h['user']['name'] = name : h['name'] = name }
+  end
+
   class Jail < ::Safemode::Jail
-    allow :login, :ssh_keys, :ssh_authorized_keys, :description, :firstname, :lastname, :mail
+    allow :login, :ssh_keys, :ssh_authorized_keys, :description, :firstname, :lastname, :mail, :last_login_on
   end
 
   # we need to allow self-editing and self-updating
@@ -161,14 +173,19 @@ class User < ApplicationRecord
 
     {
       :include    => :cached_usergroups,
-      :conditions => sanitize_sql_for_conditions([conditions, value, value])
+      :conditions => sanitize_sql_for_conditions([conditions, value, value]),
     }
   end
 
   # note that if you assign user new usergroups which change the admin flag you must save
   # the record before #admin? will reflect this
   def admin?
-    self[:admin] || cached_usergroups.any?(&:admin?)
+    self[:admin] || inherited_admin?
+  end
+
+  # checks if there inherited admin right from user groups
+  def inherited_admin?
+    cached_usergroups.any?(&:admin?)
   end
 
   def hidden?
@@ -257,7 +274,9 @@ class User < ApplicationRecord
     else
       user = try_to_auto_create_user(login, password)
     end
-    unless user
+    if user
+      user.post_successful_login
+    else
       logger.info "invalid user"
       User.current = nil
     end
@@ -289,21 +308,23 @@ class User < ApplicationRecord
         user.usergroups = new_usergroups.uniq
       end
 
-      return true
+      return user
     # not existing user and creating is disabled by settings
     elsif auth_source_name.nil?
-      return false
+      return nil
     # not existing user and auth source is set, we'll create the user and auth source if needed
     else
       User.as_anonymous_admin do
         auth_source = AuthSourceExternal.create!(:name => auth_source_name) if auth_source.nil?
         user = User.create!(attrs.merge(:auth_source => auth_source))
+        user.locations = auth_source.locations
+        user.organizations = auth_source.organizations
         if external_groups.present?
           user.usergroups = auth_source.external_usergroups.where(:name => external_groups).map(&:usergroup).uniq
         end
         user.post_successful_login
       end
-      return true
+      return user
     end
   end
 
@@ -316,11 +337,22 @@ class User < ApplicationRecord
   end
 
   def self.fetch_ids_by_list(userlist)
-    User.where(:lower_login => userlist.map(&:downcase)).pluck(:id)
+    self.where(:lower_login => userlist.map(&:downcase)).pluck(:id)
+  end
+
+  def upgrade_password(pass)
+    logger.info "Upgrading password for user #{self.login} to bcrypt"
+    self.password_salt = salt_password
+    self.password_hash = hash_password(pass)
+    update_columns(password_salt: self.password_salt, password_hash: self.password_hash)
   end
 
   def matching_password?(pass)
-    self.password_hash == hash_password(pass)
+    return false if self.password_hash.nil?
+    type = Foreman::PasswordHash.detect_implementation(self.password_salt)
+    return false if self.password_hash != hash_password(pass, type)
+    upgrade_password(pass) if type != :bcrypt
+    true
   end
 
   def my_usergroups
@@ -460,11 +492,10 @@ class User < ApplicationRecord
   end
 
   def taxonomy_and_child_ids(taxonomies)
-    ids = []
-    send(taxonomies).each do |taxonomy|
-      ids += taxonomy.subtree_ids
-    end
-    ids.uniq
+    top_level = send(taxonomies) + taxonomies.to_s.classify.constantize.unscoped.select {|tax| tax.ignore?('user')}
+    top_level.each_with_object([]) do |taxonomy, ids|
+      ids.concat taxonomy.subtree_ids
+    end.uniq
   end
 
   def location_and_child_ids
@@ -484,6 +515,9 @@ class User < ApplicationRecord
     TopbarSweeper.expire_cache(self)
   end
 
+  # Returns aproximated list of users external groups, without contacting LDAP.
+  # Known issue:
+  #   If usergroup have two associated external groups, we don't know which one the user is in.
   def external_usergroups
     usergroups.flat_map(&:external_usergroups).select { |group| group.auth_source == self.auth_source }
   end
@@ -549,7 +583,7 @@ class User < ApplicationRecord
 
   def prepare_password
     if password.present?
-      self.password_salt = Digest::SHA1.hexdigest([Time.now.utc, rand].join)
+      self.password_salt = salt_password
       self.password_hash = hash_password(password)
     end
   end
@@ -559,8 +593,16 @@ class User < ApplicationRecord
     MailNotification[:welcome].deliver(:user => self)
   end
 
-  def hash_password(pass)
-    Digest::SHA1.hexdigest([pass, password_salt].join)
+  def salt_password(type = :bcrypt)
+    hasher = Foreman::PasswordHash.new(type)
+    hasher.generate_salt(Setting[:bcrypt_cost])
+  end
+
+  def hash_password(pass, type = :bcrypt)
+    telemetry_duration_histogram(:login_pwhash_duration, :ms, algorithm: type) do
+      hasher = Foreman::PasswordHash.new(type)
+      hasher.hash_secret(pass, password_salt)
+    end
   end
 
   def normalize_locale
@@ -669,13 +711,13 @@ class User < ApplicationRecord
   end
 
   def default_location_inclusion
-    unless locations.include?(default_location) || default_location.blank? || self.admin?
+    unless my_locations.include?(default_location) || default_location.blank? || self.admin?
       errors.add :default_location, _("default locations need to be user locations first")
     end
   end
 
   def default_organization_inclusion
-    unless organizations.include?(default_organization) || default_organization.blank? || self.admin?
+    unless my_organizations.include?(default_organization) || default_organization.blank? || self.admin?
       errors.add :default_organization, _("default organizations need to be user organizations first")
     end
   end

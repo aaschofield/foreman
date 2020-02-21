@@ -1,7 +1,7 @@
 class FactParser
   delegate :logger, :to => :Rails
   VIRTUAL = /\A([a-z0-9]+)[_|\.|:]([a-z0-9]+)\Z/
-  BRIDGES = /\A(vir)?br(\d+|-[a-z0-9]+)(_nic)?\Z/
+  BRIDGES = /\A(vir|lxc)?br(\d+|-[a-z0-9]+)(_nic)?\Z/
   BONDS = /\A(bond\d+)\Z|\A(lagg\d+)\Z/
   ALIASES = /(\A[a-z0-9\.]+):([a-z0-9]+)\Z/
   VLANS = /\A([a-z0-9]+)\.([0-9]+)\Z/
@@ -100,6 +100,28 @@ class FactParser
 
   def class_name_humanized
     @class_name_humanized ||= self.class.name.demodulize.underscore
+  end
+
+  # timestamp (unix epoch based) when the host has booted, e.g. 1563281738
+  # should return nil if the parser does not support this information
+  def boot_timestamp
+    nil
+  end
+
+  # is host virtual?
+  def virtual
+  end
+
+  # host memory in MB
+  def ram
+  end
+
+  # number of CPU sockets
+  def sockets
+  end
+
+  # cores per socket
+  def cores
   end
 
   private

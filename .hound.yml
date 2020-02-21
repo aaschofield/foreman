@@ -3,10 +3,11 @@ scss:
 
 stylelint:
   enabled: true
+  config_file: .stylelintrc
 
 rubocop:
   config_file: .rubocop.yml
-  version: 0.59.2
+  version: 0.75.0
 
 jshint:
   enabled: false

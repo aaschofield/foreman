@@ -19,8 +19,9 @@ class Usergroup < ApplicationRecord
   has_many :usergroups, :through => :usergroup_members, :source => :member, :source_type => 'Usergroup', :dependent => :destroy
   has_many :external_usergroups, :dependent => :destroy, :inverse_of => :usergroup
 
-  has_many :cached_usergroups, :through => :cached_usergroup_members, :source => :usergroup
   has_many :cached_usergroup_members, :foreign_key => 'usergroup_id'
+  has_many :cached_users, :through => :cached_usergroup_members, :source => :user
+  has_many :cached_usergroups, :through => :cached_usergroup_members, :source => :usergroup
   has_many :usergroup_parents, -> { where("member_type = 'Usergroup'") }, :dependent => :destroy,
            :foreign_key => 'member_id', :class_name => 'UsergroupMember'
   has_many :parents,    :through => :usergroup_parents, :source => :usergroup, :dependent => :destroy
@@ -33,6 +34,7 @@ class Usergroup < ApplicationRecord
   alias_attribute :select_title, :to_s
   default_scope -> { order('usergroups.name') }
   scope :visible, -> { }
+  scope :except_current, ->(current) { where.not(:id => current.id) }
   scoped_search :on => :name, :complete_value => :true
   scoped_search :relation => :roles, :on => :name, :rename => :role, :complete_value => true
   scoped_search :relation => :roles, :on => :id, :rename => :role_id, :complete_enabled => false, :only_explicit => true, :validator => ScopedSearch::Validators::INTEGER
@@ -73,7 +75,7 @@ class Usergroup < ApplicationRecord
   end
 
   def to_export
-    all_users.map(&:to_export).reduce({}, :merge)
+    cached_users.includes(:ssh_keys).map(&:to_export).reduce({}, :merge)
   end
 
   def ssh_keys

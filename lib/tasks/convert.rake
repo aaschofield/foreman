@@ -64,18 +64,53 @@ PAGE_SIZE = 10000
 
 namespace :db do
   namespace :convert do
-    desc 'Convert/import production data to development.   DANGER Deletes all data in the development database.   Assumes both schemas are already migrated.'
+    desc 'Convert/import production data to development. Deletes ALL DATA in the development database. Assumes both schemas are already migrated.'
     task :prod2dev => :environment do
+      # dynflow:migrate migrates the db configured for the current rails env
+      # In this case, we need to make sure it migrates development
+      env_bak = ::Rails.env
+      ::Rails.env = 'development'
+      Rake::Task['dynflow:migrate'].invoke
+      ::Rails.env = env_bak
+
+      module ClassWorkarounds
+        def instance_method_already_implemented?(method_name)
+          # Some of Dynflow tables contain columns "class" and "frozen"
+          #   ActiveRecord doesn't like it so we tell it class and frozen? methods
+          #   are already defined and it shouldn't try to redefine them
+          return true if %w(class frozen?).include? method_name
+          super
+        end
+
+        # To actually read and write to the "class" column
+        #   helpers need to be defined
+        def override_attribute(new_name, column_name)
+          define_method new_name do
+            read_attribute column_name
+          end
+
+          define_method "#{new_name}=" do |value|
+            write_attribute column_name, value
+          end
+        end
+
+        def self.extended(other)
+          other.override_attribute(:class_attribute, :class)
+        end
+      end
+
       # We need unique classes so ActiveRecord can hash different connections
       # We do not want to use the real Model classes because any business
       # rules will likely get in the way of a database transfer
       class ProductionModelClass < ActiveRecord::Base # rubocop:disable Rails/ApplicationRecord
         # disable STI
         self.inheritance_column = :_type_disabled
+        extend ClassWorkarounds
       end
       class DevelopmentModelClass < ActiveRecord::Base # rubocop:disable Rails/ApplicationRecord
         # disable STI
         self.inheritance_column = :_type_disabled
+        extend ClassWorkarounds
       end
 
       ActiveRecord::Base.establish_connection(:production)
@@ -109,6 +144,8 @@ namespace :db do
           ProductionModelClass.primary_key = nil
         end
 
+        has_class_attribute = ProductionModelClass.column_names.include?('class')
+
         # Page through the data in case the table is too large to fit in RAM
         offset = count = 0
         print "Converting #{table_name}..."
@@ -136,6 +173,7 @@ namespace :db do
               # as these columns are DEFAULT NOT NULL
               new_model[:created_at] ||= time if new_model.attributes.include?('created_at')
               new_model[:updated_at] ||= time if new_model.attributes.include?('updated_at')
+              new_model.class_attribute = model.class_attribute if has_class_attribute
 
               new_model.save(:validate => false)
             end
@@ -150,7 +188,12 @@ namespace :db do
               end
         DevelopmentModelClass.connection.execute(sql) if sql.present?
 
+        # reset primary key sequence
+        DevelopmentModelClass.connection.reset_pk_sequence!(table_name) if DevelopmentModelClass.connection.respond_to?(:reset_pk_sequence!)
+
         print "#{count} records converted in #{Process.clock_gettime(Process::CLOCK_MONOTONIC) - time} seconds\n"
+      rescue StandardError => e
+        print "Unable to convert #{table_name}, skipping: #{e}"
       end
     end
   end

@@ -44,7 +44,7 @@ class Api::V2::SubnetsControllerTest < ActionController::TestCase
 
   test "does not create subnet with non-existent domain" do
     post :create, params: { :subnet => valid_v4_attrs.merge(:domain_ids => [1, 2]) }
-    assert_response :not_found
+    assert_response :unprocessable_entity
   end
 
   test "should update subnet" do
@@ -164,11 +164,7 @@ class Api::V2::SubnetsControllerTest < ActionController::TestCase
   end
 
   test "should create with parameters and valid separator" do
-    if ActiveRecord::Base.connection.adapter_name.downcase =~ /mysql/
-      param_params = { :name => RFauxFactory.gen_strings(:exclude => [:utf8]).values.join(","), :value => "bar" }
-    else
-      param_params = { :name => RFauxFactory.gen_strings().values.join(","), :value => "bar" }
-    end
+    param_params = { :name => RFauxFactory.gen_strings().values.join(","), :value => "bar" }
     post :create, params: { :subnet => valid_v4_attrs.clone.update(:subnet_parameters_attributes => [param_params]) }
     assert_response :success
     assert_include param_params[:name], JSON.parse(@response.body)["parameters"][0]["name"], "Can't create subnet with valid parameters name #{param_params[:name]}"

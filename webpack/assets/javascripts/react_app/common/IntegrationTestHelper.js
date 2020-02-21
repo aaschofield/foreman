@@ -1,5 +1,5 @@
 import React from 'react';
-import { mount } from 'enzyme';
+import { mount } from '@theforeman/test';
 import { Provider } from 'react-redux';
 import { applyMiddleware, combineReducers, createStore } from 'redux';
 import thunk from 'redux-thunk';
@@ -16,10 +16,10 @@ export default class IntegrationTestHelper {
    * Create an integration-test-helper
    * @param {ReduxReducers} reducers reducers to apply
    */
-  constructor(reducers) {
+  constructor(reducers, middlewares = []) {
     this.dispatchSpy = jest.fn(() => ({}));
     const reducerSpy = (state, action) => this.dispatchSpy(action);
-    const emptyStore = applyMiddleware(thunk)(createStore);
+    const emptyStore = applyMiddleware(thunk, ...middlewares)(createStore);
     const combinedReducers = combineReducers({
       reducerSpy,
       ...reducers,
@@ -45,8 +45,8 @@ export default class IntegrationTestHelper {
     return state;
   }
   /**
-   * Get a list with all dispach calls
-   * @return {Array} Dispach calls
+   * Get a list with all dispatch calls
+   * @return {Array} Dispatch calls
    */
   getDispatchCalls() {
     const isRelevantCall = call =>
@@ -55,15 +55,15 @@ export default class IntegrationTestHelper {
     return this.dispatchSpy.mock.calls.filter(isRelevantCall);
   }
   /**
-   * Get the last dispach call
-   * @return {Array} dispach call
+   * Get the last dispatch call
+   * @return {Array} dispatch call
    */
   getLastDispachCall() {
     return this.getDispatchCalls().slice(-1);
   }
   /**
-   * Take a store snapshot
-   * @param  {string} description Snapshoot description
+   * Compare the store with the stored snapshot
+   * @param  {string} description Snapshot description
    */
   takeStoreSnapshot(description) {
     expect(this.getState()).toMatchSnapshot(description);

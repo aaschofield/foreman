@@ -41,7 +41,7 @@ class ProvisioningTemplate < Template
   scoped_search :on => :snippet, :complete_value => {:true => true, :false => false}
   scoped_search :on => :template
   scoped_search :on => :vendor, :only_explicit => true, :complete_value => true
-  scoped_search :on => :default, :only_explicit => true, :complete_value => {:true => true, :false => false}
+  scoped_search :on => :default, :only_explicit => true, :complete_value => {:true => true, :false => false}, :rename => 'default_template'
 
   scoped_search :relation => :operatingsystems, :on => :name, :rename => :operatingsystem, :complete_value => true
   scoped_search :relation => :environments,     :on => :name, :rename => :environment,     :complete_value => true
@@ -50,7 +50,7 @@ class ProvisioningTemplate < Template
 
   attr_exportable({
     :kind => Proc.new { |template| template.template_kind.try(:name) },
-    :oses => Proc.new { |template| template.operatingsystems.map(&:name).uniq }
+    :oses => Proc.new { |template| template.operatingsystems.map(&:name).uniq },
   }.merge(taxonomy_exportable))
 
   dirty_has_many_associations :template_combinations, :os_default_templates, :operatingsystems
@@ -169,14 +169,12 @@ class ProvisioningTemplate < Template
         end
         return [:unprocessable_entity, error_msgs.join(', ')] unless error_msgs.empty?
         proxies.each do |proxy|
-          begin
-            tftp = ProxyAPI::TFTP.new(:url => proxy.url)
-            tftp.create_default(kind, {:menu => menu})
-            fetch_boot_files_combo(tftp)
-          rescue => exception
-            Foreman::Logging.exception("Cannot deploy rendered template '#{global_template_name}' to '#{proxy}'", exception)
-            error_msgs << "#{proxy}: #{exception.message} (#{kind})"
-          end
+          tftp = ProxyAPI::TFTP.new(:url => proxy.url)
+          tftp.create_default(kind, {:menu => menu})
+          fetch_boot_files_combo(tftp)
+        rescue => exception
+          Foreman::Logging.exception("Cannot deploy rendered template '#{global_template_name}' to '#{proxy}'", exception)
+          error_msgs << "#{proxy}: #{exception.message} (#{kind})"
         end
       end
       used_templates << global_template_name
@@ -208,18 +206,21 @@ class ProvisioningTemplate < Template
   # generated for
   def self.pxe_default_combos
     combos = []
-    ProvisioningTemplate.joins(:template_kind).where("template_kinds.name" => "provision").includes(:template_combinations => [:environment, {:hostgroup => [ :operatingsystem, :architecture, :medium]}]).find_each do |template|
+    ProvisioningTemplate.joins(:template_kind).where("template_kinds.name" => "provision").includes(:template_combinations => [:environment, {:hostgroup => [:operatingsystem, :architecture]}]).find_each do |template|
       template.template_combinations.each do |combination|
         hostgroup = combination.hostgroup
-        if hostgroup&.operatingsystem && hostgroup.architecture && hostgroup.medium
-          medium_provider = Foreman::Plugin.medium_providers.find_provider(hostgroup)
-          combos << {
-            :hostgroup => hostgroup,
-            :template => template,
-            :kernel => hostgroup.operatingsystem.kernel(medium_provider),
-            :initrd => hostgroup.operatingsystem.initrd(medium_provider),
-            :pxe_type => hostgroup.operatingsystem.pxe_type
-          }
+        if hostgroup&.operatingsystem && hostgroup&.architecture
+          if (medium_provider = Foreman::Plugin.medium_providers.find_provider(hostgroup))
+            combos << {
+              :hostgroup => hostgroup,
+              :template => template,
+              :kernel => hostgroup.operatingsystem.kernel(medium_provider),
+              :initrd => hostgroup.operatingsystem.initrd(medium_provider),
+              :pxe_type => hostgroup.operatingsystem.pxe_type,
+            }
+          else
+            Rails.logger.warn "Could not find medium_provider for hostgroup #{hostgroup}, skipping"
+          end
         end
       end
     end

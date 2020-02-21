@@ -15,7 +15,7 @@ module Host
     should allow_value('hostname.with.periods').for(:name)
 
     test "should import facts from json stream" do
-      host = Host::Base.new(:name => "sinn1636.lan")
+      host = Host::Managed.new(:name => "sinn1636.lan")
       assert host.import_facts(read_json_fixture('facts/facts.json')['facts'])
     end
 
@@ -86,6 +86,64 @@ module Host
       host = FactoryBot.create(:host, organization: host_org, domain_id: domain.id)
       host = Host.find(host.id)
       assert host.valid?
+    end
+
+    test "should not update an interface" do
+      nic = FactoryBot.build(:nic_primary_and_provision)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+      nic.ip = '2.3.4.5'
+      nic.ip6 = '2001:db10:7::6'
+      Setting[:update_subnets_from_facts] = "none"
+      Host::Managed.new.send(:update_subnet_from_facts, nic, false)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+    end
+
+    test "should not update an interface when we want to keep it" do
+      nic = FactoryBot.build(:nic_primary_and_provision)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+      nic.ip = '2.3.4.5'
+      nic.ip6 = '2001:db10:7::6'
+      Setting[:update_subnets_from_facts] = "all"
+      Host::Managed.new.send(:update_subnet_from_facts, nic, true)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+    end
+
+    test "should update only provisioning interface" do
+      nic = FactoryBot.build(:nic_managed, :primary => true)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+      nic.ip = '2.3.4.5'
+
+      Setting[:update_subnets_from_facts] = "provision"
+      Host::Managed.new.send(:update_subnet_from_facts, nic, false)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+
+      provision = FactoryBot.build(:nic_primary_and_provision)
+      assert_nil provision.subnet
+      assert_nil provision.subnet6
+      provision.ip = '2.3.4.5'
+      provision.ip6 = '2001:db10:7::6'
+      Host::Managed.new.send(:update_subnet_from_facts, provision, false)
+      assert_equal subnets(:one), provision.subnet
+      assert_equal subnets(:seven), provision.subnet6
+    end
+
+    test "should update any interface" do
+      nic = FactoryBot.build(:nic_managed, :primary => true)
+      assert_nil nic.subnet
+      assert_nil nic.subnet6
+      nic.ip = '2.3.4.5'
+      nic.ip6 = '2001:db10:7::6'
+
+      Setting[:update_subnets_from_facts] = "all"
+      Host::Managed.new.send(:update_subnet_from_facts, nic, false)
+      assert_equal subnets(:one), nic.subnet
+      assert_equal subnets(:seven), nic.subnet6
     end
   end
 end

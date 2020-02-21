@@ -11,9 +11,22 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
 
   test "#associated_host matches any NIC" do
     host = FactoryBot.create(:host, :mac => 'ca:d0:e6:32:16:97')
+    Nic::Base.create! :mac => "ca:d0:e6:32:16:99", :host => host
+    host.reload
     cr = FactoryBot.build_stubbed(:libvirt_cr)
     iface = mock('iface1', :mac => 'ca:d0:e6:32:16:97')
-    assert_equal host, as_admin { cr.associated_host(iface) }
+    vm = mock('vm', :interfaces => [iface])
+    assert_equal host, as_admin { cr.associated_host(vm) }
+  end
+
+  test "#associated_host matches any NIC with upper case MAC" do
+    host = FactoryBot.create(:host, :mac => 'ca:d0:e6:32:16:97')
+    Nic::Base.create! :mac => "ca:d0:e6:32:16:99", :host => host
+    host.reload
+    cr = FactoryBot.build_stubbed(:libvirt_cr)
+    iface = mock('iface1', :mac => 'CA:D0:E6:32:16:97')
+    vm = mock('vm', :interfaces => [iface])
+    assert_equal host, as_admin { cr.associated_host(vm) }
   end
 
   test 'should update with multiple valid names' do
@@ -131,11 +144,11 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
     let(:cr) { FactoryBot.build(:libvirt_cr) }
 
     describe 'images' do
-      let(:cr) { FactoryBot.create(:gce_cr, :with_images) }
+      let(:cr) { FactoryBot.create(:libvirt_cr, :with_images) }
 
       test 'adds image name' do
         vm_attrs = {
-          'image_id' => cr.images.last.uuid
+          'image_id' => cr.images.last.uuid,
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -144,7 +157,7 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
 
       test 'leaves image name empty when image_id is nil' do
         vm_attrs = {
-          'image_id' => nil
+          'image_id' => nil,
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -154,7 +167,7 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
 
       test "leaves image name empty when image wasn't found" do
         vm_attrs = {
-          'image_id' => 'unknown'
+          'image_id' => 'unknown',
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -178,17 +191,17 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
               'allocation' => '2GB',
               'pool_name' => 'pool1',
               'format_type' => 'qcow',
-              'unknown' => 'value'
-            }
-          }
+              'unknown' => 'value',
+            },
+          },
         }
         expected_attrs = {
           '1' => {
             'capacity' => 1.gigabyte.to_s,
             'allocation' => 2.gigabyte.to_s,
             'pool' => 'pool1',
-            'format_type' => 'qcow'
-          }
+            'format_type' => 'qcow',
+          },
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -211,27 +224,27 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
               'network' => 'default',
               'bridge' => nil,
               'model' => 'virtio',
-              'unknown' => 'value'
+              'unknown' => 'value',
             },
             '2' => {
               'type' => 'bridge',
               'network' => nil,
               'bridge' => 'br1',
-              'model' => 'virtio'
-            }
-          }
+              'model' => 'virtio',
+            },
+          },
         }
         expected_attrs = {
           '1' => {
             'type' => 'network',
             'network' => 'default',
-            'model' => 'virtio'
+            'model' => 'virtio',
           },
           '2' => {
             'type' => 'bridge',
             'bridge' => 'br1',
-            'model' => 'virtio'
-          }
+            'model' => 'virtio',
+          },
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -247,7 +260,7 @@ class Foreman::Model::LibvirtTest < ActiveSupport::TestCase
         "volumes_attributes" => {},
         "image_id" => nil,
         "image_name" => nil,
-        "interfaces_attributes" => {}
+        "interfaces_attributes" => {},
       }
 
       assert_equal(expected_attrs, normalized)

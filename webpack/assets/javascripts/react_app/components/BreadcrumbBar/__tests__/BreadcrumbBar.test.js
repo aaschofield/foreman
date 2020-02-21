@@ -1,5 +1,5 @@
 import React from 'react';
-import { mount } from 'enzyme';
+import { mount } from '@theforeman/test';
 
 import { testComponentSnapshotsWithFixtures } from '../../../common/testHelpers';
 
@@ -58,6 +58,7 @@ describe('BreadcrumbBar', () => {
     });
 
     it('onclick callbacks should work', () => {
+      window.history.pushState({}, 'Test Title', '/hosts/1');
       const props = {
         ...breadcrumbBarSwithcable,
         ...createStubs(),

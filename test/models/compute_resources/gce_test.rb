@@ -7,17 +7,17 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
   describe '#normalize_vm_attrs' do
     let(:cr) { FactoryBot.build(:gce_cr) }
 
-    describe 'external_ip' do
+    describe 'associate_external_ip' do
       test 'normalizes 1 to true' do
-        normalized = cr.normalize_vm_attrs({ 'external_ip' => '1' })
+        normalized = cr.normalize_vm_attrs({ 'associate_external_ip' => '1' })
 
-        assert_equal(true, normalized['external_ip'])
+        assert_equal(true, normalized['associate_external_ip'])
       end
 
       test 'normalizes 0 to false' do
-        normalized = cr.normalize_vm_attrs({ 'external_ip' => '0' })
+        normalized = cr.normalize_vm_attrs({ 'associate_external_ip' => '0' })
 
-        assert_equal(false, normalized['external_ip'])
+        assert_equal(false, normalized['associate_external_ip'])
       end
     end
 
@@ -26,7 +26,7 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
 
       test 'adds image name' do
         vm_attrs = {
-          'image_id' => cr.images.last.uuid
+          'image_id' => cr.images.last.uuid,
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -35,7 +35,7 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
 
       test 'leaves image name empty when image_id is nil' do
         vm_attrs = {
-          'image_id' => nil
+          'image_id' => nil,
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -45,7 +45,7 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
 
       test "leaves image name empty when image wasn't found" do
         vm_attrs = {
-          'image_id' => 'unknown'
+          'image_id' => 'unknown',
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -66,14 +66,14 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
           'volumes_attributes' => {
             '0' => {
               'size_gb' => '1GB',
-              'id' => ''
-            }
-          }
+              'id' => '',
+            },
+          },
         }
         expected_attrs = {
           '0' => {
-            'size' => 1.gigabyte.to_s
-          }
+            'size' => 1.gigabyte.to_s,
+          },
         }
         normalized = cr.normalize_vm_attrs(vm_attrs)
 
@@ -86,10 +86,10 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
       expected_attrs = {
         'machine_type' => nil,
         'network' => nil,
-        'external_ip' => nil,
+        'associate_external_ip' => nil,
         'image_id' => nil,
         'image_name' => nil,
-        'volumes_attributes' => {}
+        'volumes_attributes' => {},
       }
 
       assert_equal(expected_attrs.keys.sort, normalized.keys.sort)
@@ -99,5 +99,67 @@ class Foreman::Model::GCETest < ActiveSupport::TestCase
     test 'attribute names' do
       check_vm_attribute_names(cr)
     end
+  end
+
+  describe '#associated_host' do
+    let(:cr) { FactoryBot.build_stubbed(:gce_cr) }
+
+    test "matches host by public_ip_address NIC" do
+      host = FactoryBot.create(:host, :ip => '10.0.0.154')
+      compute = mock('gce_compute', :public_ip_address => '10.0.0.154', :private_ip_address => "10.1.1.1")
+      assert_equal host, as_admin { cr.associated_host(compute) }
+    end
+
+    test "matches host by private_ip_address NIC" do
+      host = FactoryBot.create(:host, :ip => '10.1.1.1')
+      compute = mock('gce_compute', :public_ip_address => '10.0.0.154', :private_ip_address => "10.1.1.1")
+      assert_equal host, as_admin { cr.associated_host(compute) }
+    end
+  end
+
+  describe '#check_google_key_format_and_options' do
+    let(:cr) { FactoryBot.build_stubbed(:gce_cr) }
+
+    test 'passes when valid Google JSON key includes client_email, private_key' do
+      valid_key = {
+        'type' => 'service_account',
+        'project_id' => 'dummy-project',
+        'private_key' => '-----BEGIN PRIVATE KEY-----\n..\n-----END PRIVATE KEY-----\n ',
+        'client_email' => 'dummy@dummy-project.iam.gserviceaccount.com',
+      }
+      cr.stubs(:read_key_file).returns(valid_key)
+      result = cr.send(:check_google_key_format_and_options)
+
+      assert_nil(result)
+      assert cr.valid?, "Can't create GCE compute resource with valid JSON #{valid_key}"
+    end
+
+    test 'fails when required keys are missing in Google JSON key' do
+      cr.stubs(:read_key_file).returns({ 'project_id' => 'dummy-project' })
+      cr.send(:check_google_key_format_and_options)
+
+      assert_not cr.valid?
+      assert_include cr.errors.keys, :key_path
+    end
+
+    test 'fails when Google key is not a valid JSON' do
+      raises_exception = -> { raise JSON::ParserError.new }
+      cr.stub(:read_key_file, raises_exception) do
+        cr.send(:check_google_key_format_and_options)
+
+        assert_not cr.valid?
+        assert_include cr.errors.keys, :key_path
+        assert_include cr.errors[:key_path], 'Certificate key is not a valid JSON'
+      end
+    end
+  end
+
+  test 'fails when provided zone is not a valid on GCE' do
+    cr = FactoryBot.build(:gce_cr, :zone => 'xyz')
+    cr.send(:validate_zone)
+
+    assert_not cr.valid?
+    assert_include cr.errors.keys, :zone
+    assert_include cr.errors[:zone], 'is not valid'
   end
 end

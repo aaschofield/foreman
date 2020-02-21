@@ -1,0 +1,57 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`API get should dispatch request and failure actions on reject 1`] = `
+Array [
+  Array [
+    Object {
+      "key": "SOME_KEY",
+      "payload": Object {
+        "id": 2,
+        "url": "some/url",
+      },
+      "type": "SOME_KEY_REQUEST",
+    },
+  ],
+  Array [
+    Object {
+      "key": "SOME_KEY",
+      "payload": Object {
+        "id": 2,
+        "url": "some/url",
+      },
+      "response": [Error: bad request],
+      "type": "SOME_KEY_FAILURE",
+    },
+  ],
+]
+`;
+
+exports[`API get should dispatch request and success actions on resolve 1`] = `
+Array [
+  Array [
+    Object {
+      "key": "SOME_KEY",
+      "payload": Object {
+        "id": 2,
+        "url": "some/url",
+      },
+      "type": "SOME_KEY_REQUEST",
+    },
+  ],
+  Array [
+    Object {
+      "key": "SOME_KEY",
+      "payload": Object {
+        "id": 2,
+        "url": "some/url",
+      },
+      "response": Object {
+        "results": Array [
+          1,
+        ],
+      },
+      "type": "SOME_KEY_SUCCESS",
+    },
+  ],
+]
+`;

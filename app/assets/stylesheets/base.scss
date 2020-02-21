@@ -7,6 +7,17 @@ body {
   height: 100%;
 }
 
+.react-container {
+  margin-right: auto;
+  margin-left: 200px;
+  padding-left: 20px;
+  padding-right: 20px;
+
+  &.collapsed-nav {
+    margin-left: 75px;
+  }
+}
+
 .base li {
   list-style: none;
   margin-left: 20px;
@@ -153,6 +164,10 @@ select {
   cursor: auto;
 }
 
+#main > #content {
+  display: none;
+}
+
 .used_by_hosts {
   color: #000 !important;
   cursor: auto;
@@ -176,10 +191,6 @@ select {
 .card-pf a.btn:hover,
 .card-pf a.btn {
   color: #4d5258 !important;
-}
-
-.ace_editor {
-  border: 2px solid #eee;
 }
 
 .audit-content {
@@ -391,6 +402,7 @@ table {
   }
 
   .primary-flag,
+  .managed-flag,
   .provision-flag {
     color: #bbb;
     cursor: pointer;

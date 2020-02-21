@@ -12,9 +12,9 @@ class Api::V2::SmartClassParametersControllerTest < ActionController::TestCase
 
   test "should get same smart class parameters in multiple environments once" do
     @env_class = FactoryBot.create(:environment_class,
-                               :puppetclass => puppetclasses(:one),
-                               :environment => environments(:testing),
-                               :puppetclass_lookup_key => lookup_keys(:complex))
+      :puppetclass => puppetclasses(:one),
+      :environment => environments(:testing),
+      :puppetclass_lookup_key => lookup_keys(:complex))
     get :index
     assert_response :success
     assert_not_nil assigns(:smart_class_parameters)
@@ -25,8 +25,8 @@ class Api::V2::SmartClassParametersControllerTest < ActionController::TestCase
 
   test "should get smart class parameters for a specific host" do
     @host = FactoryBot.create(:host,
-                               :puppetclasses => [puppetclasses(:one)],
-                               :environment => environments(:production))
+      :puppetclasses => [puppetclasses(:one)],
+      :environment => environments(:production))
     get :index, params: { :host_id => @host.to_param }
     assert_response :success
     assert_not_nil assigns(:smart_class_parameters)
@@ -98,9 +98,9 @@ class Api::V2::SmartClassParametersControllerTest < ActionController::TestCase
 
   test "should get same smart class parameters in multiple environments once for a specific puppetclass" do
     @env_class = FactoryBot.create(:environment_class,
-                               :puppetclass => puppetclasses(:one),
-                               :environment => environments(:testing),
-                               :puppetclass_lookup_key => lookup_keys(:complex))
+      :puppetclass => puppetclasses(:one),
+      :environment => environments(:testing),
+      :puppetclass_lookup_key => lookup_keys(:complex))
     get :index, params: { :puppetclass_id => puppetclasses(:one).id }
     assert_response :success
     assert_not_nil assigns(:smart_class_parameters)
@@ -185,27 +185,6 @@ class Api::V2::SmartClassParametersControllerTest < ActionController::TestCase
     lookup_key.reload
     refute_equal orig_value, lookup_key.default_value
     refute_equal orig_parameter_type, lookup_key.parameter_type
-  end
-
-  test "should update smart class parameter with use_puppet_default (compatibility test)" do
-    Foreman::Deprecation.expects(:api_deprecation_warning).with('"use_puppet_default" was renamed to "omit"')
-    orig_value = lookup_keys(:five).omit
-    refute lookup_keys(:five).omit # check that the initial value is false
-    put :update, params: { :id => lookup_keys(:five).to_param, :smart_class_parameter => { :use_puppet_default => "true" } }
-    assert_response :success
-    new_value = lookup_keys(:five).reload.omit
-    refute_equal orig_value, new_value
-  end
-
-  test "should update smart class parameter with use_puppet_default (compatibility test)" do
-    Foreman::Deprecation.expects(:api_deprecation_warning).with('"use_puppet_default" was renamed to "omit"')
-    key = lookup_keys(:five)
-    key.omit = true
-    key.save!
-    put :update, params: { :id => lookup_keys(:five).to_param, :smart_class_parameter => { :use_puppet_default => "false" } }
-    assert_response :success
-    new_value = lookup_keys(:five).reload.omit
-    refute new_value
   end
 
   test_attributes :pid => '11d75f6d-7105-4ee8-b147-b8329cae4156'

@@ -28,7 +28,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
       :compute_resource_id => compute_resources(:one).id,
       :root_pass           => "xybxa6JUkz63w",
       :location_id         => taxonomies(:location1).id,
-      :organization_id     => taxonomies(:organization1).id
+      :organization_id     => taxonomies(:organization1).id,
     }
   end
 
@@ -36,15 +36,15 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     {
       :compute_attributes => {
         :cpus => 4,
-        :memory => 1024
-      }
+        :memory => 1024,
+      },
     }
   end
 
   def valid_attrs
     net_attrs = {
       :ip  => '10.0.0.20',
-      :mac => '52:53:00:1e:85:93'
+      :mac => '52:53:00:1e:85:93',
     }
     basic_attrs.merge(net_attrs).merge(valid_compute_attrs)
   end
@@ -62,7 +62,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
 
   def basic_attrs_with_hg
     hostgroup_attr = {
-      :hostgroup_id => Hostgroup.first.id
+      :hostgroup_id => Hostgroup.first.id,
     }
     basic_attrs.merge(hostgroup_attr)
   end
@@ -71,14 +71,14 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     [{
       :primary => true,
       :ip => '10.0.0.20',
-      :mac => '00:11:22:33:44:00'
+      :mac => '00:11:22:33:44:00',
     }, {
       :type => 'bmc',
       :provider => 'IPMI',
-      :mac => '00:11:22:33:44:01'
+      :mac => '00:11:22:33:44:01',
     }, {
       :mac => '00:11:22:33:44:02',
-      :_destroy => 1
+      :_destroy => 1,
     }]
   end
 
@@ -162,7 +162,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     assert_not_nil assigns(:hosts)
     hosts = ActiveSupport::JSON.decode(@response.body)
     parameters = hosts['results'].map { |host| host['parameters'] }.flatten
-    parameter = parameters.select { |param| param['name'] == 'foo' }.first
+    parameter = parameters.find { |param| param['name'] == 'foo' }
     refute parameters.empty?
     assert_equal parameter['value'], 'bar'
   end
@@ -177,8 +177,8 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     assert_not_nil assigns(:hosts)
     hosts = ActiveSupport::JSON.decode(@response.body)
     parameters = hosts['results'].map { |host| host['all_parameters'] }.flatten
-    parameter = parameters.select { |param| param['name'] == 'foo' }.first
-    inherited_parameter = parameters.select { |param| param['name'] == 'foobar' }.first
+    parameter = parameters.find { |param| param['name'] == 'foo' }
+    inherited_parameter = parameters.find { |param| param['name'] == 'foobar' }
     refute parameters.empty?
     assert_equal parameter['value'], 'bar'
     assert_equal inherited_parameter['value'], 'baz'
@@ -240,6 +240,38 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     assert_response :created
   end
 
+  context "lone taxonomy assignment" do
+    setup do
+      disable_orchestration
+    end
+
+    let (:attrs) { valid_attrs.except(:location_id, :organization_id) }
+
+    it 'assigns single taxonomies when only one present' do
+      Location.stubs(:one?).returns(true)
+      Organization.stubs(:one?).returns(true)
+      # We need to make sure we return the correct taxonomies for the resources to match
+      Location.stubs(:first).returns(taxonomies(:location1))
+      Organization.stubs(:first).returns(taxonomies(:organization1))
+      post :create, params: { :host => attrs }
+      assert_response :created
+      host = Host.unscoped.find(JSON.parse(response.body)['id'])
+      assert_equal taxonomies(:location1).id, host.location_id
+      assert_equal taxonomies(:organization1).id, host.organization_id
+    end
+
+    it "doesn't assign taxonomies when more than one present" do
+      Location.stubs(:one?).returns(false)
+      Organization.stubs(:one?).returns(false)
+      post :create, params: { :host => attrs }
+      # Taxonomy id is required so the creation should fail
+      assert_response :unprocessable_entity
+      res = JSON.parse(response.body)['error']
+      assert_not_empty res['errors']['location_id']
+      assert_not_empty res['errors']['organization_id']
+    end
+  end
+
   test "should create host with build true" do
     disable_orchestration
     assert_difference('Host.count') do
@@ -251,8 +283,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
 
   test "should create host with host_parameters_attributes" do
     disable_orchestration
-    Foreman::Deprecation.expects(:api_deprecation_warning).with('Field host_parameters_attributes.nested ignored')
-    attrs = [{"name" => "compute_resource_id", "value" => "1", "nested" => "true"}]
+    attrs = [{"name" => "compute_resource_id", "value" => "1"}]
     assert_difference('Host.count') do
       post :create, params: { :host => valid_attrs.merge(:host_parameters_attributes => attrs) }
     end
@@ -264,9 +295,8 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
 
   test "should create host with host_parameters_attributes sent in a hash" do
     disable_orchestration
-    Foreman::Deprecation.expects(:api_deprecation_warning).with('Field host_parameters_attributes.nested ignored')
     assert_difference('Host.count') do
-      attrs = {"0" => {"name" => "compute_resource_id", "value" => "1", "nested" => "true"}}
+      attrs = {"0" => {"name" => "compute_resource_id", "value" => "1"}}
       post :create, params: { :host => valid_attrs.merge(:host_parameters_attributes => attrs) }
     end
     assert_response :created
@@ -428,12 +458,6 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     assert_response :success
   end
 
-  test "should show status hosts" do
-    Foreman::Deprecation.expects(:api_deprecation_warning).with(regexp_matches(%r{/status route is deprecated}))
-    get :status, params: { :id => @host.to_param }
-    assert_response :success
-  end
-
   test "should show specific status hosts" do
     get :get_status, params: { :id => @host.to_param, :type => 'global' }
     assert_response :success
@@ -472,10 +496,9 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
   end
 
   test "should allow show status for restricted user who owns the hosts" do
-    Foreman::Deprecation.expects(:api_deprecation_warning).with(regexp_matches(%r{/status route is deprecated}))
     host = FactoryBot.create(:host, :owner => users(:scoped), :organization => taxonomies(:organization1), :location => taxonomies(:location1))
     setup_user 'view', 'hosts', "owner_type = User and owner_id = #{users(:scoped).id}", :scoped
-    get :status, params: { :id => host.to_param }
+    get :get_status, params: { :id => host.to_param, :type => 'configuration' }
     assert_response :success
   end
 
@@ -510,7 +533,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
 
   test "should not show status of hosts out of users hosts scope" do
     setup_user 'view', 'hosts', "owner_type = User and owner_id = #{users(:restricted).id}", :restricted
-    get :status, params: { :id => @host.to_param }
+    get :get_status, params: { :id => @host.to_param, :type => 'configuration' }
     assert_response :not_found
   end
 
@@ -574,188 +597,218 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     assert_response :success
   end
 
-  def test_create_valid_node_from_json_facts_object_without_certname
-    User.current = nil
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }, session: set_session_user
-    assert_response :success
+  context 'fact import' do
+    let (:facts) { fact_json['facts'] }
+    let (:hostname) { fact_json['name'] }
+
+    test "create valid node from json facts object without certname" do
+      User.current = nil
+      post :facts, params: { :name => hostname, :facts => facts }, session: set_session_user
+      assert_response :success
+    end
+
+    test "create valid node from json facts object with certname" do
+      User.current = nil
+      certname = fact_json['certname']
+      post :facts, params: { :name => hostname, :certname => certname, :facts => facts }, session: set_session_user
+      assert_response :success
+    end
+
+    test "fail to create when facts are invalid" do
+      User.current = nil
+      invalid_facts = facts.except('operatingsystem')
+      post :facts, params: { :name => hostname, :facts => invalid_facts }, session: set_session_user
+      assert_response :unprocessable_entity
+    end
+
+    context 'taxonomy handling in fact import' do
+      let (:loc) { FactoryBot.create(:location) }
+      let (:org) { FactoryBot.create(:organization) }
+
+      test 'set host taxonomies to default' do
+        Setting[:default_location] = loc.title
+        Setting[:default_organization] = org.title
+        post :facts, params: { :name => hostname, :facts => facts }
+        assert_response :success
+        host = Host.find_by_name(hostname)
+        assert_equal loc, host.location
+        assert_equal org, host.organization
+      end
+
+      test 'set host taxonomies to fact' do
+        assert_equal 'foreman_location', Setting[:location_fact]
+        assert_equal 'foreman_organization', Setting[:organization_fact]
+        Setting[:default_location] = ''
+        Setting[:default_organization] = ''
+        facts['foreman_location'] = loc.title
+        facts['foreman_organization'] = org.title
+        post :facts, params: { :name => hostname, :facts => facts }
+        assert_response :success
+        host = Host.find_by_name(hostname)
+        assert_equal loc, host.location
+        assert_equal org, host.organization
+      end
+
+      test 'created domain gets host taxonomies' do
+        Setting[:default_location] = loc.title
+        Setting[:default_organization] = org.title
+        domain_name = 'my_new_domain.com'
+        facts['domain'] = domain_name
+        post :facts, params: { :name => hostname, :facts => facts }
+        assert_response :success
+        domain = Domain.unscoped.find_by_name(domain_name)
+        assert_equal [loc], domain.locations
+        assert_equal [org], domain.organizations
+      end
+
+      test "existing domain doesn't get host taxonomies" do
+        Setting[:default_location] = loc.title
+        Setting[:default_organization] = org.title
+        domain = Domain.first
+        refute_includes domain.locations, loc
+        refute_includes domain.organizations, org
+        facts['domain'] = domain.name
+        post :facts, params: { :name => hostname, :facts => facts }
+        assert_response :success
+        domain.reload
+        refute_includes domain.locations, loc
+        refute_includes domain.organizations, org
+      end
+    end
+
+    test 'set hostgroup when foreman_hostgroup present in facts' do
+      Setting[:create_new_host_when_facts_are_uploaded] = true
+      hostgroup = FactoryBot.create(:hostgroup)
+      facts['foreman_hostgroup'] = hostgroup.title
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :success
+      assert_equal hostgroup.id, Host.find_by(:name => hostname).hostgroup_id
+    end
+
+    test 'assign hostgroup attributes when foreman_hostgroup present in facts' do
+      Setting[:create_new_host_when_facts_are_uploaded] = true
+      hostgroup = FactoryBot.create(:hostgroup, :with_rootpass)
+      facts['foreman_hostgroup'] = hostgroup.title
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :success
+      assert_equal hostgroup.root_pass, Host.find_by(:name => hostname).root_pass
+    end
+
+    test 'when ":restrict_registered_smart_proxies" is false, HTTP requests should be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = false
+      SETTINGS[:require_ssl] = false
+
+      Resolv.any_instance.stubs(:getnames).returns(['else.where'])
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_nil @controller.detected_proxy
+      assert_response :success
+    end
+
+    test 'hosts with a registered smart proxy on should import facts successfully' do
+      stub_smart_proxy_v2_features
+      proxy = smart_proxies(:puppetmaster)
+      proxy.update_attribute(:url, 'https://factsimporter.foreman')
+
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = false
+
+      host = URI.parse(proxy.url).host
+      Resolv.any_instance.stubs(:getnames).returns([host])
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_equal proxy, @controller.detected_proxy
+      assert_response :success
+    end
+
+    test 'hosts without a registered smart proxy on should not be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = false
+
+      Resolv.any_instance.stubs(:getnames).returns(['another.host'])
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :forbidden
+    end
+
+    test 'hosts with a registered smart proxy and SSL cert should import facts successfully' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = true
+
+      @request.env['HTTPS'] = 'on'
+      @request.env['SSL_CLIENT_S_DN'] = 'CN=else.where'
+      @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :success
+    end
+
+    test 'hosts without a registered smart proxy but with an SSL cert should not be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = true
+
+      @request.env['HTTPS'] = 'on'
+      @request.env['SSL_CLIENT_S_DN'] = 'CN=another.host'
+      @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :forbidden
+    end
+
+    test 'hosts with an unverified SSL cert should not be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = true
+
+      @request.env['HTTPS'] = 'on'
+      @request.env['SSL_CLIENT_S_DN'] = 'CN=secure.host'
+      @request.env['SSL_CLIENT_VERIFY'] = 'FAILED'
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :forbidden
+    end
+
+    test 'when "require_ssl_smart_proxies" and "require_ssl" are true, HTTP requests should not be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = true
+      SETTINGS[:require_ssl] = true
+
+      Resolv.any_instance.stubs(:getnames).returns(['else.where'])
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :forbidden
+    end
+
+    test 'when "require_ssl_smart_proxies" is true and "require_ssl" is false, HTTP requests should be able to import facts' do
+      User.current = users(:one) # use an unprivileged user, not apiadmin
+      # since require_ssl_smart_proxies is only applicable to HTTPS connections, both should be set
+      Setting[:restrict_registered_smart_proxies] = true
+      Setting[:require_ssl_smart_proxies] = true
+      SETTINGS[:require_ssl] = false
+
+      Resolv.any_instance.stubs(:getnames).returns(['else.where'])
+      post :facts, params: { :name => hostname, :facts => facts }
+      assert_response :success
+    end
+
+    test "when a bad :type is requested, :unprocessable_entity is returned" do
+      User.current = nil
+      post :facts, params: { :name => hostname, :facts => facts, :type => "Host::Invalid" }, session: set_session_user
+      assert_response :unprocessable_entity
+      assert JSON.parse(response.body)['message'] =~ /ERF42-3624/
+    end
+
+    test "when the imported host failed to save, :unprocessable_entity is returned" do
+      Host::Managed.any_instance.stubs(:save).returns(false)
+      Nic::Managed.any_instance.stubs(:save).returns(false)
+      errors = ActiveModel::Errors.new(Host::Managed.new)
+      errors.add :foo, 'A stub failure'
+      Host::Managed.any_instance.stubs(:errors).returns(errors)
+      User.current = nil
+      post :facts, params: { :name => hostname, :facts => facts }, session: set_session_user
+      assert_response :unprocessable_entity
+      assert_equal 'A stub failure', JSON.parse(response.body)['error']['errors']['foo'].first
+    end
   end
-
-  def test_create_valid_node_from_json_facts_object_with_certname
-    User.current = nil
-    hostname = fact_json['name']
-    certname = fact_json['certname']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :certname => certname, :facts => facts }, session: set_session_user
-    assert_response :success
-  end
-
-  def test_create_invalid
-    User.current = nil
-    hostname = fact_json['name']
-    facts    = fact_json['facts'].except('operatingsystem')
-    post :facts, params: { :name => hostname, :facts => facts }, session: set_session_user
-    assert_response :unprocessable_entity
-  end
-
-  test 'set hostgroup when foreman_hostgroup present in facts' do
-    Setting[:create_new_host_when_facts_are_uploaded] = true
-    hostgroup = FactoryBot.create(:hostgroup)
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    facts['foreman_hostgroup'] = hostgroup.title
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :success
-    assert_equal hostgroup.id, Host.find_by(:name => hostname).hostgroup_id
-  end
-
-  test 'assign hostgroup attributes when foreman_hostgroup present in facts' do
-    Setting[:create_new_host_when_facts_are_uploaded] = true
-    hostgroup = FactoryBot.create(:hostgroup, :with_rootpass)
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    facts['foreman_hostgroup'] = hostgroup.title
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :success
-    assert_equal hostgroup.root_pass, Host.find_by(:name => hostname).root_pass
-  end
-
-  test 'when ":restrict_registered_smart_proxies" is false, HTTP requests should be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = false
-    SETTINGS[:require_ssl] = false
-
-    Resolv.any_instance.stubs(:getnames).returns(['else.where'])
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_nil @controller.detected_proxy
-    assert_response :success
-  end
-
-  test 'hosts with a registered smart proxy on should import facts successfully' do
-    ProxyAPI::Features.any_instance.stubs(:features => Feature.name_map.keys)
-    proxy = smart_proxies(:puppetmaster)
-    proxy.update_attribute(:url, 'https://factsimporter.foreman')
-
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = false
-
-    host = URI.parse(proxy.url).host
-    Resolv.any_instance.stubs(:getnames).returns([host])
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_equal proxy, @controller.detected_proxy
-    assert_response :success
-  end
-
-  test 'hosts without a registered smart proxy on should not be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = false
-
-    Resolv.any_instance.stubs(:getnames).returns(['another.host'])
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :forbidden
-  end
-
-  test 'hosts with a registered smart proxy and SSL cert should import facts successfully' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = true
-
-    @request.env['HTTPS'] = 'on'
-    @request.env['SSL_CLIENT_S_DN'] = 'CN=else.where'
-    @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :success
-  end
-
-  test 'hosts without a registered smart proxy but with an SSL cert should not be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = true
-
-    @request.env['HTTPS'] = 'on'
-    @request.env['SSL_CLIENT_S_DN'] = 'CN=another.host'
-    @request.env['SSL_CLIENT_VERIFY'] = 'SUCCESS'
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :forbidden
-  end
-
-  test 'hosts with an unverified SSL cert should not be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = true
-
-    @request.env['HTTPS'] = 'on'
-    @request.env['SSL_CLIENT_S_DN'] = 'CN=secure.host'
-    @request.env['SSL_CLIENT_VERIFY'] = 'FAILED'
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :forbidden
-  end
-
-  test 'when "require_ssl_smart_proxies" and "require_ssl" are true, HTTP requests should not be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = true
-    SETTINGS[:require_ssl] = true
-
-    Resolv.any_instance.stubs(:getnames).returns(['else.where'])
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :forbidden
-  end
-
-  test 'when "require_ssl_smart_proxies" is true and "require_ssl" is false, HTTP requests should be able to import facts' do
-    User.current = users(:one) # use an unprivileged user, not apiadmin
-    # since require_ssl_smart_proxies is only applicable to HTTPS connections, both should be set
-    Setting[:restrict_registered_smart_proxies] = true
-    Setting[:require_ssl_smart_proxies] = true
-    SETTINGS[:require_ssl] = false
-
-    Resolv.any_instance.stubs(:getnames).returns(['else.where'])
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }
-    assert_response :success
-  end
-
-  test "when a bad :type is requested, :unprocessable_entity is returned" do
-    User.current = nil
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts, :type => "Host::Invalid" }, session: set_session_user
-    assert_response :unprocessable_entity
-    assert JSON.parse(response.body)['message'] =~ /ERF42-3624/
-  end
-
-  test "when the imported host failed to save, :unprocessable_entity is returned" do
-    Host::Managed.any_instance.stubs(:save).returns(false)
-    Nic::Managed.any_instance.stubs(:save).returns(false)
-    errors = ActiveModel::Errors.new(Host::Managed.new)
-    errors.add :foo, 'A stub failure'
-    Host::Managed.any_instance.stubs(:errors).returns(errors)
-    User.current = nil
-    hostname = fact_json['name']
-    facts    = fact_json['facts']
-    post :facts, params: { :name => hostname, :facts => facts }, session: set_session_user
-    assert_response :unprocessable_entity
-    assert_equal 'A stub failure', JSON.parse(response.body)['error']['errors']['foo'].first
-  end
-
   test 'non-admin user with power_host permission can boot a vm' do
     @bmchost = FactoryBot.create(:host, :managed)
     FactoryBot.create(:nic_bmc, :host => @bmchost)
@@ -912,11 +965,52 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
     get :enc, params: { :id => host.to_param }
     assert_response :success
     response = ActiveSupport::JSON.decode(@response.body)
-    puppet_class = response['data']['classes'].first rescue nil
-    assert_equal host.puppetclasses.first.name, puppet_class
+    puppet_class = response['data']['classes'].keys rescue nil
+    assert_equal host.puppetclasses.map(&:name), puppet_class
+  end
+
+  context 'parameters type' do
+    test "should create an host parameter with parameter type" do
+      host = FactoryBot.build(:host)
+      host_params = [{:name => "foo", :value => 42, :parameter_type => 'integer'}]
+      post :create, params: { host: host.attributes.merge(parameters: host_params) }
+      assert_response :success
+    end
+
+    test "should show an host parameter with parameter type" do
+      host = FactoryBot.create(:host)
+      host.host_parameters.create!(:name => "foo", :value => 42, :parameter_type => 'integer')
+      get :show, params: { :id => host.id }
+      show_response = ActiveSupport::JSON.decode(@response.body)
+      assert_equal 42, show_response['parameters'].first['value'].to_i
+      assert_equal 'integer', show_response['parameters'].first['parameter_type']
+    end
+
+    test "should create an host parameter with default parameter type" do
+      host = FactoryBot.build(:host)
+      host_params = [{ :name => "foo", :value => 42 }]
+      post :create, params: { host: host.attributes.merge(parameters: host_params) }
+      assert_response :success
+    end
+
+    test "should show an host parameter with default parameter type" do
+      host = FactoryBot.create(:host)
+      host.host_parameters.create!(:name => "foo", :value => 42)
+      get :show, params: { :id => host.id }
+      show_response = ActiveSupport::JSON.decode(@response.body)
+      assert_equal 42, show_response['parameters'].first['value'].to_i
+      assert_equal 'string', show_response['parameters'].first['parameter_type']
+    end
   end
 
   context 'hidden parameters' do
+    test "should create an host parameter with hidden_value" do
+      host = FactoryBot.build(:host)
+      host_params = [{:name => "foo", :value => "bar", :hidden_value => true}]
+      post :create, params: { host: host.attributes.merge(parameters: host_params) }
+      assert_response :success
+    end
+
     test "should show a host parameter as hidden unless show_hidden_parameters is true" do
       host = FactoryBot.create(:host)
       host.host_parameters.create!(:name => "foo", :value => "bar", :hidden_value => true)
@@ -964,10 +1058,13 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
       )
     end
     let(:compute_resource) do
-      cr = FactoryBot.create(:compute_resource, :vmware, :uuid => 'Solutions',
-                             :location_ids => [ basic_attrs[:location_id] ],
-                             :organization_ids => [ basic_attrs[:organization_id] ]
-                            )
+      cr = FactoryBot.create(
+        :compute_resource,
+        :vmware,
+        :uuid => 'Solutions',
+        :location_ids => [ basic_attrs[:location_id] ],
+        :organization_ids => [ basic_attrs[:organization_id] ]
+      )
       ComputeResource.find_by_id(cr.id)
     end
     let(:uuid) { '5032c8a5-9c5e-ba7a-3804-832a03e16381' }
@@ -1207,7 +1304,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
   end
 
   test "should update with puppet ca proxy" do
-    puppet_ca_proxy = FactoryBot.create(:smart_proxy)
+    puppet_ca_proxy = FactoryBot.create(:puppet_ca_smart_proxy)
     put :update, params: { :id => @host.id, :host => valid_attrs.merge(:puppet_ca_proxy_id => puppet_ca_proxy.id) }
     assert_response :success
     assert_equal puppet_ca_proxy['name'], JSON.parse(@response.body)['puppet_ca_proxy']['name'], "Can't update host with puppet ca proxy #{puppet_ca_proxy}"
@@ -1225,7 +1322,7 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
   end
 
   test "should update with puppet proxy" do
-    puppet_proxy = FactoryBot.create(:smart_proxy)
+    puppet_proxy = FactoryBot.create(:puppet_smart_proxy)
     put :update, params: { :id => @host.id, :host => valid_attrs.merge(:puppet_proxy_id => puppet_proxy.id) }
     assert_response :success
     assert_equal puppet_proxy['name'], JSON.parse(@response.body)['puppet_proxy']['name'], "Can't update host with puppet proxy #{puppet_proxy}"
@@ -1263,6 +1360,96 @@ class Api::V2::HostsControllerTest < ActionController::TestCase
       assert_equal hosts_response["subtotal"], empty_org_host_count
       assert_equal hosts_response["total"], total_host_count
       assert hosts_response["subtotal"] > hosts_response["per_page"]
+    end
+  end
+
+  describe '/host/:id/power_status' do
+    let(:host) { FactoryBot.create(:host, compute_resource: FactoryBot.create(:vmware_cr)) }
+
+    setup { Fog.mock! }
+    teardown { Fog.unmock! }
+
+    test 'show power status for a host' do
+      expected_resp = {
+        "id" => host.id,
+        "state" => "on",
+        "title" => "On",
+      }
+
+      Host.any_instance.stubs(:supports_power?).returns(true)
+      Host.any_instance.stubs(:supports_power_and_running?).returns(true)
+      get :power_status, params: { :id => host.id }, session: set_session_user, xhr: true
+      assert_response :success
+      response = JSON.parse @response.body
+      assert_equal(expected_resp.sort, response.sort)
+    end
+
+    test 'show power status for a powered off host' do
+      expected_resp = {
+        "id" => host.id,
+        "state" => "off",
+        "title" => "Off",
+      }
+
+      Host.any_instance.stubs(:supports_power?).returns(true)
+      Host.any_instance.stubs(:supports_power_and_running?).returns(false)
+      get :power_status, params: { :id => host.id }, session: set_session_user, xhr: true
+      assert_response :success
+      response = JSON.parse @response.body
+      assert_equal(expected_resp.sort, response.sort)
+    end
+
+    test 'show power status for a host that has no power' do
+      expected_resp = {
+        "id" => host.id,
+        "state" => "na",
+        "title" => 'N/A',
+        "statusText" => "Power operations are not enabled on this host.",
+      }
+
+      Host.any_instance.stubs(:supports_power?).returns(false)
+      get :power_status, params: { :id => host.id }, session: set_session_user, xhr: true
+      assert_response :success
+      response = JSON.parse @response.body
+      assert_equal(expected_resp.sort, response.sort)
+    end
+
+    test 'shows power status for bmc hosts' do
+      bmchost = FactoryBot.create(:host, :managed)
+      FactoryBot.create(:nic_bmc, :host => bmchost)
+      ProxyAPI::BMC.any_instance.stubs(:power).with(:action => 'status').returns("on")
+
+      expected_resp = {
+        "id" => bmchost.id,
+        "state" => "on",
+        "title" => "On",
+      }
+
+      get :power_status, params: { :id => bmchost.id }, session: set_session_user, xhr: true
+      assert_response :success
+      response = JSON.parse @response.body
+      assert_equal(expected_resp.sort, response.sort)
+    end
+
+    test 'show power status for a host that has an exception' do
+      expected_resp = {
+        "id" => host.id,
+        "state" => "na",
+        "title" => "N/A",
+        "statusText" => "Failed to fetch power status: ERF42-9958 [Foreman::Exception]: Unknown power management support - can't continue",
+      }
+
+      Host.any_instance.stubs(:supports_power?).returns(true)
+      Host.any_instance.stubs(:power).raises(::Foreman::Exception.new(N_("Unknown power management support - can't continue")))
+      get :power_status, params: { :id => host.id }, session: set_session_user, xhr: true
+      assert_response :success
+      response = JSON.parse @response.body
+      assert_equal(expected_resp.sort, response.sort)
+    end
+
+    test 'do not provide power state on an unknown host' do
+      get :power_status, params: { :id => 'no-such-host' }, session: set_session_user, xhr: true
+      assert_response :not_found
     end
   end
 end

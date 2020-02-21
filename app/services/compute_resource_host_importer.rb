@@ -8,7 +8,7 @@ class ComputeResourceHostImporter
     self.vm = compute_resource.find_vm_by_uuid(opts[:uuid]) if opts[:uuid]
     self.vm ||= opts.fetch(:vm)
     self.host = Host::Managed.new(
-      :managed => true,
+      :managed => opts.key?(:managed) ? opts[:managed] : true,
       :build => false,
       :compute_resource => compute_resource,
       :vm => vm
@@ -50,6 +50,7 @@ class ComputeResourceHostImporter
 
   def set_nic_compute_attributes(interface, vm_interface)
     interface.assign_attributes(vm_interface)
+    interface
   end
 
   def vm_interface_attributes
@@ -63,7 +64,7 @@ class ComputeResourceHostImporter
     [
       vm.try(:hostname),
       vm.try(:name),
-      vm.try(:identity)
+      vm.try(:identity),
     ].detect(&:present?)
   end
 end

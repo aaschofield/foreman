@@ -22,33 +22,90 @@ class ReportComposer
     end
   end
 
-  class UiParams
-    attr_reader :ui_params
+  class ParamParser
+    attr_reader :raw_params
 
-    def initialize(ui_params)
-      @ui_params = ui_params.permit!
+    def mail_to
+      raw_params[:mail_to]
+    end
+
+    def gzip?
+      raw_params[:gzip].nil? ? send_mail? : !!raw_params[:gzip]
+    end
+
+    def send_mail?
+      raw_params['send_mail'].to_s == '1'
+    end
+
+    def generate_at
+      raw_params['generate_at']&.to_time
+    end
+
+    def format
+      raw_params['format']
     end
 
     def params
-      { :template_id => ui_params[:id],
-        :input_values => report_base_params[:input_values] }.with_indifferent_access
-    end
-
-    def report_base_params
-      ui_params[:report_template_report] || {}.with_indifferent_access
+      { template_id: raw_params[:id],
+        generate_at: generate_at,
+        gzip: gzip?,
+        send_mail: send_mail?,
+        mail_to: mail_to,
+        format: format }.with_indifferent_access
     end
   end
 
-  class ApiParams
-    attr_reader :api_params
+  class UiParams < ParamParser
+    def initialize(raw_params)
+      @raw_params = raw_params.permit!
+    end
 
-    def initialize(api_params)
-      @api_params = api_params.permit!
+    def send_mail?
+      report_base_params['send_mail'].to_s == '1'
+    end
+
+    def mail_to
+      report_base_params[:mail_to]
+    end
+
+    def generate_at
+      Time.zone.parse(report_base_params['generate_at']) if report_base_params['generate_at'].present?
+    end
+
+    def format
+      report_base_params['format']
     end
 
     def params
-      { :template_id => api_params[:id],
-        :input_values => convert_input_names_to_ids(api_params[:id], api_params[:input_values] || {}) }.with_indifferent_access
+      super.merge(input_values: report_base_params[:input_values])
+    end
+
+    def report_base_params
+      (raw_params[:report_template_report] || {}).to_hash.with_indifferent_access
+    end
+  end
+
+  class ApiParams < ParamParser
+    def initialize(raw_params)
+      @raw_params = raw_params.permit!
+    end
+
+    def send_mail?
+      !!mail_to
+    end
+
+    def generate_at
+      Time.find_zone("UTC").parse(raw_params['generate_at']) if raw_params['generate_at'].present?
+    end
+
+    def params
+      super.merge(
+        input_values: convert_input_names_to_ids(
+          raw_params[:id],
+          (raw_params[:input_values] || {}).to_hash
+        ),
+        format: raw_params[:report_format]
+      )
     end
 
     def convert_input_names_to_ids(template_id, input_values)
@@ -57,10 +114,31 @@ class ReportComposer
     end
   end
 
+  class MailToValidator < ActiveModel::EachValidator
+    MAIL_DELIMITER = ','
+
+    def validate_each(model, attribute, value)
+      return if value.empty?
+      value.split(MAIL_DELIMITER).each do |mail|
+        mail_validator.validate_each(model, attribute, mail.strip)
+      end
+    end
+
+    def mail_validator
+      @mail_validator ||= EmailValidator.new(attributes: attributes)
+    end
+  end
+
+  attr_reader :template, :generate_at
+
+  validates :mail_to, mail_to: true, if: :send_mail?
+  validate :valid_format
+
   def initialize(params)
-    @params = params
-    @template = load_report_template(params[:template_id])
-    @input_values = build_inputs(@template, params[:input_values])
+    @params = params.with_indifferent_access
+    @generate_at = @params.delete('generate_at')
+    @template = load_report_template(@params[:template_id])
+    @input_values = build_inputs(@template, @params[:input_values])
   end
 
   def self.from_ui_params(ui_params)
@@ -76,29 +154,27 @@ class ReportComposer
     return inputs if template.nil?
 
     # process values from params (including empty hash)
-    unless input_values.nil?
-      @template.template_inputs.each do |input|
-        inputs[input.id.to_s] = InputValue.new(value: input_values[input.id.to_s].try(:[], 'value'), template_input: input)
-      end
+    template.template_inputs.each do |input|
+      val = input_values[input.id.to_s].try(:[], 'value') unless input_values.nil?
+      val = input.default if val.blank?
+      inputs[input.id.to_s] = InputValue.new(value: val, template_input: input)
     end
 
     inputs
   end
 
-  def valid?
-    super & @input_values.map { |_, input_value| input_value.valid? }.all?
+  def to_param
+    @params.to_param
   end
 
-  def errors
-    errors = super.dup
+  def to_params
+    @params
+  end
 
-    @input_values.each do |id, input_value|
-      input_value.errors.full_messages.each do |message|
-        errors.add :base, (_("Input %s: ") % input_value.template_input.name) + message
-      end
-    end
-
-    errors
+  def valid?
+    res = super & @input_values.map { |_, input_value| input_value.valid? }.all?
+    merge_input_errors unless res
+    res
   end
 
   def template_input_values
@@ -111,5 +187,69 @@ class ReportComposer
 
   def load_report_template(id)
     ReportTemplate.authorized(:generate_report_templates).find_by_id(id)
+  end
+
+  def gzip?
+    !!@params['gzip']
+  end
+
+  def mime_type
+    gzip? ? :gzip : format.mime_type
+  end
+
+  def format
+    if (format = ReportTemplateFormat.find(@params['format']))
+      format
+    else
+      Rails.logger.debug "Report format #{@params['format']} not found" if @params['format'].present?
+      @template.supports_format_selection? ? ReportTemplateFormat.default : ReportTemplateFormat.system
+    end
+  end
+
+  def valid_format
+    return true if @params['format'].blank?
+    format_ids = ReportTemplateFormat.all.map { |f| f.id.to_s }
+    errors.add :format, "is unsupported, chose one of: %s" % format_ids.join(', ') unless format_ids.include?(@params['format'])
+  end
+
+  def send_mail?
+    !!@params['send_mail']
+  end
+  alias_method :send_mail, :send_mail?
+
+  def mail_to
+    @params['mail_to'] || User.current.mail
+  end
+
+  def report_filename
+    name = @template.suggested_report_name.to_s
+    name += '.' + format.extension
+    name += '.gz' if gzip?
+    name
+  end
+
+  def schedule_rendering
+    scheduler = TemplateRenderJob
+    if generate_at
+      scheduler = scheduler.set(wait_until: generate_at)
+    end
+    scheduler.perform_later(self.to_params, user_id: User.current.id)
+  end
+
+  def render(mode: Foreman::Renderer::REAL_MODE, **params)
+    params[:params] = { :format => format }.merge(params.fetch(:params, {}))
+    result = @template.render(mode: mode, template_input_values: template_input_values, **params)
+    result = ActiveSupport::Gzip.compress(result) if gzip?
+    result
+  end
+
+  private
+
+  def merge_input_errors
+    @input_values.each do |id, input_value|
+      input_value.errors.full_messages.each do |message|
+        errors.add :base, (_("Input %s: ") % input_value.template_input.name) + message
+      end
+    end
   end
 end

@@ -11,21 +11,13 @@ module AuditExtensions
     after_create :log_audit
 
     scope :untaxed, -> { by_auditable_types(untaxable) }
-    scope :taxed_only_by_location, -> { by_auditable_types(location_taxable) }
-    scope :taxed_only_by_location_in_taxonomy_scope, lambda {
-      with_taxonomy_scope(Location.current, nil, :subtree_ids, [:organization]) { taxed_only_by_location }
-    }
-    scope :taxed_only_by_organization, -> { by_auditable_types(organization_taxable) }
-    scope :taxed_only_by_organization_in_taxonomy_scope, lambda {
-      with_taxonomy_scope(nil, Organization.current, :subtree_ids, [:location]) { taxed_only_by_organization }
-    }
     scope :fully_taxable_auditables, -> { by_auditable_types(fully_taxable) }
     scope :fully_taxable_auditables_in_taxonomy_scope, -> { with_taxonomy_scope { fully_taxable_auditables } }
     scope :by_auditable_types, ->(auditable_types) { where(:auditable_type => auditable_types.map(&:to_s)).readonly(false) }
     scope :taxed_and_untaxed, lambda {
       untaxed.or(fully_taxable_auditables_in_taxonomy_scope)
-             .or(taxed_only_by_organization_in_taxonomy_scope)
-             .or(taxed_only_by_location_in_taxonomy_scope)
+             .or(taxed_only_by_organization)
+             .or(taxed_only_by_location)
     }
 
     include Authorizable
@@ -95,11 +87,21 @@ module AuditExtensions
 
       def known_auditable_types
         unscoped.distinct.pluck(:auditable_type).map do |auditable_type|
-          begin
-            auditable_type.constantize
-          rescue NameError
-          end
+          auditable_type.constantize
+        rescue NameError
         end.compact
+      end
+
+      def taxed_only_by_location
+        locations = Location.current || Location.my_locations.reorder(nil)
+        by_auditable_types(location_taxable).
+          where(id: TaxableTaxonomy.where(taxonomy: locations, taxable_type: 'Audited::Audit').select(:taxable_id))
+      end
+
+      def taxed_only_by_organization
+        organizations = Organization.current || Organization.my_organizations.reorder(nil)
+        by_auditable_types(organization_taxable).
+          where(id: TaxableTaxonomy.where(taxonomy: organizations, taxable_type: 'Audited::Audit').select(:taxable_id))
       end
 
       private
@@ -119,6 +121,22 @@ module AuditExtensions
     end
   end
 
+  module ClassMethods
+    def main_objects
+      main_classes = audited_classes.reject { |cl| cl.audited_options.key?(:associated_with) }
+      main_classes.concat(non_abstract_parents(main_classes))
+    end
+
+    def main_object_names
+      main_objects.map(&:name)
+    end
+
+    def non_abstract_parents(classes_list)
+      parents_list = classes_list.map(&:superclass).uniq
+      parents_list.select { |cl| cl != ActiveRecord::Base && !cl.abstract_class? && cl.table_exists? }.compact
+    end
+  end
+
   private
 
   def log_audit
@@ -130,7 +148,7 @@ module AuditExtensions
         audit_action: self.action,
         audit_type: self.auditable_type,
         audit_id: self.auditable_id,
-        audit_attribute: attribute
+        audit_attribute: attribute,
       }
       if self.action == 'update'
         audited_fields[:audit_field_old] = change[0]
@@ -186,17 +204,13 @@ module AuditExtensions
     # updated version that hasn't been saved yet.
     previous_state = auditable.class.find_by(id: auditable_id) if auditable
     previous_state ||= auditable
-    self.auditable_name  ||= previous_state.try(:to_label)
+    self.auditable_name ||= previous_state.try(:to_label)
     self.associated_name ||= self.associated.try(:to_label)
   end
 
   def set_taxonomies
-    if SETTINGS[:locations_enabled]
-      set_taxonomy_for(:location)
-    end
-    if SETTINGS[:organizations_enabled]
-      set_taxonomy_for(:organization)
-    end
+    set_taxonomy_for(:location)
+    set_taxonomy_for(:organization)
   end
 
   def set_taxonomy_for(taxonomy)

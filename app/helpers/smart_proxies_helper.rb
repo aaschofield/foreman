@@ -5,7 +5,7 @@ module SmartProxiesHelper
     actions = []
     actions << display_link_if_authorized(_("Edit"), hash_for_edit_smart_proxy_path(:id => proxy))
     actions << display_delete_if_authorized(hash_for_smart_proxy_path(:id => proxy).merge(:auth_object => proxy, :authorizer => authorizer),
-                                            :data => {:confirm => _("Delete %s?") % proxy.name}, :class => 'delete')
+      :data => {:confirm => _("Delete %s?") % proxy.name}, :class => 'delete')
     actions << feature_actions(proxy, authorizer)
     actions
   end
@@ -34,8 +34,8 @@ module SmartProxiesHelper
           :data => {
             :url => expire_logs_smart_proxy_path(:id => proxy),
             :"url-errors" => errors_card_smart_proxy_path(:id => proxy),
-            :"url-modules" => modules_card_smart_proxy_path(:id => proxy)
-          }
+            :"url-modules" => modules_card_smart_proxy_path(:id => proxy),
+          },
         })
     end
 
@@ -46,16 +46,13 @@ module SmartProxiesHelper
 
   def smart_proxy_title_actions(proxy, authorizer)
     title_actions(
-      button_group(
-        link_to(_("Back"), smart_proxies_path, :class => 'btn btn-default')
-      ),
       select_action_button(_("Actions"), {}, feature_actions(proxy, authorizer)),
       button_group(
         display_link_if_authorized(_("Edit"), hash_for_edit_smart_proxy_path(:id => proxy), :class => 'btn btn-default')
       ),
       button_group(
         display_delete_if_authorized(hash_for_smart_proxy_path(:id => proxy).merge(:auth_object => proxy, :authorizer => authorizer),
-                                     :data => {:confirm => _("Delete %s?") % proxy.name}, :class => 'btn btn-default')
+          :data => {:confirm => _("Delete %s?") % proxy.name}, :class => 'btn btn-default')
       )
     )
   end
@@ -83,7 +80,7 @@ module SmartProxiesHelper
       'INFO' => 'info',
       'WARN' => 'warning',
       'ERROR' => 'danger',
-      'FATAL' => 'danger'
+      'FATAL' => 'danger',
     }
   end
 

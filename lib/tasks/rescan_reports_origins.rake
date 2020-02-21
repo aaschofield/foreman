@@ -1,5 +1,5 @@
 desc 'Rescan existing reports without origin and tries to find correct origin'
-task :rescan_reports_origins do
+task :rescan_reports_origins => :environment do
   puts "Scanning #{ConfigReport.count} reports, this can take a long time, it's safe to interrupt and rerun later..."
   User.as_anonymous_admin do
     ConfigReport.where(:origin => nil).includes(:logs => [:source, :message]).find_in_batches(batch_size: 100) do |group|
@@ -9,8 +9,8 @@ task :rescan_reports_origins do
             {'log' =>
                {
                  'sources' => { 'source' => log.source.value },
-                 'messages' => { 'message' => log.message.value }
-               }
+                 'messages' => { 'message' => log.message.value },
+               },
             }
           end
 

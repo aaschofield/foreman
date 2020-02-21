@@ -4,6 +4,13 @@ class Model < ApplicationRecord
   extend FriendlyId
   friendly_id :name
   include Parameterizable::ByIdName
+  include ::Foreman::ObservableModel
+
+  set_hook :model_created, on: :create
+  set_hook :model_updated, on: :update
+  set_hook :model_destroyed, on: :destroy do |model|
+    { id: model.id, name: model.name }
+  end
 
   before_destroy EnsureNotUsedBy.new(:hosts)
   has_many_hosts

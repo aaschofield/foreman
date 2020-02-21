@@ -2,22 +2,13 @@
 
 exports[`AutoComplete rendering renders AutoComplete 1`] = `
 <div
-  className="search-bar input-group "
+  className="search-bar input-group"
 >
-  <AutoComplete
+  <Connect(AutoComplete)
     controller="models"
-    emptyLabel={null}
-    error={null}
-    getResults={[Function]}
     handleSearch={[Function]}
-    initialQuery=""
-    initialUpdate={[Function]}
-    inputProps={Object {}}
-    placeholder="Filter ..."
-    resetData={[Function]}
-    results={Array []}
+    id="some-id"
     searchQuery=""
-    status={null}
     url="model/auto_complete_search"
     useKeyShortcuts={true}
   />
@@ -30,16 +21,13 @@ exports[`AutoComplete rendering renders AutoComplete 1`] = `
     >
       Search
     </SearchButton>
-    <Connect(BookmarkContainer)
-      data={
-        Object {
-          "canCreate": true,
-          "controller": "models",
-          "documentationUrl": "http://www.theforeman.org/manuals/1.19/index.html#4.1.5Searching",
-          "searchQuery": "",
-          "url": "/api/bookmarks",
-        }
-      }
+    <Connect(Bookmarks)
+      canCreate={true}
+      controller="models"
+      documentationUrl="/doc/url"
+      onBookmarkClick={[Function]}
+      searchQuery=""
+      url="/api/bookmarks"
     />
   </div>
 </div>

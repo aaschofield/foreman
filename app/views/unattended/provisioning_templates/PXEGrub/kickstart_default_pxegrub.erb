@@ -32,20 +32,19 @@ oses:
     ip = @host.provision_interface.ip
     mask = subnet.mask
     gw = subnet.gateway
-    dns = [subnet.dns_primary]
-    if subnet.dns_secondary != ''
-      dns.push(subnet.dns_secondary)
-    end
     if (@host.operatingsystem.name.match(/Fedora/i) && major < 17) || major < 7
       # old Anaconda found in Fedora 16 or RHEL 6 and older
-      dns_servers = dns.join(',')
+      dns_servers = subnet.dns_servers.join(',')
       options.push("ip=#{ip}", "netmask=#{mask}", "gateway=#{gw}", "dns=#{dns_servers}")
     else
       options.push("ip=#{ip}::#{gw}:#{mask}:::none")
-      dns.each { |server|
+      subnet.dns_servers.each { |server|
         options.push("nameserver=#{server}")
       }
     end
+  end
+  if subnet.nic_delay.present?
+    options.push("linksleep=#{subnet.nic_delay}")
   end
 
   # optional repository for Atomic
@@ -54,7 +53,11 @@ oses:
   end
 
   if @host.operatingsystem.name.match(/Atomic/i) || host_param('kickstart_liveimg')
-    options.push('inst.stage2=' + @host.operatingsystem.medium_uri(@host).to_s)
+    options.push("inst.stage2=#{medium_uri}")
+  end
+
+  if @host.operatingsystem.name != 'Fedora' && @host.operatingsystem.major.to_i >= 7 && host_param_true?('fips_enabled')
+    options.push('fips=1')
   end
 
   ksoptions = options.join(' ')
@@ -67,3 +70,5 @@ title <%= template_name %>
   root (nd)
   kernel (nd)/../<%= @kernel %> ks=<%= foreman_url('provision') %> <%= pxe_kernel_options %> <%= ksoptions %>
   initrd (nd)/../<%= @initrd %>
+
+<%= snippet_if_exists(template_name + " custom menu") %>

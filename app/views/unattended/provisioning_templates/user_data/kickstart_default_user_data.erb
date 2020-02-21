@@ -64,7 +64,7 @@ fi
 <% end -%>
 
 <% if puppet_enabled %>
-<% if host_param_true?('enable-puppetlabs-pc1-repo') || host_param_true?('enable-puppetlabs-repo') || host_param_true?('enable-puppetlabs-puppet5-repo') -%>
+<% if host_param_true?('enable-puppetlabs-repo') || host_param_true?('enable-puppetlabs-puppet6-repo') || host_param_true?('enable-puppetlabs-puppet5-repo') -%>
 <%= snippet 'puppetlabs_repo' %>
 <% end -%>
 <%= snippet 'puppet_setup' %>
@@ -75,4 +75,4 @@ fi
 <% end -%>
 
 # UserData still needs to mark the build as finished
-/usr/bin/curl -o /dev/null -k '<%= foreman_url('built') %>'
+<%= snippet 'built' %>

@@ -32,7 +32,7 @@ const Controller = ({
   storagePodsError,
 }) => {
   const getEventValue = e => {
-    if (!e.target) {
+    if (!e || !e.target) {
       return e;
     }
     return e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -54,11 +54,13 @@ const Controller = ({
     }
     return datastores.reduce((obj, d) => {
       obj[d.name] = sprintf(
-        __('%s (free: %s, prov: %s, total: %s)'),
-        d.name,
-        humanSize(d.freespace),
-        humanSize(d.capacity + (d.uncommitted || 0) - d.freespace),
-        humanSize(d.capacity)
+        __('%(name)s (free: %(free)s, prov: %(prov)s, total: %(total)s)'),
+        {
+          name: d.name,
+          free: humanSize(d.freespace),
+          prov: humanSize(d.capacity + (d.uncommitted || 0) - d.freespace),
+          total: humanSize(d.capacity),
+        }
       );
       return obj;
     }, {});
@@ -70,11 +72,13 @@ const Controller = ({
     }
     return storagePods.reduce((obj, s) => {
       obj[s.name] = sprintf(
-        __('%s (free: %s, prov: %s, total: %s)'),
-        s.name,
-        humanSize(s.freespace),
-        humanSize(s.capacity - s.freespace),
-        humanSize(s.capacity)
+        __('%(name)s (free: %(free)s, prov: %(prov)s, total: %(total)s)'),
+        {
+          name: s.name,
+          free: humanSize(s.freespace),
+          prov: humanSize(s.capacity - s.freespace),
+          total: humanSize(s.capacity),
+        }
       );
       return obj;
     }, {});

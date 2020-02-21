@@ -1,15 +1,15 @@
+/* eslint-disable promise/prefer-await-to-then */
 import configureMockStore from 'redux-mock-store';
 import thunk from 'redux-thunk';
 import immutable from 'seamless-immutable';
-import {
-  requestData,
-  onFailureActions,
-  onSuccessActions,
-} from './powerStatus.fixtures';
+import { requestData } from './powerStatus.fixtures';
 import * as actions from './index';
-import { mockRequest, mockReset } from '../../../../mockRequests';
+import { APIMiddleware } from '../../../API';
+import IntegrationTestHelper from '../../../../common/IntegrationTestHelper';
+import API from '../../../API/API';
 
-const mockStore = configureMockStore([thunk]);
+jest.mock('../../../API/API');
+const mockStore = configureMockStore([thunk, APIMiddleware]);
 const store = mockStore({
   hosts: {
     powerStatus: immutable({}),
@@ -18,29 +18,35 @@ const store = mockStore({
 
 afterEach(() => {
   store.clearActions();
-  mockReset();
 });
 describe('hosts actions', () => {
-  it('creates HOST_POWER_STATUS_REQUEST and fails when host not found', () => {
-    mockRequest({
-      url: requestData.failRequest.url,
-      status: 500,
-    });
-    return store
-      .dispatch(actions.getHostPowerState(requestData.failRequest))
-      .then(() => expect(store.getActions()).toEqual(onFailureActions));
+  it('creates HOST_POWER_STATUS_REQUEST and fails when host not found', async () => {
+    API.get.mockImplementationOnce(
+      url =>
+        new Promise((resolve, reject) => {
+          reject(Error('Request failed with status code 500'));
+        })
+    );
+    store.dispatch(actions.getHostPowerState(requestData.failRequest));
+    await IntegrationTestHelper.flushAllPromises();
+    expect(store.getActions()).toMatchSnapshot();
   });
-  it('creates HOST_POWER_STATUS_REQUEST and responds with success', () => {
-    mockRequest({
-      url: requestData.successRequest.url,
-      response: {
-        id: 1,
-        state: 'na',
-        title: 'N/A',
-      },
-    });
-    return store
-      .dispatch(actions.getHostPowerState(requestData.successRequest))
-      .then(() => expect(store.getActions()[1]).toEqual(onSuccessActions));
+  it('creates HOST_POWER_STATUS_REQUEST and responds with success', async () => {
+    API.get.mockImplementationOnce(
+      url =>
+        new Promise((resolve, reject) => {
+          resolve({
+            url: requestData.successRequest.url,
+            data: {
+              id: 1,
+              state: 'na',
+              title: 'N/A',
+            },
+          });
+        })
+    );
+    store.dispatch(actions.getHostPowerState(requestData.successRequest));
+    await IntegrationTestHelper.flushAllPromises();
+    expect(store.getActions()).toMatchSnapshot();
   });
 });

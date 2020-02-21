@@ -1,5 +1,23 @@
-import debounce from 'lodash/debounce';
+import { snakeCase, camelCase, debounce } from 'lodash';
+import URI from 'urijs';
 import { translate as __ } from './I18n';
+
+/**
+ * Our API returns non-ISO8601 dates
+ * This method converts those strings into ISO8601 format
+ * @param {String} date - non-ISO date to convert
+ */
+export const isoCompatibleDate = date => {
+  if (
+    typeof date === 'string' &&
+    date.match(/\d{4}-\d\d-\d\d\s\d\d:\d\d:\d\d\s[+-]?\d{4}/)
+  ) {
+    // we've matched a date in the format: 2019-03-14 15:39:27 -0400
+    return date.replace(/\s/, 'T').replace(/\s/, '');
+  }
+
+  return date;
+};
 
 /**
  * Add a debounce timeout for your methods.
@@ -28,6 +46,15 @@ export const bindMethods = (context, methods) => {
   });
 };
 
+/**
+ * Removes slashes from the beggining and end of the path
+ * @param {String} path - the path that should be removed of slashes
+ */
+export const removeLastSlashFromPath = path => {
+  if (!path || path.length < 2) return path;
+  const lastCharIndex = path.length - 1;
+  return path[lastCharIndex] === '/' ? path.slice(0, -1) : path;
+};
 /**
  * An empty function which is usually used as a default function.
  */
@@ -66,7 +93,78 @@ export const translateObject = obj =>
  */
 export const translateArray = arr => arr.map(str => __(str));
 
+/**
+ * Return the query in URL as Objects where keys are
+ * the parameters and the values are the parameters' values.
+ * @param {String} url - the URL
+ */
+export const getURIQuery = url => new URI(url).query(true);
+
+/**
+ * Transform object keys to snake case
+ */
+export const propsToSnakeCase = ob =>
+  propsToCase(snakeCase, 'propsToSnakeCase only takes objects', ob);
+
+/**
+ * Transform object keys to camel case
+ */
+export const propsToCamelCase = ob =>
+  propsToCase(camelCase, 'propsToCamelCase only takes objects', ob);
+
+const propsToCase = (casingFn, errorMsg, ob) => {
+  if (typeof ob !== 'object') throw Error(errorMsg);
+
+  return Object.keys(ob).reduce((memo, key) => {
+    memo[casingFn(key)] = ob[key];
+    return memo;
+  }, {});
+};
+
+/**
+ * Transform object keys to camel case, works for nested objects
+ */
+export const deepPropsToCamelCase = obj =>
+  deepPropsToCase(camelCase, 'propsToCamelCase only takes objects')(obj);
+
+/**
+ * Transform object keys to snake case, works for nested objects
+ */
+export const deepPropsToSnakeCase = obj =>
+  deepPropsToCase(snakeCase, 'propsToSnakeCase only takes objects')(obj);
+
+const deepPropsToCase = (casingFn, errorMsg) => obj => {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deepPropsToCase(casingFn, errorMsg));
+  }
+  const transformed = propsToCase(casingFn, errorMsg, obj);
+  return Object.keys(transformed).reduce((memo, key) => {
+    memo[key] = deepPropsToCase(casingFn, errorMsg)(transformed[key]);
+    return memo;
+  }, {});
+};
+
+/**
+ * Check if a string is a positive integer
+ * @param {String} value - the string
+ */
+export const stringIsPositiveNumber = value => {
+  const reg = new RegExp('^[0-9]+$');
+  return reg.test(value);
+};
+
+/**
+ * Get manual url based on version
+ * @param {String} version - foreman short version
+ */
+export const getManualURL = version =>
+  `https://theforeman.org/manuals/${version}/index.html`;
+
 export default {
+  isoCompatibleDate,
   bindMethods,
   noop,
   debounceMethods,
@@ -75,4 +173,10 @@ export default {
   getDisplayName,
   translateObject,
   translateArray,
+  propsToCamelCase,
+  propsToSnakeCase,
+  deepPropsToCamelCase,
+  deepPropsToSnakeCase,
+  stringIsPositiveNumber,
+  getManualURL,
 };

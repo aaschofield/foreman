@@ -40,11 +40,9 @@ else
       optional_bundler_groups += %w[ec2 fog gce libvirt openstack ovirt rackspace vmware]
     end
     optional_bundler_groups.each do |group|
-      begin
-        Bundler.require(group)
-      rescue LoadError
-        # ignoring intentionally
-      end
+      Bundler.require(group)
+    rescue LoadError
+      # ignoring intentionally
     end
   end
 end
@@ -136,6 +134,9 @@ module Foreman
     # Configure sensitive parameters which will be filtered from the log file.
     config.filter_parameters += [:password, :account_password, :facts, :root_pass, :value, :report, :password_confirmation, :secret]
 
+    # Since Rails 6 sqlite db must use integer representation for booleans
+    config.active_record.sqlite3.represent_boolean_as_integer = true
+
     # Enable escaping HTML in JSON.
     config.active_support.escape_html_entities_in_json = true
 
@@ -150,10 +151,6 @@ module Foreman
     # This is necessary if your schema can't be completely dumped by the schema dumper,
     # like if you have constraints or database-specific column types
     # config.active_record.schema_format = :sql
-
-    # enables in memory cache store with ttl
-    # config.cache_store = TimedCachedStore.new
-    config.cache_store = :file_store, Rails.root.join("tmp", "cache")
 
     # enables JSONP support in the Rack middleware
     config.middleware.use Rack::JSONP if SETTINGS[:support_jsonp]
@@ -224,13 +221,28 @@ module Foreman
       :background => {:enabled => true},
       :dynflow => {:enabled => true},
       :telemetry => {:enabled => false},
-      :blob => {:enabled => true}
+      :blob => {:enabled => false},
+      :taxonomy => {:enabled => true}
     ))
 
     config.logger = Foreman::Logging.logger('app')
     # Explicitly set the log_level from our config, overriding the Rails env default
     config.log_level = Foreman::Logging.logger_level('app').to_sym
     config.active_record.logger = Foreman::Logging.logger('sql')
+
+    # enables in memory cache store with ttl
+    # config.cache_store = TimedCachedStore.new
+    rails_cache_settings = SETTINGS[:rails_cache_store]
+    if (rails_cache_settings && rails_cache_settings[:type] == 'redis')
+      options = [:redis_cache_store]
+      redis_urls = Array.wrap(rails_cache_settings[:urls])
+      options << { namespace: 'foreman', url: redis_urls }.merge(rails_cache_settings[:options] || {})
+      config.cache_store = options
+      Foreman::Logging.logger('app').info "Rails cache backend: Redis"
+    else
+      config.cache_store = :file_store, Rails.root.join('tmp', 'cache')
+      Foreman::Logging.logger('app').info "Rails cache backend: File"
+    end
 
     if config.public_file_server.enabled
       ::Rails::Engine.subclasses.map(&:instance).each do |engine|
@@ -240,10 +252,19 @@ module Foreman
       end
     end
 
+    if Array(SETTINGS[:cors_domains]).present?
+      config.middleware.insert_before 0, Rack::Cors do
+        allow do
+          origins Array(SETTINGS[:cors_domains])
+          resource '*', headers: :any, methods: [:get, :post, :options]
+        end
+      end
+    end
+
     config.to_prepare do
       # AuditExtensions contain code from app/ so can only be loaded after initializing is done
       # otherwise rails auto-reloader won't be able to reload Taxonomies which are linked there
-      Audit.send(:include, AuditExtensions)
+      Audit.include AuditExtensions
 
       ApplicationController.descendants.each do |child|
         # reinclude the helper module in case some plugin extended some in the to_prepare phase,
@@ -254,9 +275,15 @@ module Foreman
         child.helper helpers
       end
 
+      Facets.register(HostFacets::ReportedDataFacet, :reported_data) do
+        set_dependent_action :destroy
+      end
+
       Plugin.all.each do |plugin|
         plugin.to_prepare_callbacks.each(&:call)
       end
+
+      Plugin.graphql_types_registry.realise_extensions
     end
 
     # Use the database for sessions instead of the cookie-based default
@@ -286,7 +313,6 @@ module Foreman
     config.after_initialize do
       init_dynflow unless Foreman.in_rake?('db:create') || Foreman.in_rake?('db:drop')
       setup_auditing
-      notify_deprecations unless Foreman.in_rake?
     end
 
     def dynflow
@@ -316,32 +342,7 @@ module Foreman
     end
 
     def setup_auditing
-      Audit.send(:include, AuditSearch)
-    end
-
-    def notify_deprecations
-      blueprint = NotificationBlueprint.find_by_name('setting_deprecation')
-      [:locations_enabled, :organizations_enabled].each do |setting|
-        next if SETTINGS[setting]
-        Foreman::Deprecation.deprecation_warning('1.21', "The #{setting} setting is deprecated")
-        message = UINotifications::StringParser.new(blueprint.message, {setting: setting, version: '1.21'}).to_s
-        next if blueprint.notifications.where(message: message).any?
-        Notification.create!(
-          audience: Notification::AUDIENCE_ADMIN,
-          message: message,
-          notification_blueprint: blueprint,
-          initiator: User.anonymous_admin,
-          :actions => {
-            :links => [
-              {
-                :href => 'https://community.theforeman.org/t/proposal-remove-support-for-disabling-taxonomies-or-login/10972',
-                :title => _('Further Information'),
-                :external => true
-              }
-            ]
-          }
-        )
-      end
+      Audit.include AuditSearch
     end
   end
 

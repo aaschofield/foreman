@@ -126,7 +126,7 @@ class SeedHelper
         t.locations = Location.unscoped.all if t.respond_to?(:locations=)
         raise "Unable to create template #{t.name}: #{format_errors t}" unless t.valid?
       else
-        raise "Unable to update template #{t.name}: #{format_errors t}" unless t.valid?
+        raise "Unable to update template #{t.name}: #{format_errors t}" unless t.ignore_locking { t.valid? }
       end
 
       t.ignore_locking { t.save! }
@@ -169,7 +169,7 @@ class SeedHelper
         if plugin.nil?
           logger.info("Template #{template_name} requires plugin #{r['plugin']}, skipping import.")
           return false
-        elsif r['version'] && (Gem::Version.new(plugin.version) < Gem::Version.new(r['version']))
+        elsif r['version'] && (Gem::Version.new(plugin.version).release < Gem::Version.new(r['version']))
           logger.info("Template #{template_name} requires plugin #{r['plugin']} >= #{r['version']}, skipping import.")
           return false
         end

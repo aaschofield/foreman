@@ -1,5 +1,7 @@
 FactoryBot.define do
   factory :feature do
+    initialize_with { Feature.find_or_create_by(name: name)}
+
     factory :templates do
       name { 'Templates' }
     end
@@ -10,6 +12,10 @@ FactoryBot.define do
 
     trait :tftp do
       name { 'tftp' }
+    end
+
+    trait :templates do
+      name { 'Templates' }
     end
 
     trait :dhcp do

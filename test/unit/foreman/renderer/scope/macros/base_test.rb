@@ -29,6 +29,13 @@ class BaseMacrosTest < ActiveSupport::TestCase
     assert_equal indented, "    foo\n    bar\n    baz"
   end
 
+  test "should indent a string ignoring the first line" do
+    indented = @scope.indent(4, skip1: true) do
+      "foo\nbar\nbaz"
+    end
+    assert_equal indented, "foo\n    bar\n    baz"
+  end
+
   test '#foreman_url can be rendered even outside of controller context' do
     assert_nothing_raised do
       assert_match /\/unattended\/built/, @scope.foreman_url('built')
@@ -57,6 +64,17 @@ class BaseMacrosTest < ActiveSupport::TestCase
     @scope.instance_variable_set('@host', host)
 
     assert_equal '', @scope.pxe_kernel_options
+  end
+
+  describe '#host_uptime_seconds' do
+    test 'should return host uptime in seconds' do
+      host = FactoryBot.create(:host)
+      facet = host.reported_data_facet
+      freeze_time do
+        facet.update!(:boot_time => 123.seconds.ago)
+        assert_equal 123, @scope.host_uptime_seconds(host)
+      end
+    end
   end
 
   describe '#host_kernel_release' do

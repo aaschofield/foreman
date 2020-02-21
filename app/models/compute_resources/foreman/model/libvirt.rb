@@ -186,7 +186,7 @@ module Foreman::Model
     end
 
     def associated_host(vm)
-      associate_by("mac", vm.mac)
+      associate_by("mac", vm.interfaces.map(&:mac))
     end
 
     def vm_compute_attributes_for(uuid)
@@ -211,7 +211,7 @@ module Foreman::Model
           'capacity' => memory_gb_to_bytes(vol['capacity']).to_s,
           'allocation' => memory_gb_to_bytes(vol['allocation']).to_s,
           'format_type' => vol['format_type'],
-          'pool' => vol['pool_name']
+          'pool' => vol['pool_name'],
         }
       end
 
@@ -219,7 +219,7 @@ module Foreman::Model
       normalized['interfaces_attributes'] = interface_attrs.each_with_object({}) do |(key, nic), interfaces|
         interfaces[key] = {
           'type' => nic['type'],
-          'model' => nic['model']
+          'model' => nic['model'],
         }
         if nic['type'] == 'network'
           interfaces[key]['network'] = nic['network']
@@ -278,7 +278,9 @@ module Foreman::Model
         (volumes = args[:volumes]).each do |vol|
           vol.name = "#{args[:prefix]}-disk#{volumes.index(vol) + 1}"
           vol.capacity = "#{vol.capacity}G" unless vol.capacity.to_s.end_with?('G')
-          vol.allocation = "#{vol.allocation}G" unless vol.allocation.to_s.end_with?('G')
+          if vol.allocation.match(/^\d+/) && !vol.allocation.to_s.end_with?('G')
+            vol.allocation = "#{vol.allocation}G"
+          end
           vol.save
           vols << vol
         end

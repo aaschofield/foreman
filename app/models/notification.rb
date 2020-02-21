@@ -23,7 +23,7 @@ class Notification < ApplicationRecord
   validates :initiator, :presence => true
   validates :audience, :inclusion => {
     :in => [AUDIENCE_USER, AUDIENCE_USERGROUP, AUDIENCE_SUBJECT,
-            AUDIENCE_GLOBAL, AUDIENCE_ADMIN]
+            AUDIENCE_GLOBAL, AUDIENCE_ADMIN],
   }, :presence => true
   validates :message, :presence => true
   before_validation :set_custom_attributes
@@ -60,6 +60,7 @@ class Notification < ApplicationRecord
   end
 
   def set_notification_recipients
+    return unless notification_recipients.empty?
     subscribers = User.unscoped.where(:id => subscriber_ids)
     notification_recipients.build subscribers.map {|user| { :user => user}}
   end

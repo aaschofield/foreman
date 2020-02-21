@@ -8,6 +8,8 @@ template_inputs:
   description: Limit the report only on hosts found by this search query. Keep empty
     for report on all available hosts.
   advanced: false
+  value_type: search
+  resource_type: Host
 - name: Errata filter
   required: false
   input_type: user
@@ -17,7 +19,7 @@ template_inputs:
 model: ReportTemplate
 require:
 - plugin: katello
-  version: 3.9.0
+￼ version: 3.9.0
 -%>
 <%- load_hosts(search: input('Hosts filter'), includes: [:operatingsystem, :applicable_errata, :lifecycle_environment]).each_record do |host| -%>
 <%-   host_applicable_errata_filtered(host, input('Errata filter')).each do |erratum| -%>

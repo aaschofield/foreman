@@ -99,8 +99,8 @@ class HostsControllerTest < ActionController::TestCase
           :puppet_proxy_id => smart_proxies(:puppetmaster).id,
           :root_pass => "xybxa6JUkz63w",
           :location_id => taxonomies(:location1).id,
-          :organization_id => taxonomies(:organization1).id
-        }
+          :organization_id => taxonomies(:organization1).id,
+        },
        }, session: set_session_user
     end
     assert_redirected_to host_url(assigns['host'])
@@ -109,6 +109,9 @@ class HostsControllerTest < ActionController::TestCase
   context "with libvirt" do
     let(:other_libvirt_compute_resource) do
       FactoryBot.create(:libvirt_cr, :locations => [taxonomies(:location2)])
+    end
+    let(:other_orgs_libvirt_compute_resource) do
+      FactoryBot.create(:libvirt_cr, :organizations => [taxonomies(:organization2)])
     end
     let(:host_attrs) do
       {:name => "myotherfullhost",
@@ -126,7 +129,7 @@ class HostsControllerTest < ActionController::TestCase
         :puppet_proxy_id => smart_proxies(:puppetmaster).id,
         :root_pass => "xybxa6JUkz63w",
         :location_id => taxonomies(:location1).id,
-        :organization_id => taxonomies(:organization1).id
+        :organization_id => taxonomies(:organization1).id,
       }
     end
 
@@ -141,10 +144,19 @@ class HostsControllerTest < ActionController::TestCase
       Fog.unmock!
     end
 
-    test "should not create a new host when the compute_resource is not in taxonomy" do
+    test "should not create a new host when the compute_resource is not in same location" do
       host_attrs[:compute_resource_id] = other_libvirt_compute_resource.id
       assert_no_difference 'Host.unscoped.count' do
         post :create, params: { :commit => "Create", :host => host_attrs }, session: set_session_user
+        assert_not assigns(:host).valid?
+      end
+    end
+
+    test "should not create a new host when the compute_resource is not in same organization" do
+      host_attrs[:compute_resource_id] = other_orgs_libvirt_compute_resource.id
+      assert_no_difference 'Host.unscoped.count' do
+        post :create, params: { :commit => "Create", :host => host_attrs }, session: set_session_user
+        assert_not assigns(:host).valid?
       end
     end
   end
@@ -168,8 +180,8 @@ class HostsControllerTest < ActionController::TestCase
           :disk => "empty partition",
           :root_pass => "xybxa6JUkz63w",
           :location_id => taxonomies(:location1).id,
-          :organization_id => taxonomies(:organization1).id
-        }
+          :organization_id => taxonomies(:organization1).id,
+        },
       }, session: set_session_user
     end
     as_admin do
@@ -234,8 +246,8 @@ class HostsControllerTest < ActionController::TestCase
       'dhcp' => {
         'bootfiles' => [
           {'name' => 'foo', 'mount_point' => '/bar'}.with_indifferent_access,
-          {'name' => 'john', 'mount_point' => '/doe'}.with_indifferent_access
-        ]
+          {'name' => 'john', 'mount_point' => '/doe'}.with_indifferent_access,
+        ],
       }
     ).at_least_once
 
@@ -750,10 +762,10 @@ class HostsControllerTest < ActionController::TestCase
     hg = FactoryBot.build(:hostgroup, :name => "<script>alert('hacked')</script>")
     host = FactoryBot.create(:host, :with_puppetclass, :hostgroup => hg)
     FactoryBot.create(:puppetclass_lookup_key, :as_smart_class_param,
-                                :override => true, :key_type => 'string',
-                                :default_value => "<script>alert('hacked!');</script>",
-                                :description => "<script>alert('hacked!');</script>",
-                                :puppetclass => host.puppetclasses.first)
+      :override => true, :key_type => 'string',
+      :default_value => "<script>alert('hacked!');</script>",
+      :description => "<script>alert('hacked!');</script>",
+      :puppetclass => host.puppetclasses.first)
     FactoryBot.create(:hostgroup_parameter, :hostgroup => hg)
     get :edit, params: { :id => host.name }, session: set_session_user
     refute response.body.include?("<script>alert(")
@@ -853,8 +865,8 @@ class HostsControllerTest < ActionController::TestCase
       assert !@host1.build
       assert !@host2.build
       multiple_hosts_submit_request('build', [@host1.id, @host2.id],
-                                    'The selected hosts will execute a build operation on next reboot',
-                                    {:host => { :build => 0 }})
+        'The selected hosts will execute a build operation on next reboot',
+        {:host => { :build => 0 }})
       assert Host.find(@host1.id).build
       assert Host.find(@host2.id).build
     end
@@ -868,8 +880,8 @@ class HostsControllerTest < ActionController::TestCase
       assert !@host1.build
       assert !@host2.build
       multiple_hosts_submit_request('build', [@host1.id, @host2.id],
-                                    'The selected hosts were enabled for reboot and rebuild',
-                                    {:host => { :build => 1 }})
+        'The selected hosts were enabled for reboot and rebuild',
+        {:host => { :build => 1 }})
       assert Host.find(@host1.id).build
       assert Host.find(@host2.id).build
     end
@@ -1076,7 +1088,7 @@ class HostsControllerTest < ActionController::TestCase
     location = taxonomies(:location1)
     post :update_multiple_location, params: {
       :location => {:id => location.id, :optimistic_import => "no"},
-      :host_ids => Host.pluck('hosts.id')
+      :host_ids => Host.pluck('hosts.id'),
     }, session: set_session_user
     assert_redirected_to :controller => :hosts, :action => :index
     assert flash[:error] == "Cannot update Location to Location 1 because of mismatch in settings"
@@ -1087,7 +1099,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "location.hosts.count", 0 do
       post :update_multiple_location, params: {
         :location => {:id => location.id, :optimistic_import => "no"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
   end
@@ -1097,7 +1109,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "location.taxable_taxonomies.count", 0 do
       post :update_multiple_location, params: {
         :location => {:id => location.id, :optimistic_import => "no"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
   end
@@ -1110,7 +1122,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "location.hosts.count", (Host.unscoped.count - cnt_hosts_location) do
       post :update_multiple_location, params: {
         :location => {:id => location.id, :optimistic_import => "yes"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
     assert_redirected_to :controller => :hosts, :action => :index
@@ -1126,7 +1138,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "location.taxable_taxonomies.count", 1 do
       post :update_multiple_location, params: {
         :location => {:id => location.id, :optimistic_import => "yes"},
-        :host_ids => hosts.map(&:id)
+        :host_ids => hosts.map(&:id),
       }, session: set_session_user
     end
   end
@@ -1137,7 +1149,7 @@ class HostsControllerTest < ActionController::TestCase
     organization = taxonomies(:organization1)
     post :update_multiple_organization, params: {
       :organization => {:id => organization.id, :optimistic_import => "no"},
-      :host_ids => Host.pluck('hosts.id')
+      :host_ids => Host.pluck('hosts.id'),
     }, session: set_session_user
     assert_redirected_to :controller => :hosts, :action => :index
     assert_equal "Cannot update Organization to Organization 1 because of mismatch in settings", flash[:error]
@@ -1148,7 +1160,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "organization.hosts.count", 0 do
       post :update_multiple_organization, params: {
         :organization => {:id => organization.id, :optimistic_import => "no"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
   end
@@ -1158,7 +1170,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "organization.taxable_taxonomies.count", 0 do
       post :update_multiple_organization, params: {
         :organization => {:id => organization.id, :optimistic_import => "no"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
   end
@@ -1169,7 +1181,7 @@ class HostsControllerTest < ActionController::TestCase
     organization = taxonomies(:organization1)
     post :update_multiple_organization, params: {
       :organization => {:id => organization.id, :optimistic_import => "yes"},
-      :host_ids => Host.pluck('hosts.id')
+      :host_ids => Host.pluck('hosts.id'),
     }, session: set_session_user
     assert_redirected_to :controller => :hosts, :action => :index
     assert_equal "Updated hosts: Changed Organization", flash[:success]
@@ -1182,7 +1194,7 @@ class HostsControllerTest < ActionController::TestCase
 
     post :update_multiple_organization, params: {
       organization: {id: organization2.id, optimistic_import: 'yes'},
-      search: 'domain ~ example'
+      search: 'domain ~ example',
     }, session: set_session_user
     assert_redirected_to :controller => :hosts, :action => :index
     assert_equal "Updated hosts: Changed Organization", flash[:success]
@@ -1197,7 +1209,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "organization.hosts.count", (Host.unscoped.count - cnt_hosts_organization) do
       post :update_multiple_organization, params: {
         :organization => {:id => organization.id, :optimistic_import => "yes"},
-        :host_ids => Host.pluck('hosts.id')
+        :host_ids => Host.pluck('hosts.id'),
       }, session: set_session_user
     end
   end
@@ -1211,7 +1223,7 @@ class HostsControllerTest < ActionController::TestCase
     assert_difference "organization.taxable_taxonomies.count", 1 do
       post :update_multiple_organization, params: {
         :organization => { :id => organization.id, :optimistic_import => "yes"},
-        :host_ids => hosts.map(&:id)
+        :host_ids => hosts.map(&:id),
       }, session: set_session_user
     end
   end
@@ -1327,6 +1339,7 @@ class HostsControllerTest < ActionController::TestCase
   test "#host update shouldn't diassociate from VM" do
     hostgroup = FactoryBot.create(:hostgroup, :with_environment, :with_subnet, :with_domain, :with_os)
     compute_resource = compute_resources(:ovirt)
+    compute_resource.update(:locations => hostgroup.locations, :organizations => hostgroup.organizations)
     host = FactoryBot.create(:host, :hostgroup => hostgroup, :compute_resource => compute_resource)
     host_attributes = host.attributes
     host_attributes.delete("compute_resource_id")
@@ -1641,6 +1654,52 @@ class HostsControllerTest < ActionController::TestCase
     assert_valid host.lookup_values.first
   end
 
+  describe '#update' do
+    context 'with vmware' do
+      setup do
+        Fog.mock!
+
+        uuid = '5032c8a5-9c5e-ba7a-3804-832a03e16381' # from fog mock data
+        compute_resource = FactoryBot.create(:vmware_cr, uuid: 'Solutions')
+        compute_resource = ComputeResource.find(compute_resource.id)
+        @vmware_host = FactoryBot.create(:host, :managed, compute_resource: compute_resource,
+                                                  uuid: uuid,
+                                                  provision_method: 'image')
+      end
+
+      teardown { Fog.unmock! }
+
+      it 'allows edit disk size' do
+        scsi_controllers = [{ 'type' => 'VirtualLsiLogicController', 'key' => 1000 }]
+        volume_params = {
+          'thin' => true,
+          'name' => 'Hard disk',
+          'mode' => 'persistent',
+          'controllerKey' => 1000,
+          'size' => 10485760,
+          'sizeGb' => 12,
+        }
+        volume_attributes = volume_params.clone.tap do |attrs|
+          attrs['controller_key'] = attrs.delete('controllerKey')
+          attrs['size_gb'] = attrs.delete('sizeGb')
+        end
+
+        Host::Managed.any_instance.expects('compute_attributes=').with(
+          'scsi_controllers' => scsi_controllers,
+          'volumes_attributes' => { '0' => volume_attributes }
+        )
+
+        put :update, params: {
+          commit: "Update",
+          id: @vmware_host.name,
+          host: { compute_attributes: { scsi_controllers: { 'scsiControllers' => scsi_controllers, 'volumes' => [volume_params] }.to_json } },
+        }, session: set_session_user
+
+        assert_redirected_to host_path(@vmware_host.to_param)
+      end
+    end
+  end
+
   describe '#ipmi_boot' do
     setup do
       @request.env['HTTP_REFERER'] = host_path(@host.id)
@@ -1663,60 +1722,13 @@ class HostsControllerTest < ActionController::TestCase
     end
   end
 
-  test 'show power status for a host' do
-    Host.any_instance.stubs(:supports_power?).returns(true)
-    Host.any_instance.stubs(:supports_power_and_running?).returns(true)
-    get :get_power_state, params: { :id => @host.id }, session: set_session_user, xhr: true
-    assert_response :success
-    response = JSON.parse @response.body
-    assert_equal({"id" => @host.id, "state" => "on", "title" => "On"}, response)
-  end
-
-  test 'show power status for a powered off host' do
-    Host.any_instance.stubs(:supports_power?).returns(true)
-    Host.any_instance.stubs(:supports_power_and_running?).returns(false)
-    get :get_power_state, params: { :id => @host.id }, session: set_session_user, xhr: true
-    assert_response :success
-    response = JSON.parse @response.body
-    assert_equal({"id" => @host.id, "state" => "off", "title" => "Off"}, response)
-  end
-
-  test 'show power status for a host that has no power' do
-    Host.any_instance.stubs(:supports_power?).returns(false)
-    get :get_power_state, params: { :id => @host.id }, session: set_session_user, xhr: true
-    assert_response :success
-    response = JSON.parse @response.body
-    assert_equal({"id" => @host.id, "state" => "na", "title" => 'N/A',
-      "statusText" => "Power operations are not enabled on this host."}, response)
-  end
-
-  test 'show power status for a host that has an exception' do
-    Host.any_instance.stubs(:supports_power?).returns(true)
-    Host.any_instance.stubs(:power).raises(::Foreman::Exception.new(N_("Unknown power management support - can't continue")))
-    get :get_power_state, params: { :id => @host.id }, session: set_session_user, xhr: true
-    assert_response :success
-    response = JSON.parse @response.body
-    assert_equal({"id" => @host.id, "state" => "na", "title" => "N/A",
-      "statusText" => "Failed to fetch power status: ERF42-9958 [Foreman::Exception]: Unknown power management support - can't continue"}, response)
-  end
-
-  test 'do not provide power state on an unknown host' do
-    get :get_power_state, params: { :id => 'no-such-host' }, session: set_session_user, xhr: true
-    assert_response :not_found
-  end
-
-  test 'do not provide power state for non ajax requests' do
-    get :get_power_state, params: { :id => @host.id }, session: set_session_user
-    assert_response :method_not_allowed
-  end
-
   describe '#hostgroup_or_environment_selected' do
     test 'choosing only one of hostgroup or environment renders classes' do
       post :hostgroup_or_environment_selected, params: {
         :host_id => nil,
         :host => {
-          :environment_id => Environment.unscoped.first.id
-        }
+          :environment_id => Environment.unscoped.first.id,
+        },
       }, session: set_session_user, xhr: true
       assert_response :success
       assert_template :partial => 'puppetclasses/_class_selection'
@@ -1727,8 +1739,8 @@ class HostsControllerTest < ActionController::TestCase
         :host_id => @host.id,
         :host => {
           :environment_id => Environment.unscoped.first.id,
-          :hostgroup_id => Hostgroup.unscoped.first.id
-        }
+          :hostgroup_id => Hostgroup.unscoped.first.id,
+        },
       }, session: set_session_user, xhr: true
       assert_response :success
       assert_template :partial => 'puppetclasses/_class_selection'
@@ -1749,7 +1761,7 @@ class HostsControllerTest < ActionController::TestCase
 
       params = {
         host_id: host.id,
-        host: host.attributes.merge(lk)
+        host: host.attributes.merge(lk),
       }
 
       # environment change calls puppetclass_parameters which caused the extra escaping
@@ -1789,14 +1801,39 @@ class HostsControllerTest < ActionController::TestCase
     setup do
       @controller.prepend_view_path File.expand_path('../static_fixtures', __dir__)
       Pagelets::Manager.add_pagelet('hosts/show', :main_tabs,
-                                    :name => 'TestTab',
-                                    :id => 'my-special-id',
-                                    :partial => 'views/test')
+        :name => 'TestTab',
+        :id => 'my-special-id',
+        :partial => 'views/test')
     end
 
     test '#show renders a pagelet tab' do
       get :show, params: {:id => Host.first.name}, session: set_session_user
       assert @response.body.match /id='my-special-id'/
+    end
+  end
+
+  context 'redirection after destroying a host' do
+    setup do
+      @hostgroup1 = FactoryBot.create(:hostgroup, :with_parent, :with_domain, :with_os)
+      @hostgroup2 = FactoryBot.create(:hostgroup, :with_parent, :with_domain, :with_os)
+      @managed_host1 = FactoryBot.create(:host, :managed, :hostgroup => @hostgroup1)
+      @managed_host2 = FactoryBot.create(:host, :managed, :hostgroup => @hostgroup1)
+      @managed_host3 = FactoryBot.create(:host, :managed, :hostgroup => @hostgroup2)
+    end
+
+    test "after deleting host search filter should remain as it is" do
+      hosts_search_path = hosts_path(search: "hostgroup_name = #{@hostgroup1.name}")
+      @request.session["redirect_to_url_hosts"] = hosts_search_path
+
+      delete :destroy, params: { :id => @managed_host1.id }, session: set_session_user
+      assert_redirected_to hosts_search_path
+      assert_not Host.exists?(@managed_host1.id)
+    end
+
+    test "after deleting host, it should redirect to hosts page if no session" do
+      delete :destroy, params: { :id => @managed_host1.id }, session: set_session_user
+      assert_redirected_to hosts_path
+      assert_not Host.exists?(@managed_host1.id)
     end
   end
 

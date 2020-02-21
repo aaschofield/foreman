@@ -28,8 +28,7 @@ class HttpProxiesControllerTest < ActionController::TestCase
     name = 'http_proxy_is_smart'
     post :create, params: { :http_proxy => { :name => name, :url => 'http://what????:5000' } }, session: set_session_user
 
-    assert_response :found
-    assert HttpProxy.find_by(:name => name)
+    assert_redirected_to http_proxies_url
   end
 
   def test_update
@@ -45,11 +44,11 @@ class HttpProxiesControllerTest < ActionController::TestCase
     organization_id = taxonomies(:organization1).id
 
     put :update,
-        params: {
-          :id => @model.id,
-          :http_proxy => { :location_ids => [location_id], :organization_ids => [organization_id] }
-        },
-        session: set_session_user
+      params: {
+        :id => @model.id,
+        :http_proxy => { :location_ids => [location_id], :organization_ids => [organization_id] },
+      },
+      session: set_session_user
 
     assert_response :found
     assert_includes @model.reload.locations.pluck(:id), location_id
